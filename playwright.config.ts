@@ -1,6 +1,8 @@
 // Playwright against a local build only (127.0.0.1). RIFQ_BUILD names the build folder.
 // Two local Workers run from the same build: 8813 has the real 30-per-minute server limit (used by
 // the rate limit tests); 8812 has a high limit so other tests are not slowed by it.
+// The e2e tests expect a build made with --gate off (development builds have the gate on by
+// default; the gate itself is covered by test/unit/password-gate.test.ts).
 // Screenshots, traces and videos are off: pages show Quran text, which stays out of this repo.
 import { defineConfig } from '@playwright/test';
 import { join, resolve } from 'node:path';
