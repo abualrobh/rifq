@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 export const MOCK_CLIENT_ID = 'mock-client-id';
 export const MOCK_CLIENT_SECRET = 'mock-client-secret-made-up';
 export const MOCK_TAFSIR_ID = 901;
+// A second made-up work whose by_ayah answer has the other plausible shape (see parseByAyah).
+export const MOCK_SHAPE_B_ID = 906;
 export const PRELIVE_SURAHS = new Set([1, 2]);
 // Ayat in surah 2 with special behaviour.
 export const CASE = {
@@ -69,6 +71,8 @@ const LIST = [
   { id: MOCK_TAFSIR_ID, name: 'Mock Arabic Tafsir A', author_name: 'Mock Author A', slug: 'mock-ar-a', language_name: 'arabic', translated_name: { name: 'Mock Arabic Tafsir A', language_name: 'english' } },
   { id: 902, name: 'Mock Arabic Tafsir B <script>window.__pwned=6</script>', author_name: 'Mock Author B', slug: 'mock-ar-b', language_name: 'arabic', translated_name: { name: 'Mock B', language_name: 'english' } },
   { id: 903, name: 'Mock English Tafsir C', author_name: 'Mock Author C', slug: 'mock-en-c', language_name: 'english', translated_name: { name: 'Mock C', language_name: 'english' } },
+  // Answers by_ayah in "shape B": the passage once at tafsir.text, verses with no text.
+  { id: MOCK_SHAPE_B_ID, name: 'Mock Arabic Tafsir D (shape B)', author_name: 'Mock Author D', slug: 'mock-ar-d', language_name: 'arabic', translated_name: { name: 'Mock D', language_name: 'english' } },
   // Made-up entries for the D-076 catalogue highlight. These IDs are NOT Quran Foundation IDs.
   { id: 904, name: 'Mock Tafsir Ibn Kathir (made up)', author_name: 'Mock author', slug: 'mock-ibn-kathir', language_name: 'arabic', translated_name: { name: 'Mock', language_name: 'english' } },
   { id: 905, name: 'Mock English edition', author_name: 'Mock Ibn Katheer', slug: 'mock-en-ik', language_name: 'english', translated_name: { name: 'Mock', language_name: 'english' } },
@@ -156,6 +160,13 @@ export function createMockQf(opts: Opts = {}) {
       if (s === 2 && a === CASE.slow) await new Promise((r) => setTimeout(r, opts.slowMs ?? 8000));
       const text = passageText(id, s, a, opts.quran);
       const rec = (t: string) => ({ id: 70000 + a, resource_id: id, resource_name: LIST.find((x) => x.id === id)!.name, language_id: 0, slug: 'mock', translated_name: { name: 'Mock', language_name: 'english' }, text: t, ...(u.searchParams.get('fields')?.includes('language_name') ? { language_name: LIST.find((x) => x.id === id)!.language_name } : {}) });
+      const groupKeys = s === 2 && (CASE.grouped as readonly number[]).includes(a) ? CASE.grouped.map((x) => `2:${x}`) : [`${s}:${a}`];
+      if (id === MOCK_SHAPE_B_ID) {
+        const meta = LIST.find((x) => x.id === id)!;
+        const verses: Record<string, unknown> = {};
+        groupKeys.forEach((k, i) => { verses[k] = { id: 60000 + a + i }; });
+        return ok({ tafsir: { verses, resource_id: id, resource_name: meta.name, language_id: 0, slug: meta.slug, translated_name: { name: 'Mock D', language_name: 'english' }, text: text ?? '', ...(u.searchParams.get('fields')?.includes('language_name') ? { language_name: meta.language_name } : {}) } });
+      }
       const verses: Record<string, unknown> = {};
       if (text !== null) {
         const keys = s === 2 && (CASE.grouped as readonly number[]).includes(a) ? CASE.grouped.map((x) => `2:${x}`) : [`${s}:${a}`];

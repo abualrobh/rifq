@@ -20,7 +20,8 @@
 // No console call exists in this file on purpose: nothing is logged.
 import { escapeHtml } from '../core/highlight.ts';
 import { fingerprintMap, reviewState, type FingerprintFile } from '../core/tafseer-fingerprints.ts';
-import { byAyahPath, isArabic, LIST_PATH, parseByAyah, parseTafsirList, QfClient, qfConfig, QfError, type Passage, type QfConfig, type QfSecrets, type TafsirListItem } from './qf.ts';
+import { shapeOf } from './shape.ts';
+import { byAyahPath, byChapterPath, isArabic, LIST_PATH, parseByAyah, parseTafsirList, QfClient, qfConfig, QfError, type Passage, type QfConfig, type QfSecrets, type TafsirListItem } from './qf.ts';
 
 export const MAX_AGE_S = 7 * 24 * 60 * 60; // 604,800 seconds: the D-075 7-day limit
 export const MAX_AGE_MS = MAX_AGE_S * 1000;
@@ -28,6 +29,9 @@ export const PROVIDER = 'Quran Foundation';
 // Proposal (RQ-005 open question): 60 Tafseer requests per minute per network address.
 export const TAFSEER_LIMIT_PER_MINUTE = 60;
 export const CATALOGUE_PATH = '/dev/tafseer-catalogue/';
+export const SHAPE_PATH = '/dev/tafseer-shape/';
+export const CACHE_VERSION = 'v2';
+const CONTENT_PATH_NOTE = '/content/api/v4';
 // D-076 (2026-11-08): Hamzeh chose Tafsir Ibn Kathir in Arabic. The Quran Foundation docs do not
 // publish its tafsir ID, so no ID is set anywhere: TAFSIR_ID stays a setting, and the catalogue
 // marks entries whose name, author or slug looks like Ibn Kathir so Hamzeh can confirm the ID and
@@ -65,7 +69,9 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
 
   // Cache API keys must be URLs. They are built on the request's own origin under a path no page
   // uses, and hold the API environment, tafsir ID and ayah only.
-  const key = (origin: string, parts: (string | number)[]) => `${origin}/__rifq-cache/tafseer/v1/${parts.map((p) => encodeURIComponent(String(p))).join('/')}`;
+  // v2 (2026-11-08): the by_ayah parser changed, so copies made by the old parser (including
+  // wrong "no Tafseer" answers) are never read again. They expire on their own within 7 days.
+  const key = (origin: string, parts: (string | number)[]) => `${origin}/__rifq-cache/tafseer/${CACHE_VERSION}/${parts.map((p) => encodeURIComponent(String(p))).join('/')}`;
 
   async function readStored<T>(k: string): Promise<T | null> {
     const c = getCache();
@@ -186,6 +192,7 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
 <p>Confirm the exact ID and edition (with the D-012 reviewer), then set TAFSIR_ID to that ID. This page matches by spelling only and is not a confirmation.</p></section>`;
     return { status: 200, html: `${head}
 <p>API environment: <strong>${h(q.env)}</strong>. Pre-live data covers only surahs 1 and 2. Names, authors and languages are shown exactly as the API returns them, from <code>/resources/tafsirs</code>, kept for at most 7 days.</p>
+<p>Response shape check: <a href="${SHAPE_PATH}">${SHAPE_PATH}</a> (keys, types and lengths only).</p>
 <p>TAFSIR_ID setting: <strong>${id === null ? 'not set (D-076 open)' : String(id)}</strong>.</p>
 ${ikNote}
 <h2>Arabic (D-077): ${arabic.length}</h2>
@@ -194,5 +201,57 @@ ${arabic.length ? table(arabic) : '<p>None with language "arabic".</p>'}
 <p>Choosing a work is Hamzeh's decision (D-076), with the D-012 reviewer. This list is not a recommendation.</p>${foot}` };
   }
 
-  return { api, catalogue, client: qf };
+  // Development page: the shape of one live by_ayah or by_chapter response (keys, types and string
+  // lengths only, never content), to confirm the real response shape. Not cached.
+  async function shape(env: TafseerEnv, params: URLSearchParams): Promise<{ status: number; html: string }> {
+    const h = escapeHtml;
+    const q = qfConfig(env, cfg.dev);
+    const kind = params.get('kind') === 'chapter' ? 'chapter' : 'ayah';
+    const idParam = params.get('id') ?? '';
+    const id = /^[1-9][0-9]{0,8}$/.test(idParam) ? Number(idParam) : tafsirIdOf(env);
+    const ref = /^(\d{1,3}):(\d{1,3})$/.exec(params.get('ref') ?? '');
+    const sNum = Number(kind === 'chapter' ? params.get('s') ?? '' : ref?.[1] ?? '');
+    const aNum = Number(ref?.[2] ?? '');
+    const page = /^[1-9][0-9]{0,3}$/.test(params.get('page') ?? '') ? Number(params.get('page')) : 1;
+    const counts = cfg.counts ?? [];
+    const form = `<form method="get" action="${SHAPE_PATH}"><p><label>Kind <select name="kind"><option value="ayah"${kind === 'ayah' ? ' selected' : ''}>by_ayah</option><option value="chapter"${kind === 'chapter' ? ' selected' : ''}>by_chapter</option></select></label>
+<label>Ayah (by_ayah) <input name="ref" value="${h(params.get('ref') ?? '2:3')}" size="7" dir="ltr"></label>
+<label>Surah (by_chapter) <input name="s" value="${h(params.get('s') ?? '2')}" size="4" dir="ltr"></label>
+<label>Page <input name="page" value="${page}" size="3" dir="ltr"></label>
+<label>Tafsir ID (blank: TAFSIR_ID) <input name="id" value="${h(idParam)}" size="6" dir="ltr"></label>
+<button type="submit">Show shape</button></p></form>`;
+    const head = `<!doctype html>
+<html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DEVELOPMENT PAGE: Tafseer response shape - RIFQ</title><link rel="stylesheet" href="/rifq-basic.css"></head>
+<body><p class="banner" role="note">DEVELOPMENT PAGE. Private, for Hamzeh only. Shows key paths, value types and string lengths of one live API response. No content is shown.</p><main>
+<h1>Tafseer API response shape</h1>${form}`;
+    const foot = '</main></body></html>';
+    const fail = (status: number, msg: string) => ({ status, html: `${head}<p role="alert">${h(msg)}</p>${foot}` });
+    if (!params.has('kind')) return { status: 200, html: `${head}<p>Choose an ayah or a surah and press Show shape. Each press makes one API request.</p>${foot}` };
+    if ('missing' in q) return fail(503, 'Not configured. Missing Worker settings: ' + q.missing.join(', ') + '.');
+    if (id === null) return fail(400, 'No tafsir ID: set TAFSIR_ID or enter one.');
+    if (!Number.isInteger(sNum) || sNum < 1 || (counts.length && sNum >= counts.length)) return fail(400, 'That surah is not in the Quran source.');
+    if (kind === 'ayah' && (!Number.isInteger(aNum) || aNum < 1 || (counts.length && aNum > counts[sNum]))) return fail(400, 'That ayah is not in the Quran source.');
+    const path = kind === 'ayah' ? byAyahPath(id, sNum, aNum) : byChapterPath(id, sNum);
+    const query: Record<string, string> = kind === 'ayah' ? { fields: 'language_name' } : { page: String(page), per_page: '50', fields: 'verse_key' };
+    let j: unknown;
+    try { j = await qf.get(q, path, query); } catch (e) {
+      return fail(503, `The API request failed (${e instanceof QfError ? e.kind : 'unavailable'}).`);
+    }
+    const { lines, truncated } = shapeOf(j);
+    let parsed = '';
+    if (kind === 'ayah') {
+      let p: Passage | null = null, err = '';
+      try { p = parseByAyah(j, sNum, aNum); } catch (e) { err = e instanceof QfError ? e.kind : 'error'; }
+      const t = (j as { tafsir?: { verses?: Record<string, { text?: unknown }> } })?.tafsir;
+      const from = !p ? '' : typeof t?.verses?.[`${sNum}:${aNum}`]?.text === 'string' && (t!.verses![`${sNum}:${aNum}`].text as string).length > 0 ? 'tafsir.verses["S:A"].text' : 'tafsir.text';
+      parsed = `<p data-shape-parser>RIFQ parser: ${err ? 'error ' + h(err) : p ? `passage found in ${h(from)}, ${[...p.text].length} characters, range ${p.range.s}:${p.range.from} to ${p.range.s}:${p.range.to}, resource_name ${p.resourceName === null ? 'absent' : 'present'}, language_name ${p.languageName === null ? 'absent' : h(JSON.stringify(p.languageName))}` : 'no non-empty text (shown to readers as "no Tafseer")'}.</p>`;
+    }
+    const row = (l: (typeof lines)[number]) => `<tr><td dir="ltr"><code>${h(l.path)}</code></td><td>${h(l.type)}</td><td>${l.count}</td><td>${l.minLen === undefined ? '' : l.minLen === l.maxLen ? l.minLen : `${l.minLen} to ${l.maxLen}`}</td><td>${l.length ?? ''}</td></tr>`;
+    return { status: 200, html: `${head}
+<p>Request: <code dir="ltr">${h(CONTENT_PATH_NOTE + path)}</code> (tafsir ${id}, ${h(q.env)}).</p>${parsed}
+<table><thead><tr><th scope="col">Path</th><th scope="col">Type</th><th scope="col">Times seen</th><th scope="col">String length</th><th scope="col">Array length</th></tr></thead><tbody>${lines.map(row).join('')}</tbody></table>
+${truncated ? '<p>Only the first 400 paths are shown.</p>' : ''}${foot}` };
+  }
+
+  return { api, catalogue, shape, client: qf };
 }

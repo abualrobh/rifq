@@ -174,34 +174,51 @@ export const isArabic = (language: string | null | undefined) => typeof language
 
 export type Passage = { text: string; resourceName: string | null; languageName: string | null; range: { s: number; from: number; to: number } };
 
-// GET /tafsirs/{resource_id}/by_ayah/{ayah_key}. Reference page "Get tafsirs for specific Ayah":
-// { tafsir: { verses: { "<ayah_key>": { id, resource_id, resource_name, language_id, slug,
-// translated_name: { name, language_name }, text } } } }, where verses is a "Hash map of
-// ayah_key -> tafsir-record" and text is the "HTML-formatted tafsir body". The page's examples did
-// not render, so this nesting is read from the schema list and is UNVERIFIED.
-// language_name is one of the documented optional `fields`, so it is requested and read if present.
+// GET /tafsirs/{resource_id}/by_ayah/{ayah_key}. Two shapes are accepted, because the reference
+// page's examples did not render and the first real pre-live call (TAFSIR_ID 926, 2:3, 2026-11-08)
+// returned no text where this parser first looked:
+//   A. As the reference schema lists it: { tafsir: { verses: { "<ayah_key>": { ..., text } } } }.
+//   B. As the coordinator recalls the public v4 API (unconfirmed): the passage once at
+//      tafsir.text, with tafsir.verses mapping ayah keys to small objects with no text, and
+//      resource_id, resource_name, language_id, slug, translated_name at the tafsir level.
+// The text is taken from verses["s:a"].text if it is a non-empty string, otherwise from
+// tafsir.text. It is returned exactly as parsed from the JSON (no trimming, decoding or
+// normalization). null ("no Tafseer") only when neither holds a non-empty string.
+// Source fields (resource_name, language_name) come from the per-key record first, then the tafsir
+// level. language_name is one of the documented optional `fields`, so it is requested.
 //
-// Covered range (AC3): the reference does not say how a passage that covers several ayat is
-// returned. This build counts as the range the unbroken run of keys in `verses`, in the same surah
-// and around the requested ayah, whose text is byte-identical to the requested one. If the API
-// marks ranges another way, this needs changing once a real response is seen.
+// Covered range (AC3): the unbroken run of keys in `verses`, in the same surah, that includes the
+// requested ayah. When the per-key records carry their own text (shape A), a neighbour counts only
+// if its text is byte-identical, so separate passages for separate ayat are never merged. If
+// `verses` does not hold the requested key, the range is that ayah alone. The real shape can be
+// checked on the private page /dev/tafseer-shape/ (keys, types and lengths only).
 export function parseByAyah(j: unknown, s: number, a: number): Passage | null {
   const t = (j as { tafsir?: unknown })?.tafsir;
-  if (!t || typeof t !== 'object') throw new QfError('bad_response');
-  const verses = (t as { verses?: unknown }).verses;
-  if (!verses || typeof verses !== 'object' || Array.isArray(verses)) throw new QfError('bad_response');
-  const v = verses as Record<string, unknown>;
-  const rec = v[`${s}:${a}`] as Record<string, unknown> | undefined;
-  if (!rec || typeof rec !== 'object' || typeof rec.text !== 'string' || rec.text.length === 0) return null;
-  const text = rec.text;
-  const same = (n: number) => {
-    const r = v[`${s}:${n}`] as Record<string, unknown> | undefined;
-    return !!r && typeof r === 'object' && r.text === text;
+  if (!t || typeof t !== 'object' || Array.isArray(t)) throw new QfError('bad_response');
+  const top = t as Record<string, unknown>;
+  const vRaw = top.verses;
+  if (vRaw !== undefined && vRaw !== null && (typeof vRaw !== 'object' || Array.isArray(vRaw))) throw new QfError('bad_response');
+  const v = (vRaw ?? {}) as Record<string, unknown>;
+  const recOf = (n: number) => {
+    const r = v[`${s}:${n}`];
+    return r && typeof r === 'object' && !Array.isArray(r) ? (r as Record<string, unknown>) : null;
   };
+  const rec = recOf(a);
+  const perKey = !!rec && typeof rec.text === 'string' && rec.text.length > 0;
+  const text = perKey ? (rec!.text as string) : typeof top.text === 'string' && top.text.length > 0 ? top.text : null;
+  if (text === null) return null;
   let from = a, to = a;
-  while (from > 1 && same(from - 1)) from--;
-  while (same(to + 1)) to++;
-  return { text, resourceName: str(rec.resource_name), languageName: str(rec.language_name), range: { s, from, to } };
+  if (rec) {
+    const joins = (n: number) => {
+      const r = recOf(n);
+      if (!r) return false;
+      return perKey ? r.text === text : !(typeof r.text === 'string' && r.text.length > 0 && r.text !== text);
+    };
+    while (from > 1 && joins(from - 1)) from--;
+    while (joins(to + 1)) to++;
+  }
+  const field = (k: string) => str(rec?.[k]) ?? str(top[k]);
+  return { text, resourceName: field('resource_name'), languageName: field('language_name'), range: { s, from, to } };
 }
 
 // GET /tafsirs/{resource_id}/by_chapter/{chapter_number}: { tafsirs: [{ ..., verse_key, text, ... }],

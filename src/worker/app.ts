@@ -16,7 +16,7 @@ import type { Lang } from '../core/strings.ts';
 import { authorised, REALM, SignInGuard, type GateEnv, type RateLimit } from './gate.ts';
 import { renderPage, type PageCfg } from './page.ts';
 import { makeVerify, type VerifyHashes } from './verify.ts';
-import { CATALOGUE_PATH, makeTafseer, TAFSEER_LIMIT_PER_MINUTE, type TafseerCfg, type TafseerEnv } from './tafseer.ts';
+import { CATALOGUE_PATH, SHAPE_PATH, makeTafseer, TAFSEER_LIMIT_PER_MINUTE, type TafseerCfg, type TafseerEnv } from './tafseer.ts';
 
 export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; verifyHashes?: VerifyHashes | null };
 export type Env = GateEnv & TafseerEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit; TAFSEER_LIMIT?: RateLimit };
@@ -162,6 +162,12 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       if (req.method !== 'GET') return json(405, { error: 'method' }, { allow: 'GET' });
       if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
       const c = await tafseer.catalogue(url.origin, env);
+      return html(c.status, c.html);
+    }
+    if (catalogueOn && tafseer && (pathname === SHAPE_PATH || pathname === SHAPE_PATH.slice(0, -1))) {
+      if (req.method !== 'GET') return json(405, { error: 'method' }, { allow: 'GET' });
+      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
+      const c = await tafseer.shape(env, url.searchParams);
       return html(c.status, c.html);
     }
     if (!pathname.startsWith('/api/')) {

@@ -90,7 +90,7 @@ test('AC11: a copy is used for under 7 days from the fetch, and never at 7 days 
   await ask(w, 2, 25);
   const n0 = mock.state.contentRequests;
   const keys = [...cache.m.keys()];
-  assert.ok(keys.every((k) => /\/__rifq-cache\/tafseer\/v1\/prelive\/(901\/2%3A25|list)$/.test(k)), 'AC22: keyed by environment, work and ayah only');
+  assert.ok(keys.every((k) => /\/__rifq-cache\/tafseer\/v2\/prelive\/(901\/2%3A25|list)$/.test(k)), 'AC22: keyed by environment, work and ayah only');
   for (const e of cache.m.values()) assert.equal(e.headers.get('cache-control'), 'max-age=604800');
   tick(MAX_AGE_MS - 1);
   await ask(w, 2, 25);
@@ -198,7 +198,7 @@ test('catalogue: development builds behind the gate only; Arabic works listed; n
   const h = await r.text();
   assert.ok(h.includes('DEVELOPMENT PAGE'));
   assert.ok(h.includes('<td>901</td><td>Mock Arabic Tafsir A</td><td>Mock Author A</td><td>arabic</td>'));
-  assert.ok(h.includes('Arabic (D-077): 3'));
+  assert.ok(h.includes('Arabic (D-077): 4'));
   // D-076: Arabic entries that look like Ibn Kathir are marked; the English one is only counted.
   assert.equal((h.match(/data-ibn-kathir>/g) ?? []).length, 1);
   assert.ok(h.includes('<tr class="match" data-ibn-kathir><td>904</td>'));
