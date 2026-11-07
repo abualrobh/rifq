@@ -46,12 +46,15 @@ export default function Saved({ lang, counts, names }: Props) {
       <h2 id="saved-h">{t(lang, 'bookmarks')}</h2>
       <p className="hint">{t(lang, 'bookmarksNote')}</p>
       {ready && ok && saves.b.length === 0 && <p data-empty>{t(lang, 'noBookmarks')}</p>}
+      {/* Before the island loads, the empty-state line keeps its space (hidden), so the surah list
+          below does not move when it appears and a tap during loading opens the surah under it. */}
+      {!ready && <p className="reserve" aria-hidden="true">{t(lang, 'noBookmarks')}</p>}
       {ready && saves.b.length > 0 && (
         <ul className="bookmarks" data-bookmarks>
           {saves.b.map(([s, a]) => (
             <li key={`${s}:${a}`} data-bm={`${s}:${a}`}>
               {refExists(counts, [s, a])
-                ? <a href={ayahPath(lang, s, a)}>{name(s)} {s}:{a}</a>
+                ? <a href={ayahPath(lang, s, a)} data-bm-link><bdi lang={lang === 'ar' ? 'ar' : 'en'}>{name(s)}</bdi>{' '}<bdi dir="ltr" data-bm-ref>{s}:{a}</bdi></a>
                 : <span className="msg alert" data-bad-bm>{t(lang, 'badRef', { s, a })}</span>}
               <button type="button" className="btn" aria-label={t(lang, 'removeBookmark', { name: name(s) || String(s), a })} onClick={() => remove(s, a)}>{t(lang, 'remove')}</button>
             </li>

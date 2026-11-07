@@ -1,14 +1,15 @@
 // Password gate in a real browser (gate-on build). The context sends Basic auth through
 // httpCredentials, as Safari or Chrome does after the person enters the password. Queries are
 // picked from the source by program; no Quran text is written here.
-import { test, expect, src, hydrated, utf8, sliceOf } from '../e2e/helpers.ts';
-import { foldPlaceholder, NOT_WORD, WORD_SPLIT } from '../../src/core/fold.ts';
+import { test, expect, src, hydrated, utf8, sliceOf, openSearch } from '../e2e/helpers.ts';
+import { NOT_WORD, WORD_SPLIT } from '../../src/core/fold.ts';
+import { foldQuery, foldTerm } from '../../src/core/variants.ts';
 import { t } from '../../src/core/strings.ts';
 
-const words = (s: string) => s.split(WORD_SPLIT).filter((w) => w && !NOT_WORD.test(w)).map(foldPlaceholder);
+const words = (s: string) => s.split(WORD_SPLIT).filter((w) => w && !NOT_WORD.test(w)).map(foldTerm);
 const AYAH_WORDS = src.list.map((a) => words(a.aya_text));
 function brute(q: string): string[] {
-  const terms = foldPlaceholder(q).split(/\s+/).filter(Boolean);
+  const terms = foldQuery(q).split(/\s+/).filter(Boolean);
   const out: string[] = [];
   src.list.forEach((a, n) => {
     const w = AYAH_WORDS[n];
@@ -44,6 +45,7 @@ for (const lang of ['ar', 'en'] as const) {
     expect(r!.status()).toBe(200);
     expect(r!.headers()['cache-control']).toBe('private, no-store');
     await hydrated(page);
+    await openSearch(page);
     await page.fill('#q', PHRASE);
     const resP = page.waitForResponse((x) => x.url().endsWith('/api/search') && x.request().method() === 'POST');
     await page.press('#q', 'Enter');
@@ -65,6 +67,7 @@ test('no-script form search works under the gate', async ({ browser }) => {
   const ctx = await browser.newContext({ javaScriptEnabled: false });
   const page = await ctx.newPage();
   await page.goto('/2/');
+  await openSearch(page);
   await page.fill('#q', PHRASE);
   await page.press('#q', 'Enter');
   await page.waitForURL('**/api/search');
@@ -81,6 +84,7 @@ for (const lang of ['ar', 'en'] as const) {
     await page.goto(lang === 'ar' ? '/2/' : '/en/2/');
     await hydrated(page);
     await page.route('**/api/search', (r) => r.fulfill({ status: 401, body: 'Authentication required.\n', headers: { 'content-type': 'text/plain' } }));
+    await openSearch(page);
     await page.fill('#q', PHRASE);
     await page.press('#q', 'Enter');
     await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'authAgain'));
@@ -88,3 +92,12 @@ for (const lang of ['ar', 'en'] as const) {
     await expect(page.locator('p.ayah[data-r]').first()).toBeVisible();
   });
 }
+
+// D-069 under the gate: the preloaded font request carries the cached Basic auth and loads.
+test('the Quran font loads under the gate', async ({ page, seen }) => {
+  await page.goto('/2/');
+  await hydrated(page);
+  const faces = await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].map((f) => [f.family.replace(/"/g, ''), f.status]); });
+  expect(faces).toContainEqual(['Noto Naskh Arabic', 'loaded']);
+  expect(seen.some((x) => x.url.endsWith('/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2'))).toBe(true);
+});

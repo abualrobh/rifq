@@ -1,15 +1,16 @@
 // RQ-002 browser tests against the local build. Queries are picked from the source by program at
 // run time (never typed by hand), and expected results come from a brute-force scan of the source.
-// This is a dry run: QUERY-100 and the D-027 variant list do not exist yet.
-import { test, expect, src, surahs, N, MOBILE, STRICT, hydrated, noOverflow, utf8, sliceOf, NET4G } from './helpers.ts';
-import { foldPlaceholder, NOT_WORD, WORD_SPLIT } from '../../src/core/fold.ts';
+// The search form is the D-027 rules approved under D-072 and D-073 (src/core/variants.ts).
+import { test, expect, src, surahs, N, MOBILE, STRICT, hydrated, noOverflow, utf8, sliceOf, NET4G, openSearch } from './helpers.ts';
+import { NOT_WORD, WORD_SPLIT } from '../../src/core/fold.ts';
+import { foldQuery, foldTerm } from '../../src/core/variants.ts';
 import { t } from '../../src/core/strings.ts';
 import type { Page } from '@playwright/test';
 
-const words = (s: string) => s.split(WORD_SPLIT).filter((w) => w && !NOT_WORD.test(w)).map(foldPlaceholder);
+const words = (s: string) => s.split(WORD_SPLIT).filter((w) => w && !NOT_WORD.test(w)).map(foldTerm);
 const AYAH_WORDS = src.list.map((a) => words(a.aya_text));
 function brute(q: string): string[] {
-  const terms = foldPlaceholder(q).split(/\s+/).filter(Boolean);
+  const terms = foldQuery(q).split(/\s+/).filter(Boolean);
   const out: string[] = [];
   src.list.forEach((a, n) => {
     const w = AYAH_WORDS[n];
@@ -53,6 +54,7 @@ test('prototype fix: a search sent before the island loads works, by POST, with 
   page.on('request', (r) => seen.push({ url: r.url(), method: r.method(), headers: r.headers() }));
   await page.route('**/_astro/**', (r) => (r.request().url().endsWith('.js') ? r.abort() : r.continue()));
   await page.goto('/2/');
+  await openSearch(page);
   await page.fill('#q', PHRASE);
   await page.press('#q', 'Enter');
   await page.waitForURL('**/api/search');
@@ -73,6 +75,7 @@ test('prototype fix: a search sent before the island loads works, by POST, with 
 test('prototype fix: text typed before the island loads is kept and then searched by fetch', async ({ page, seen }) => {
   await page.route('**/_astro/Search.*.js', async (r) => { await new Promise((x) => setTimeout(x, 2500)); await r.continue(); });
   await page.goto('/en/2/');
+  await openSearch(page);
   await page.fill('#q', PHRASE);
   await page.waitForFunction(() => ![...document.querySelectorAll('astro-island[ssr]')].some((i) => i.getAttribute('component-url')?.includes('Search')), null, { timeout: 15_000 });
   await expect(page.locator('#q')).toHaveValue(PHRASE);
@@ -90,12 +93,14 @@ test('TP2-04, TP2-06, TP2-12: results open the exact ayah; highlighted text equa
     await searchUi(page, q);
     const refs = await uiRefs(page);
     expect(refs).toEqual(brute(q).slice(0, 50));
-    const rows = await page.$$eval('[data-results] li', (ls) => ls.map((l) => ({ ref: l.getAttribute('data-res')!, text: l.querySelector('p.ayah')!.textContent!, marks: l.querySelectorAll('mark').length, nameEl: l.querySelector('a span[lang=ar]')!.textContent! })));
+    const rows = await page.$$eval('[data-results] li', (ls) => ls.map((l) => ({ ref: l.getAttribute('data-res')!, text: l.querySelector('p.ayah')!.textContent!, marks: l.querySelectorAll('mark').length, nameEl: l.querySelector('a bdi[data-res-name]')!.textContent!, label: l.querySelector('a[data-res-link]')!.textContent! })));
     for (const r of rows) {
       const [s, a] = r.ref.split(':').map(Number);
       expect(utf8(r.text).equals(sliceOf(s, a)), r.ref).toBe(true);
       expect(r.marks).toBeGreaterThan(0);
       expect(r.nameEl).toBe(surahs[s - 1].ar);
+      // H-1: name first, then surah and ayah numbers, as the visible label.
+      expect(r.label).toBe(surahs[s - 1].ar + t('ar', 'resultRef', { s, a }));
     }
   }
   const refs = await uiRefs(page);
@@ -147,6 +152,7 @@ for (const lang of ['ar', 'en'] as const) {
   test(`TP2-16: search failure shows a clear error and reading stays available, ${lang}`, async ({ page }) => {
     await page.goto(lang === 'ar' ? '/2/' : '/en/2/');
     await hydrated(page);
+    await openSearch(page);
     await page.route('**/api/search', (r) => r.fulfill({ status: 500, body: 'x' }));
     await searchUi(page, PHRASE);
     await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'searchError'));
@@ -177,6 +183,7 @@ for (const [lang, vp] of [['ar', null], ['en', MOBILE]] as const) {
     if (vp) await page.setViewportSize(vp);
     await page.goto(lang === 'ar' ? '/2/' : '/en/2/');
     await hydrated(page);
+    await openSearch(page);
     for (let i = 0; i < 30; i++) {
       await page.fill('#q', i % 2 ? PHRASE : COMMON);
       await page.press('#q', 'Enter');
@@ -255,7 +262,7 @@ test('TP2-27 (dry run): whole word and start of word match; inside-word matches 
   // An ayah found only because the word contains the inner part must not be returned.
   for (const r of wordHits) {
     const n = src.list.findIndex((x) => `${x.sora}:${x.aya_no}` === r);
-    if (!AYAH_WORDS[n].some((w) => w.startsWith(foldPlaceholder(inside)))) expect(insideHits).not.toContain(r);
+    if (!AYAH_WORDS[n].some((w) => w.startsWith(foldQuery(inside)))) expect(insideHits).not.toContain(r);
   }
 });
 
@@ -263,7 +270,8 @@ test('TP2-28: every surah name in Arabic is offered (API), and offers open the e
   for (const s of surahs) {
     const d = await (await request.post('/api/search', { data: { q: s.ar } })).json();
     expect(d.offers.some((o: any) => o.kind === 'surah' && o.s === s.n), `surah ${s.n}`).toBe(true);
-    const bare = foldPlaceholder(s.ar);
+    // Without the marks the approved rules remove (D-073). Marks awaiting the D-012 reviewer stay.
+    const bare = foldQuery(s.ar);
     const d2 = await (await request.post('/api/search', { data: { q: bare } })).json();
     expect(d2.offers.some((o: any) => o.kind === 'surah' && o.s === s.n), `surah ${s.n} without marks`).toBe(true);
   }
@@ -370,8 +378,11 @@ test('TP2-36: script and injection payloads run nothing and change nothing', asy
   }
   const r = await request.post('/api/search', { form: { q: `${B}"><script>alert(1)</script>`, lang: 'ar' } });
   expect(await r.text()).not.toContain('<script>alert');
-  const r2 = await request.post('/api/search', { data: '{"q":' });
+  const r2 = await request.post('/api/search', { data: '{"q":', headers: { 'content-type': 'application/json' } });
   expect(r2.status()).toBe(400);
+  // D-071, L-4: a JSON body sent as another content type is refused.
+  const r3 = await request.post('/api/search', { data: JSON.stringify({ q: B }), headers: { 'content-type': 'text/plain' } });
+  expect(r3.status()).toBe(415);
 });
 
 test('TP2-37 (measured, placeholder profile): submit to results with 4x CPU and placeholder 4G', async ({ browser }) => {
@@ -386,6 +397,7 @@ test('TP2-37 (measured, placeholder profile): submit to results with 4x CPU and 
       await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
       await page.goto('/2/');
       await hydrated(page);
+      await openSearch(page);
       await cdp.send('Network.emulateNetworkConditions', NET4G);
       await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
       await page.fill('#q', q);
@@ -400,3 +412,26 @@ test('TP2-37 (measured, placeholder profile): submit to results with 4x CPU and 
   test.info().annotations.push({ type: 'timing-ms', description: JSON.stringify(out) });
   for (const v of Object.values(out)) expect(Math.max(...v)).toBeLessThan(2000);
 });
+
+// D-070, design review H-1: result and offer labels put the surah name first, isolated, in the
+// interface language. English pages use the English name from the source.
+for (const lang of ['ar', 'en'] as const) {
+  test(`H-1: result and offer labels show the ${lang} surah name first, then the numbers`, async ({ page }) => {
+    await page.goto(lang === 'ar' ? '/' : '/en/');
+    await hydrated(page);
+    await searchUi(page, PHRASE);
+    const rows = await page.$$eval('[data-results] li', (ls) => ls.map((l) => ({ ref: l.getAttribute('data-res')!, name: l.querySelector('a bdi[data-res-name]')!, label: l.querySelector('a[data-res-link]')!.textContent! })).map((x) => ({ ref: x.ref, name: x.name.textContent!, lang: x.name.getAttribute('lang'), label: x.label })));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      const [s, a] = r.ref.split(':').map(Number);
+      const name = lang === 'ar' ? surahs[s - 1].ar : surahs[s - 1].en;
+      expect(r.name).toBe(name);
+      expect(r.lang).toBe(lang);
+      expect(r.label).toBe(name + t(lang, 'resultRef', { s, a }));
+    }
+    await searchUi(page, '2:5');
+    const offer = page.locator('[data-offer="2:5"]');
+    await expect(offer).toHaveText(t(lang, 'offerAyah', { s: 2, a: 5, name: '' }) + (lang === 'ar' ? surahs[1].ar : surahs[1].en));
+    await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'offerCount', { n: 1 }));
+  });
+}

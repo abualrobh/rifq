@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { synthetic } from '../fixtures/load.ts';
 import { search, PAGE } from '../../src/core/search-core.ts';
 import { segment } from '../../src/core/highlight.ts';
-import { foldPlaceholder } from '../../src/core/fold.ts';
+import { foldTerm } from '../../src/core/variants.ts';
 import { sha256 } from '../../src/core/source-adapter.ts';
 
 const { syn, src, ix } = synthetic('search');
@@ -33,7 +33,7 @@ test('TP2-33: more than 50 results are paged, 50 at most per page, no repeats, o
 });
 
 test('TP2-27: whole word and start of word match; inside a word does not', () => {
-  const word = foldPlaceholder(syn.rare);
+  const word = foldTerm(syn.rare);
   assert.equal(search(ix, word, 1).total, 1);
   assert.equal(search(ix, [...word].slice(0, 3).join(''), 1).total >= 1, true);
   const inside = [...word].slice(1).join('');

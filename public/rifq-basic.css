@@ -9,7 +9,10 @@ a { color:var(--link); }
 .msg[role="alert"] { color:var(--alert); font-weight:600; }
 .results, .offers { list-style:none; padding:0; }
 .results > li { padding-block:.5rem; border-bottom:1px solid var(--border); }
-.ayah { margin:0; font-family:"Noto Naskh Arabic","Amiri","DejaVu Sans",serif; font-size:1.5rem; line-height:2.2; }
+@font-face { font-family:"Noto Naskh Arabic"; src:url("/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2") format("woff2"); font-weight:400; font-style:normal; font-display:swap; }
+@font-face { font-family:"Scheherazade New"; src:url("/fonts/scheherazade-new/ScheherazadeNew-Regular.woff2") format("woff2"); font-weight:400; font-style:normal; font-display:swap; }
+.ayah { margin:0; font-family:"Noto Naskh Arabic","Scheherazade New",serif; font-size:1.5rem; line-height:2.2; }
+.results a { display:inline-block; min-height:2.75rem; padding-block:.65rem; box-sizing:border-box; }
 mark { background:var(--mark-bg); color:var(--fg); }
 form.inline { display:inline; }
 input, button { font:inherit; }

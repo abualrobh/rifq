@@ -15,6 +15,8 @@ import { gate, type Mode } from '../src/core/source-gate.ts';
 import { writeIndex } from './build-index.ts';
 import { writeHeaders } from './headers.ts';
 import { checkBuilt, scanClientJs } from './check-bytes.ts';
+import { AUTH_LIMIT_PER_MINUTE } from '../src/worker/gate.ts';
+import { RULES_AWAITING_D012_REVIEWER } from '../src/core/search-config.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -33,15 +35,19 @@ export function gateFlag(mode: Mode, value?: string): boolean {
 }
 
 // Local Worker config. No account id; workers.dev and previews off; logs off. With the gate on,
-// the Worker runs before every asset, so nothing can be served without the password.
-export function localWranglerConfig(name: string, limit: number, gateOn: boolean) {
+// the Worker runs before every asset, so nothing can be served without the password, and failed
+// sign-ins are counted by AUTH_LIMIT (D-071, M-2).
+export function localWranglerConfig(name: string, limit: number, gateOn: boolean, authLimit = AUTH_LIMIT_PER_MINUTE) {
   return {
     name, main: 'entry.ts', compatibility_date: '2026-10-01',
     workers_dev: false, preview_urls: false, send_metrics: false,
     observability: { enabled: false, logs: { enabled: false } },
     assets: { directory: './site', binding: 'ASSETS', run_worker_first: gateOn ? true : ['/api/*'], not_found_handling: '404-page', html_handling: 'auto-trailing-slash' },
     rules: [{ type: 'Data', globs: ['**/*.bin'], fallthrough: false }],
-    ratelimits: [{ name: 'SEARCH_LIMIT', namespace_id: '1001', simple: { limit, period: 60 } }],
+    ratelimits: [
+      { name: 'SEARCH_LIMIT', namespace_id: '1001', simple: { limit, period: 60 } },
+      ...(gateOn ? [{ name: 'AUTH_LIMIT', namespace_id: '1002', simple: { limit: authLimit, period: 60 } }] : []),
+    ],
   };
 }
 
@@ -112,12 +118,15 @@ import cfg from './worker-config.json';
 import { makeWorker } from ${JSON.stringify(join(ROOT, 'src/worker/app.ts'))};
 export default makeWorker(idx as ArrayBuffer, cfg);
 `);
-  for (const [file, limit, name] of [['wrangler.jsonc', 120, 'rifq-local'], ['wrangler.e2e.jsonc', 1000, 'rifq-local-e2e']] as const) {
-    writeFileSync(join(outDir, file), JSON.stringify(localWranglerConfig(name, limit, gateOn), null, 2));
+  // The e2e config has high limits so tests that send many refused requests are not locked out;
+  // wrangler.jsonc has the real limits (120 searches, 10 failed sign-ins per minute).
+  for (const [file, limit, name, auth] of [['wrangler.jsonc', 120, 'rifq-local', AUTH_LIMIT_PER_MINUTE], ['wrangler.e2e.jsonc', 1000, 'rifq-local-e2e', 1000]] as const) {
+    writeFileSync(join(outDir, file), JSON.stringify(localWranglerConfig(name, limit, gateOn, auth), null, 2));
   }
 
   const summary = {
     mode, gate: gateOn, record: cfg.record, sourceSha256: l.sha256, indexSha256: sha256(idx.buf), index: idx.stats,
+    rulesAwaitingD012Reviewer: RULES_AWAITING_D012_REVIEWER,
     bytes: reports.map((r) => ({ route: r.route, pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches, refErrors: r.refErrors })),
     clientJs: js, csp: hdr.csp, seconds: Math.round((performance.now() - t0) / 10) / 100,
   };

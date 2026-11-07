@@ -76,6 +76,20 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
     };
     sw?.addEventListener('click', onSwitch);
 
+    // Design review M-2: when the Quran font arrives, the text reflows. Until the reader moves the
+    // page, keep the ayah that was at the top (or the linked ayah) in place, and start counting the
+    // 3-second dwell (D-062) only once the font is ready, so the reflow cannot pick the wrong ayah.
+    const anchor = topRow();
+    let moved = false;
+    const onMove = () => { moved = true; };
+    const moveEvents = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
+    for (const ev of moveEvents) window.addEventListener(ev, onMove, { passive: true, once: true });
+    let stopped = false;
+    const fontsReady = Promise.race([
+      (document as Document & { fonts?: FontFaceSet }).fonts?.ready ?? Promise.resolve(),
+      new Promise((r) => setTimeout(r, 5000)),
+    ]);
+
     const since = new Map<HTMLElement, number>();
     // An ayah counts as visible when at least half of it is on screen, or when it fills at least
     // half of the screen (a long ayah). A sliver at the edge does not count.
@@ -88,8 +102,8 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
         if (seen(e)) { if (!since.has(el)) since.set(el, now); } else since.delete(el);
       }
     }, { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1], rootMargin: `-${Math.ceil(headerH())}px 0px 0px 0px` });
-    rows.forEach((r) => io.observe(r));
-    const iv = window.setInterval(() => {
+    let iv = 0;
+    const tick = () => {
       if (document.visibilityState !== 'visible') { since.clear(); return; }
       const now = performance.now();
       let best = 0;
@@ -99,7 +113,16 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
         if (!best || a < best) best = a;
       }
       if (best) setLast(st, [s, best]);
-    }, 500);
+    };
+    void fontsReady.then(() => {
+      if (stopped) return;
+      if (!moved && anchor) {
+        const d = anchor.el.getBoundingClientRect().top - anchor.top;
+        if (Math.abs(d) > 1) window.scrollBy({ top: d, behavior: 'instant' as ScrollBehavior });
+      }
+      rows.forEach((r) => io.observe(r));
+      iv = window.setInterval(tick, 500);
+    });
     const onVis = () => {
       if (document.visibilityState === 'visible') {
         const now = performance.now();
@@ -119,6 +142,8 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
       window.removeEventListener('hashchange', checkHash);
       sw?.removeEventListener('click', onSwitch);
       document.removeEventListener('visibilitychange', onVis);
+      stopped = true;
+      for (const ev of moveEvents) window.removeEventListener(ev, onMove);
       io.disconnect();
       clearInterval(iv);
     };

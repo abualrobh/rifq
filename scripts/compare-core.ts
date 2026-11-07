@@ -1,5 +1,6 @@
 // Checks that the TypeScript search core gives the same response as a reference core (the round 4
-// file) on every given query. Run on the private side, because the query files hold Quran words.
+// file) on every given query. Since round 2 (D-072, D-073) the core uses the approved D-027 rules
+// and index format version 2, so this comparison holds only against a reference built the same way. Run on the private side, because the query files hold Quran words.
 //   node scripts/compare-core.ts --reference <core.mjs> --index <bin> --queries <json>... [--generator <mjs> --n <N>]
 // Query files hold either [{raw}] (request bodies) or [{q, page}]. Output: counts only.
 import { readFileSync } from 'node:fs';

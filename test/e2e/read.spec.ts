@@ -1,5 +1,5 @@
 // RQ-001 browser tests against the local build. Test IDs from qa-test-plans.md.
-import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow, topAyah, pageAyat, sha, NET4G } from './helpers.ts';
+import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow, topAyah, pageAyat, sha, NET4G, openSearch } from './helpers.ts';
 import { t, ACCOUNT_WORDS } from '../../src/core/strings.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -146,6 +146,7 @@ test('TP1-23: text, controls and focus meet WCAG 2.2 AA contrast in both themes'
     await page.goto('/2/');
     await hydrated(page);
     if (theme === 'dark') await page.click('[data-night]');
+    await openSearch(page);
     await page.fill('#q', src.list[0].aya_text.split(' ')[0]);
     await page.press('#q', 'Enter');
     await page.waitForSelector('[data-results] mark');
@@ -329,3 +330,145 @@ test('TP1-40 (measured, placeholder profile): surah open time with 4x CPU and pl
   test.info().annotations.push({ type: 'timing-ms', description: JSON.stringify(out) });
   for (const v of Object.values(out)) expect(Math.max(...v)).toBeLessThan(3000);
 });
+
+// D-069: the Quran font is self-hosted and preloaded, and the CSP allows only same-origin fonts.
+test('D-069: Noto Naskh Arabic is preloaded from this site, loads, and draws the Quran text', async ({ page, seen }) => {
+  await page.goto('/2/');
+  await hydrated(page);
+  const r = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const pre = document.querySelector<HTMLLinkElement>('link[rel=preload][as=font]');
+    const faces = [...document.fonts].map((f) => [f.family.replace(/"/g, ''), f.status]);
+    return { pre: pre?.getAttribute('href'), cross: pre?.getAttribute('crossorigin'), type: pre?.getAttribute('type'), faces, check: document.fonts.check('24px "Noto Naskh Arabic"'), family: getComputedStyle(document.querySelector('p.ayah')!).fontFamily };
+  });
+  expect(r.pre).toBe('/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2');
+  expect(r.cross).toBe('anonymous');
+  expect(r.type).toBe('font/woff2');
+  expect(r.faces).toContainEqual(['Noto Naskh Arabic', 'loaded']);
+  expect(r.check).toBe(true);
+  expect(r.family).toMatch(/^"?Noto Naskh Arabic"?, "?Scheherazade New"?, serif$/);
+  const fonts = seen.filter((x) => x.url.includes('/fonts/'));
+  expect(fonts.map((x) => new URL(x.url).pathname)).toContain('/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2');
+  for (const x of fonts) expect(new URL(x.url).hostname).toBe('127.0.0.1');
+  test.info().annotations.push({ type: 'font-requests', description: JSON.stringify(fonts.map((x) => new URL(x.url).pathname)) });
+});
+
+test('D-069: font files and licences are served; the policy allows fonts from this site only', async ({ request }) => {
+  for (const p of ['/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2', '/fonts/scheherazade-new/ScheherazadeNew-Regular.woff2', '/fonts/noto-naskh-arabic/OFL.txt', '/fonts/scheherazade-new/OFL.txt']) {
+    const r = await request.get(p);
+    expect(r.status(), p).toBe(200);
+  }
+  const csp = (await request.get('/2/')).headers()['content-security-policy'];
+  expect(csp).toContain("font-src 'self'");
+});
+
+// D-070, design review H-2: one header row at phone width, and search behind one button.
+for (const lang of ['ar', 'en'] as const) {
+  test(`H-2: the reader header is one row at 390 px and the search form is behind a button, ${lang}`, async ({ page }) => {
+    await page.setViewportSize(MOBILE);
+    await page.goto(lang === 'ar' ? '/2/' : '/en/2/');
+    await hydrated(page);
+    const h = await page.evaluate(() => document.querySelector('.site-header')!.getBoundingClientRect().height);
+    expect(h).toBeLessThanOrEqual(64);
+    await expect(page.locator('#q')).toBeHidden();
+    const toggle = page.locator('[data-search-toggle]');
+    const box = (await toggle.boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    await expect(page.locator('[data-larger]')).toBeHidden();
+    const display = page.locator('[data-display-toggle]');
+    await expect(display).toHaveAttribute('aria-expanded', 'false');
+    await display.click();
+    await expect(display).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-larger]')).toBeVisible();
+    expect(await page.evaluate(() => document.querySelector('.site-header')!.getBoundingClientRect().height)).toBe(h);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-larger]')).toBeHidden();
+    await openSearch(page);
+    await expect(page.locator('#q')).toBeVisible();
+    const first = await page.evaluate(() => document.querySelector('p.ayah')!.getBoundingClientRect().top);
+    test.info().annotations.push({ type: 'first-ayah-top-px-with-search-open', description: String(Math.round(first)) });
+    await noOverflow(page);
+  });
+}
+
+test('M-1: focusing a header control by script does not move the reading place', async ({ page }) => {
+  await page.goto('/2/#a100');
+  await hydrated(page);
+  expect(await topAyah(page)).toBe(100);
+  for (const sel of ['[data-smaller]', '[data-larger]', '[data-night]', '#lang-switch', '.brand']) {
+    await page.evaluate((s) => (document.querySelector(s) as HTMLElement).focus(), sel);
+    expect(await topAyah(page), sel).toBe(100);
+  }
+});
+
+// Numbers next to surah names must read in the right order in both directions (iPhone report on
+// kit v4: the number and its dot sat on the wrong side of the name). In reading order the number
+// comes first, then its dot, then a space, then the name. Arabic reads right to left, so there the
+// number is to the right of the name and its dot to the left of its digits; English is mirrored.
+for (const lang of ['ar', 'en'] as const) {
+  test(`number and name order: surah list and surah title, ${lang}`, async ({ page }) => {
+    await page.setViewportSize(MOBILE);
+    const check = (sel: string) => page.evaluate(([sel, rtl]) => {
+      const bad: string[] = [];
+      for (const el of document.querySelectorAll(sel)) {
+        const num = el.querySelector('[data-sn]')!, name = el.querySelector('span[lang]')!;
+        const t = num.firstChild as Text, txt = t.data, rg = document.createRange();
+        const at = (i: number) => { rg.setStart(t, i); rg.setEnd(t, i + 1); return rg.getBoundingClientRect(); };
+        const digit = at(0), dot = at(txt.indexOf('.')), n = num.getBoundingClientRect(), m = name.getBoundingClientRect();
+        const ok = rtl
+          ? dot.right <= digit.left + 0.5 && n.left >= m.right + 2
+          : dot.left >= digit.right - 0.5 && m.left >= n.right + 2;
+        if (!ok || !/^\d+\.$/.test(txt)) bad.push(`${txt} ${Math.round(digit.left)},${Math.round(dot.left)} num ${Math.round(n.left)}-${Math.round(n.right)} name ${Math.round(m.left)}-${Math.round(m.right)}`);
+      }
+      return { count: document.querySelectorAll(sel).length, bad };
+    }, [sel, lang === 'ar'] as const);
+    await page.goto(lang === 'ar' ? '/' : '/en/');
+    const list = await check('a[data-surah-link]');
+    expect(list.count).toBe(N);
+    expect(list.bad).toEqual([]);
+    for (const s of [1, 2, N]) {
+      await page.goto(lang === 'ar' ? `/${s}/` : `/en/${s}/`);
+      const title = await check('h1.surah-title');
+      expect(title.count).toBe(1);
+      expect(title.bad).toEqual([]);
+    }
+  });
+
+  test(`number and name order: bookmarks, continue reading and search results, ${lang}`, async ({ page }) => {
+    await page.setViewportSize(MOBILE);
+    const rtl = lang === 'ar';
+    // Saved items are references only (RQ-003 AC9), written as the product writes them.
+    await page.addInitScript(() => { try { localStorage.setItem('rifq.saves', JSON.stringify({ v: 1, b: [[2, 140], [3, 7]], l: [2, 40] })); } catch { /* none */ } });
+    await page.goto(lang === 'ar' ? '/' : '/en/');
+    await hydrated(page);
+    await expect(page.locator('[data-bm="2:140"] a')).toBeVisible();
+    // First element in reading order must come first visually: right of the second in Arabic.
+    const order = (a: DOMRect, b: DOMRect) => (rtl ? a.left >= b.right - 0.5 : b.left >= a.right - 0.5);
+    const bm = await page.$$eval('[data-bm] a[data-bm-link]', (as) => as.map((a) => { const [n, r] = a.querySelectorAll('bdi'); return [n.getBoundingClientRect().toJSON(), r.getBoundingClientRect().toJSON(), r.textContent]; }));
+    expect(bm.length).toBe(2);
+    for (const [n, r, ref] of bm) {
+      expect(order(n as DOMRect, r as DOMRect), `bookmark ${ref}`).toBe(true);
+      expect(ref).toMatch(/^\d+:\d+$/);
+    }
+    // Continue reading: the name comes before the ayah number.
+    const cont = await page.$eval('[data-continue]', (a, name) => {
+      const t = a.firstChild as Text, rg = document.createRange();
+      const box = (i: number, j: number) => { rg.setStart(t, i); rg.setEnd(t, j); return rg.getBoundingClientRect().toJSON(); };
+      const i = t.data.indexOf(name), k = t.data.lastIndexOf('40');
+      return [box(i, i + name.length), box(k, k + 2)];
+    }, rtl ? surahs[1].ar : surahs[1].en);
+    expect(order(cont[0] as DOMRect, cont[1] as DOMRect), 'continue reading').toBe(true);
+    // Search results: the name comes before the surah and ayah numbers.
+    const q = src.list[0].aya_text.split(' ')[0];
+    await page.fill('#q', q);
+    await page.press('#q', 'Enter');
+    await page.waitForSelector('[data-results] a[data-res-link]');
+    const res = await page.$$eval('[data-results] a[data-res-link]', (as) => as.slice(0, 10).map((a) => {
+      const name = a.querySelector('bdi')!, t = a.lastChild as Text, rg = document.createRange();
+      const m = /\d+/.exec(t.data)!; rg.setStart(t, m.index); rg.setEnd(t, m.index + m[0].length);
+      return [name.getBoundingClientRect().toJSON(), rg.getBoundingClientRect().toJSON(), a.textContent];
+    }));
+    expect(res.length).toBeGreaterThan(0);
+    for (const [n, d, label] of res) expect(order(n as DOMRect, d as DOMRect), `result ${label}`).toBe(true);
+  });
+}

@@ -13,9 +13,12 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
   <Search lang={lang} client:idle />
   <Saved lang={lang} counts={counts} names={names} client:idle />
   <h2 id="surahs-h">{t(lang, 'surahs')}</h2>
+  <!-- Each label is one inline run: the number is isolated in the interface direction, so in Arabic
+       it sits at the right with its dot after it in reading order, and a real space separates it
+       from the name. The name is the source bytes, unchanged. -->
   <ol class="surah-list" aria-labelledby="surahs-h">
     {surahs.map((s) => (
-      <li><a href={surahPath(lang, s.n)} data-surah-link={s.n}><span>{s.n}. </span><span lang={lang === 'ar' ? 'ar' : 'en'}>{lang === 'ar' ? s.ar : s.en}</span></a></li>
+      <li><a href={surahPath(lang, s.n)} data-surah-link={s.n}><span class="surah-label"><bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{s.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{lang === 'ar' ? s.ar : s.en}</span></span></a></li>
     ))}
   </ol>
 </Layout>

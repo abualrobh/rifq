@@ -76,3 +76,12 @@ export async function pageAyat(page: Page) {
 
 // Placeholder 4G profile from the prototype (U-02 open) and 4x CPU (U-32 open).
 export const NET4G = { offline: false, latency: 150, downloadThroughput: 200_000, uploadThroughput: 93_750, connectionType: 'cellular4g' as const };
+
+// Reader pages keep the search form behind one button (design review H-2, D-070). Opens it if
+// this page has one; the home page shows the form directly.
+export async function openSearch(page: Page) {
+  const d = page.locator('details[data-reader-search]');
+  if (!(await d.count())) return;
+  if (!(await d.evaluate((x) => (x as HTMLDetailsElement).open))) await page.locator('[data-search-toggle]').click();
+  await expect(page.locator('#q')).toBeVisible();
+}

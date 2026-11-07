@@ -94,8 +94,13 @@ export default function Search({ lang }: { lang: Lang }) {
   const pages = d ? Math.ceil(d.total / PAGE) : 0;
   const statusText = state.kind === 'loading' ? t(lang, 'searching')
     : state.kind === 'msg' ? state.text
-    : d ? (d.total === 0 ? t(lang, 'noResults') : t(lang, 'resultCount', { n: d.total })) : '';
+    // Design review M-5: a reference or surah offer with no word match is not "no results".
+    : d ? (d.total > 0 ? t(lang, 'resultCount', { n: d.total }) : d.offers.length ? t(lang, 'offerCount', { n: d.offers.length }) : t(lang, 'noResults')) : '';
   const offerLabel = (o: Offer) => (o.kind === 'ayah' ? t(lang, 'offerAyah', { s: o.s, a: o.a, name: '' }) : t(lang, 'offerSurah', { s: o.s, name: '' }));
+  // Design review H-1: surah names in the interface language, from the source as stored, isolated
+  // with <bdi> so they never reorder the numbers around them.
+  const nameLang = lang === 'en' ? 'en' : 'ar';
+  const nameOf = (x: { name: string; en: string }) => (lang === 'en' ? x.en : x.name);
 
   return (
     <section className="search" data-search>
@@ -121,7 +126,7 @@ export default function Search({ lang }: { lang: Lang }) {
             {d.offers.map((o) => (
               <li key={`${o.kind}${o.s}:${o.kind === 'ayah' ? o.a : 0}`}>
                 <a data-offer={o.kind === 'ayah' ? `${o.s}:${o.a}` : `${o.s}`} href={o.kind === 'ayah' ? ayahPath(lang, o.s, o.a) : surahPath(lang, o.s)}>
-                  {offerLabel(o)}<span lang="ar" dir="rtl">{o.name}</span>
+                  {offerLabel(o)}<bdi lang={nameLang} data-offer-name>{nameOf(o)}</bdi>
                 </a>
               </li>
             ))}
@@ -132,7 +137,7 @@ export default function Search({ lang }: { lang: Lang }) {
         <ol className="results" data-results>
           {d.results.map((r) => (
             <li key={`${r.s}:${r.a}`} data-res={`${r.s}:${r.a}`}>
-              <a href={ayahPath(lang, r.s, r.a)}>{t(lang, 'openResult', { name: '', s: r.s, a: r.a })}<span lang="ar" dir="rtl">{r.name}</span></a>
+              <a href={ayahPath(lang, r.s, r.a)} data-res-link><bdi lang={nameLang} data-res-name>{nameOf(r)}</bdi>{t(lang, 'resultRef', { s: r.s, a: r.a })}</a>
               <p className="ayah" lang="ar" dir="rtl" data-res-text><Text text={r.text} hl={r.hl} /></p>
             </li>
           ))}
