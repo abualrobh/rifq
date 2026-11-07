@@ -82,3 +82,70 @@ test('RQ-002 AC10: Worker and search code contain no logging or storage calls', 
   assert.ok(!/localStorage|indexedDB|console\./.test(search), 'search island never stores the query');
   assert.ok(islands.length > 0);
 });
+
+// D-071 low findings.
+import { netKey, readCapped } from '../../src/worker/app.ts';
+
+test('L-1: the body is read as a stream and cut off at the cap, whatever content-length says', async () => {
+  let pulled = 0;
+  const chunk = new Uint8Array(1024 * 1024).fill(0x61);
+  const body = new ReadableStream<Uint8Array>({ pull(ctl) { pulled++; if (pulled > 64) ctl.close(); else ctl.enqueue(chunk); } });
+  const r = new Request('http://127.0.0.1/api/search', { method: 'POST', body, duplex: 'half' } as RequestInit);
+  assert.equal(await readCapped(r, 8192), null);
+  assert.ok(pulled <= 3, `stopped after ${pulled} chunks of 64`);
+  const lie = new Request('http://127.0.0.1/api/search', { method: 'POST', body: 'x'.repeat(9000), headers: { 'content-length': '10' } });
+  assert.equal(await readCapped(lie, 8192), null);
+  const bad = new Request('http://127.0.0.1/api/search', { method: 'POST', body: '{}', headers: { 'content-length': 'abc' } });
+  assert.equal(await readCapped(bad, 8192), 'bad_length');
+  const w = makeWorker(ab, cfg);
+  const res = await w.fetch(new Request('http://127.0.0.1/api/search', { method: 'POST', body: '{}', headers: { 'content-type': 'application/json', 'content-length': '1e3' } }), {});
+  assert.equal(res.status, 400);
+});
+
+test('L-3: the limit key is the full IPv4 address, or the /64 prefix of an IPv6 address', () => {
+  const k = (ip?: string) => netKey(new Request('http://127.0.0.1/', { headers: ip ? { 'cf-connecting-ip': ip } : {} }));
+  assert.equal(k('203.0.113.7'), '203.0.113.7');
+  assert.equal(k('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), '2001:db8:1:2::/64');
+  assert.equal(k('2001:db8:1:2::9'), '2001:db8:1:2::/64');
+  assert.equal(k('2001:0DB8:0001:0002:0:0:0:1'), '2001:db8:1:2::/64');
+  assert.equal(k('2001:db8::1'), '2001:db8:0:0::/64');
+  assert.equal(k('::ffff:198.51.100.4'), '198.51.100.4');
+  assert.equal(k(), 'local');
+});
+
+test('L-3: two addresses in one IPv6 /64 share the search limit', async () => {
+  const w = makeWorker(ab, cfg);
+  for (let i = 0; i < 30; i++) assert.equal((await w.fetch(req(JSON.stringify({ q: syn.rare }), 'application/json', 'POST', '/api/search', `2001:db8:5:6::${i + 1}`), {})).status, 200);
+  assert.equal((await w.fetch(req(JSON.stringify({ q: syn.rare }), 'application/json', 'POST', '/api/search', '2001:db8:5:6::ffff'), {})).status, 429);
+  assert.equal((await w.fetch(req(JSON.stringify({ q: syn.rare }), 'application/json', 'POST', '/api/search', '2001:db8:5:7::1'), {})).status, 200);
+});
+
+test('L-4: JSON needs application/json, and cross-site requests are refused on both paths', async () => {
+  const w = makeWorker(ab, cfg);
+  const body = JSON.stringify({ q: syn.common });
+  assert.equal((await w.fetch(req(body, 'text/plain', 'POST', '/api/search', '10.7.0.1'), {})).status, 415);
+  assert.equal((await w.fetch(req(body, '', 'POST', '/api/search', '10.7.0.1'), {})).status, 415);
+  assert.equal((await w.fetch(req(body, 'application/json; charset=utf-8', 'POST', '/api/search', '10.7.0.1'), {})).status, 200);
+  const x = (h: Record<string, string>, type = 'application/json', b = body) => new Request('http://127.0.0.1/api/search', { method: 'POST', body: b, headers: { 'content-type': type, 'cf-connecting-ip': '10.7.0.2', ...h } });
+  assert.equal((await w.fetch(x({ 'sec-fetch-site': 'cross-site' }), {})).status, 403);
+  assert.equal((await w.fetch(x({ origin: 'https://evil.example' }), {})).status, 403);
+  const form = new URLSearchParams({ q: syn.common, lang: 'ar' }).toString();
+  assert.equal((await w.fetch(x({ origin: 'https://evil.example' }, 'application/x-www-form-urlencoded', form), {})).status, 403);
+  assert.equal((await w.fetch(x({ 'sec-fetch-site': 'same-origin', origin: 'http://127.0.0.1' }), {})).status, 200);
+  assert.equal((await w.fetch(x({ 'sec-fetch-site': 'none' }), {})).status, 200);
+  // The site's own form post under Referrer-Policy no-referrer carries "Origin: null".
+  assert.equal((await w.fetch(x({ 'sec-fetch-site': 'same-origin', origin: 'null' }, 'application/x-www-form-urlencoded', form), {})).status, 200);
+  assert.equal((await w.fetch(x({ 'sec-fetch-site': 'cross-site', origin: 'null' }, 'application/x-www-form-urlencoded', form), {})).status, 403);
+});
+
+test('H-1: results carry the English surah name, and the English server page shows it', async () => {
+  const w = makeWorker(ab, cfg);
+  const d = await (await w.fetch(req(JSON.stringify({ q: syn.common }), 'application/json', 'POST', '/api/search', '10.8.0.1'), {})).json();
+  assert.ok(d.results.every((r: any) => r.en === `Synthetic ${r.s}`));
+  const html = await (await w.fetch(req(new URLSearchParams({ q: syn.common, lang: 'en' }).toString(), 'application/x-www-form-urlencoded', 'POST', '/api/search', '10.8.0.2'), {})).text();
+  const first = d.results[0];
+  assert.ok(html.includes(`<bdi lang="en">Synthetic ${first.s}</bdi>, surah ${first.s}, ayah ${first.a}</a>`));
+  const ar = await (await w.fetch(req(new URLSearchParams({ q: syn.common, lang: 'ar' }).toString(), 'application/x-www-form-urlencoded', 'POST', '/api/search', '10.8.0.3'), {})).text();
+  assert.ok(ar.includes(`<bdi lang="ar">${first.name}</bdi>`));
+  assert.ok(!ar.includes('<bdi lang="en">'), 'no English names on the Arabic page');
+});

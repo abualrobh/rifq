@@ -1,0 +1,15 @@
+{
+  "note": "Reviewed binary files allowed in the public repository (D-071, M-1). scripts/check-no-quran.ts fails on any file that is not plain UTF-8 text unless its path and SHA-256 are listed here. Add an entry only after review, never to make the check pass. Both fonts were checked: their name tables hold no Quran text and no surah name, and they hold no search index header or ayah bytes in UTF-8 or UTF-16.",
+  "files": [
+    {
+      "path": "public/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2",
+      "sha256": "1b16e194ba10f31fa91c82a3cab12512f26063528a41c9af5b92e14c2115b3d7",
+      "reason": "D-069 Quran font. Noto Naskh Arabic 2.021, unhinted Regular TTF (SHA-256 c34fdbd98af4dbc45ca192a23d2eeb77032add83086f5fe32957d23b3f36b221) from the official release NotoNaskhArabic-v2.021.zip (SHA-256 6c050ab9bd087d69b733c505a7576e60c528c2f33cd7b91005a5bd7da4514032, https://github.com/notofonts/arabic/releases/download/NotoNaskhArabic-v2.021/NotoNaskhArabic-v2.021.zip). WOFF2 compression only (fontTools 4.67.0 with brotli 1.1.0, no subsetting); after decompression 12 of 13 tables are byte-identical and head differs only in flags bit 11 and checkSumAdjustment, which the WOFF2 format sets. SIL Open Font License 1.1, no Reserved Font Name; OFL.txt is next to the file."
+    },
+    {
+      "path": "public/fonts/scheherazade-new/ScheherazadeNew-Regular.woff2",
+      "sha256": "fd12c322cd8a0033d5c30b0a9fc0432e1d51288cd065f3f04a85a7974f1de3b7",
+      "reason": "D-069 fallback font. Scheherazade New 4.500, the official WOFF2 Regular from ScheherazadeNew-4.500.zip (SHA-256 49c789c21305bed13d90d7500877b50d62db1e8e4d6f7715178e556319ddbda9, https://github.com/silnrsi/font-scheherazade/releases/download/v4.500/ScheherazadeNew-4.500.zip), unmodified. SIL Open Font License 1.1 with Reserved Font Names Scheherazade and SIL, so it is served only unmodified; OFL.txt is next to the file."
+    }
+  ]
+}

@@ -44,7 +44,16 @@ function apply(s: S) {
 
 export default function Settings({ lang }: { lang: Lang }) {
   const [s, setS] = useState<S>(DEFAULT);
+  // Phone width: the controls sit behind one Display button (design review H-2). The panel opens
+  // over the text, so opening it never moves the reading place. Wider screens show them inline.
+  const [open, setOpen] = useState(false);
   useEffect(() => setS(read()), []);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
   // Keeps scroll-padding equal to the sticky header's height, so a linked ayah is not hidden.
   useEffect(() => {
     const el = document.querySelector('.site-header');
@@ -59,10 +68,13 @@ export default function Settings({ lang }: { lang: Lang }) {
   const i = SIZES.indexOf(s.size);
   return (
     <div className="settings" role="group" aria-label={t(lang, 'settingsLabel')}>
-      <button type="button" className="btn" data-smaller aria-label={t(lang, 'smaller')} disabled={i <= 0} onClick={() => change({ ...s, size: SIZES[Math.max(0, i - 1)] })}>A-</button>
+      <button type="button" className="btn display-toggle" data-display-toggle aria-expanded={open} aria-controls="display-panel" onClick={() => setOpen(!open)}>{t(lang, 'display')}</button>
+      <div id="display-panel" className={open ? 'display-panel open' : 'display-panel'} data-display-panel>
+      <button type="button" className="btn" data-smaller aria-label={t(lang, 'smaller')} disabled={i <= 0} onClick={() => change({ ...s, size: SIZES[Math.max(0, i - 1)] })}><bdi dir="ltr">A-</bdi></button>
       <span className="size-label" data-size-label>{t(lang, 'fontSize', { n: i + 1, m: SIZES.length })}</span>
-      <button type="button" className="btn" data-larger aria-label={t(lang, 'larger')} disabled={i >= SIZES.length - 1} onClick={() => change({ ...s, size: SIZES[Math.min(SIZES.length - 1, i + 1)] })}>A+</button>
+      <button type="button" className="btn" data-larger aria-label={t(lang, 'larger')} disabled={i >= SIZES.length - 1} onClick={() => change({ ...s, size: SIZES[Math.min(SIZES.length - 1, i + 1)] })}><bdi dir="ltr">A+</bdi></button>
       <button type="button" className="btn" data-night aria-pressed={s.dark} onClick={() => change({ ...s, dark: !s.dark })}>{t(lang, 'night')}</button>
+      </div>
     </div>
   );
 }

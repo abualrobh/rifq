@@ -9,13 +9,14 @@ export function validate(q: unknown): 'empty' | 'too_long' | 'latin' | null {
   return null;
 }
 
-// Arabic-Indic and Extended Arabic-Indic digits to ASCII digits. References only, never Quran text.
+// Arabic-Indic and Extended Arabic-Indic digits to ASCII digits (D-050, and V-27 under D-072).
+// References only, never Quran text.
 export function asciiDigits(s: string): string {
   return s.replace(/[\u0660-\u0669\u06f0-\u06f9]/g, (c) => String((c.charCodeAt(0) & 0xf) % 10));
 }
 
-// Accepted reference forms (U-33 is open, so this is a proposal): "S" or "S:A", with optional spaces
-// around the colon, in Latin or Arabic digits.
+// Accepted reference forms (D-064, D-072): "S" or "S:A", in Latin, Arabic-Indic or Extended
+// Arabic-Indic digits. Spaces around the colon are allowed, so "S : A" is a reference (Q081, D-072).
 export function parseRef(q: string): { s: number; a?: number } | null {
   const t = asciiDigits(q.trim());
   let m = /^(\d{1,4})$/.exec(t);
