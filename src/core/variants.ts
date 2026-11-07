@@ -6,7 +6,7 @@
 import { PRESENTATION_FORMS } from './presentation-forms.ts';
 import { RULES_AWAITING_D012_REVIEWER, type PendingMode } from './search-config.ts';
 
-export type RuleStatus = 'D-073' | 'D-072' | 'awaiting D-012 reviewer';
+export type RuleStatus = 'D-073' | 'D-072' | 'D-074' | 'awaiting D-012 reviewer';
 export type Rule = {
   id: string;
   status: RuleStatus;
@@ -48,7 +48,8 @@ export const RULES: Rule[] = [
   { id: 'V-23', status: 'D-073', side: 'both' }, // any whitespace separates query words
   { id: 'V-24', status: 'D-073', side: 'query', remove: [0x061c, ...range(0x200b, 0x200f), ...range(0x202a, 0x202e), ...range(0x2066, 0x2069), 0xfeff] },
   { id: 'V-28', status: 'D-073', side: 'both', remove: [0x0658, 0x0659, 0x065a, 0x065b, 0x065c, 0x065d, 0x065f] },
-  // Approved under D-072 (query side). V-27 is handled in query.ts (reference digits).
+  // Approved under D-072 (query side). V-27 is handled in query.ts (reference digits). V-14 is
+  // approved under D-074 and listed below with the reviewer rules it came from.
   { id: 'V-25', status: 'D-072', side: 'query', map: V25_MAP },
   { id: 'V-26', status: 'D-072', side: 'query', map: PRESENTATION_FORMS.map(([c, to]) => [c, [...to]]) },
   { id: 'V-27', status: 'D-072', side: 'query' },
@@ -62,7 +63,9 @@ export const RULES: Rule[] = [
   { id: 'V-10', status: 'awaiting D-012 reviewer', side: 'both', interimRemove: [0x06e7, 0x06e8], seq: [[[0x0640, 0x06e7], [0x064a]], [[0x0640, 0x06e8], [0x0646]]], map: [[0x06e7, [0x064a]], [0x06e8, [0x0646]]] },
   { id: 'V-11', status: 'awaiting D-012 reviewer', side: 'both', interimRemove: [0x0654, 0x0655], seq: [[[0x0640, 0x0654], [0x0621]], [[0x064a, 0x0655], [0x0621]], [[0x0648, 0x0655], [0x0621]]], map: [[0x0654, [0x0621]], [0x0655, [0x0621]]] },
   { id: 'V-13', status: 'awaiting D-012 reviewer', side: 'both', seq: [[[0x0622], [0x0621, 0x0627]]] },
-  { id: 'V-14', status: 'awaiting D-012 reviewer', side: 'both', map: [[0x0623, [0x0627]], [0x0625, [0x0627]]] },
+  // V-14 is ON: approved under D-074 (2026-11-07) for search input and index words only, pending
+  // the D-012 reviewer, who can change it later. Alef with hamza above or below reads as plain alef.
+  { id: 'V-14', status: 'D-074', side: 'both', map: [[0x0623, [0x0627]], [0x0625, [0x0627]]] },
   { id: 'V-15', status: 'awaiting D-012 reviewer', side: 'both', map: [[0x0624, [0x0621]], [0x0626, [0x0621]]] },
   { id: 'V-17', status: 'awaiting D-012 reviewer', side: 'both' }, // draft keeps alef maqsura and yeh apart
   { id: 'V-18', status: 'awaiting D-012 reviewer', side: 'both' }, // draft keeps ta marbuta and heh apart
