@@ -400,3 +400,75 @@ test('M-1: focusing a header control by script does not move the reading place',
     expect(await topAyah(page), sel).toBe(100);
   }
 });
+
+// Numbers next to surah names must read in the right order in both directions (iPhone report on
+// kit v4: the number and its dot sat on the wrong side of the name). In reading order the number
+// comes first, then its dot, then a space, then the name. Arabic reads right to left, so there the
+// number is to the right of the name and its dot to the left of its digits; English is mirrored.
+for (const lang of ['ar', 'en'] as const) {
+  test(`number and name order: surah list and surah title, ${lang}`, async ({ page }) => {
+    await page.setViewportSize(MOBILE);
+    const check = (sel: string) => page.evaluate(([sel, rtl]) => {
+      const bad: string[] = [];
+      for (const el of document.querySelectorAll(sel)) {
+        const num = el.querySelector('[data-sn]')!, name = el.querySelector('span[lang]')!;
+        const t = num.firstChild as Text, txt = t.data, rg = document.createRange();
+        const at = (i: number) => { rg.setStart(t, i); rg.setEnd(t, i + 1); return rg.getBoundingClientRect(); };
+        const digit = at(0), dot = at(txt.indexOf('.')), n = num.getBoundingClientRect(), m = name.getBoundingClientRect();
+        const ok = rtl
+          ? dot.right <= digit.left + 0.5 && n.left >= m.right + 2
+          : dot.left >= digit.right - 0.5 && m.left >= n.right + 2;
+        if (!ok || !/^\d+\.$/.test(txt)) bad.push(`${txt} ${Math.round(digit.left)},${Math.round(dot.left)} num ${Math.round(n.left)}-${Math.round(n.right)} name ${Math.round(m.left)}-${Math.round(m.right)}`);
+      }
+      return { count: document.querySelectorAll(sel).length, bad };
+    }, [sel, lang === 'ar'] as const);
+    await page.goto(lang === 'ar' ? '/' : '/en/');
+    const list = await check('a[data-surah-link]');
+    expect(list.count).toBe(N);
+    expect(list.bad).toEqual([]);
+    for (const s of [1, 2, N]) {
+      await page.goto(lang === 'ar' ? `/${s}/` : `/en/${s}/`);
+      const title = await check('h1.surah-title');
+      expect(title.count).toBe(1);
+      expect(title.bad).toEqual([]);
+    }
+  });
+
+  test(`number and name order: bookmarks, continue reading and search results, ${lang}`, async ({ page }) => {
+    await page.setViewportSize(MOBILE);
+    const rtl = lang === 'ar';
+    // Saved items are references only (RQ-003 AC9), written as the product writes them.
+    await page.addInitScript(() => { try { localStorage.setItem('rifq.saves', JSON.stringify({ v: 1, b: [[2, 140], [3, 7]], l: [2, 40] })); } catch { /* none */ } });
+    await page.goto(lang === 'ar' ? '/' : '/en/');
+    await hydrated(page);
+    await expect(page.locator('[data-bm="2:140"] a')).toBeVisible();
+    // First element in reading order must come first visually: right of the second in Arabic.
+    const order = (a: DOMRect, b: DOMRect) => (rtl ? a.left >= b.right - 0.5 : b.left >= a.right - 0.5);
+    const bm = await page.$$eval('[data-bm] a[data-bm-link]', (as) => as.map((a) => { const [n, r] = a.querySelectorAll('bdi'); return [n.getBoundingClientRect().toJSON(), r.getBoundingClientRect().toJSON(), r.textContent]; }));
+    expect(bm.length).toBe(2);
+    for (const [n, r, ref] of bm) {
+      expect(order(n as DOMRect, r as DOMRect), `bookmark ${ref}`).toBe(true);
+      expect(ref).toMatch(/^\d+:\d+$/);
+    }
+    // Continue reading: the name comes before the ayah number.
+    const cont = await page.$eval('[data-continue]', (a, name) => {
+      const t = a.firstChild as Text, rg = document.createRange();
+      const box = (i: number, j: number) => { rg.setStart(t, i); rg.setEnd(t, j); return rg.getBoundingClientRect().toJSON(); };
+      const i = t.data.indexOf(name), k = t.data.lastIndexOf('40');
+      return [box(i, i + name.length), box(k, k + 2)];
+    }, rtl ? surahs[1].ar : surahs[1].en);
+    expect(order(cont[0] as DOMRect, cont[1] as DOMRect), 'continue reading').toBe(true);
+    // Search results: the name comes before the surah and ayah numbers.
+    const q = src.list[0].aya_text.split(' ')[0];
+    await page.fill('#q', q);
+    await page.press('#q', 'Enter');
+    await page.waitForSelector('[data-results] a[data-res-link]');
+    const res = await page.$$eval('[data-results] a[data-res-link]', (as) => as.slice(0, 10).map((a) => {
+      const name = a.querySelector('bdi')!, t = a.lastChild as Text, rg = document.createRange();
+      const m = /\d+/.exec(t.data)!; rg.setStart(t, m.index); rg.setEnd(t, m.index + m[0].length);
+      return [name.getBoundingClientRect().toJSON(), rg.getBoundingClientRect().toJSON(), a.textContent];
+    }));
+    expect(res.length).toBeGreaterThan(0);
+    for (const [n, d, label] of res) expect(order(n as DOMRect, d as DOMRect), `result ${label}`).toBe(true);
+  });
+}

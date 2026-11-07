@@ -19,7 +19,7 @@ const name = lang === 'ar' ? surah.ar : surah.en;
     {prev && <a rel="prev" data-prev href={prev}>{t(lang, 'prevSurah')}</a>}
     {next && <a rel="next" data-next href={next}>{t(lang, 'nextSurah')}</a>}
   </nav>
-  <h1 class="surah-title"><span>{surah.n}. </span><span lang={lang === 'ar' ? 'ar' : 'en'}>{name}</span></h1>
+  <h1 class="surah-title"><bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{surah.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{name}</span></h1>
   <details class="reader-search" data-reader-search>
     <summary class="btn" data-search-toggle>{t(lang, 'searchOpen')}</summary>
     <Search lang={lang} client:idle />

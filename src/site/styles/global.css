@@ -72,15 +72,17 @@ main:focus { outline: none; }
 .search-row input { flex: 1; min-width: 0; font: inherit; font-size: 1.1rem; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: .375rem; background: var(--bg); color: var(--fg); }
 .results, .offers, .bookmarks { list-style: none; padding: 0; margin: .5rem 0; }
 .results > li { padding-block: .5rem; border-bottom: 1px solid var(--border); }
-.offers a, .results a { font-size: .9rem; display: inline-flex; align-items: center; flex-wrap: wrap; min-height: 2.75rem; }
+/* Links that mix numbers and Arabic names stay one inline text run (no flex), so bidi ordering
+   and spaces are kept in every browser; padding gives the 44 px target. */
+.offers a, .results a { font-size: .9rem; display: inline-block; min-height: 2.75rem; padding-block: .65rem; box-sizing: border-box; }
 .pager { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
 mark { background: var(--mark-bg); color: var(--mark-fg); }
 
 .home-title { font-size: 1.75rem; margin-block: 1rem; }
 h2 { font-size: 1.25rem; font-weight: 600; margin-block: 1.5rem .5rem; }
 .surah-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0 1rem; }
-.surah-list a { display: flex; align-items: center; min-height: 2.75rem; }
-.continue a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.surah-list a { display: block; min-height: 2.75rem; padding-block: .6rem; box-sizing: border-box; }
+.continue a { display: inline-block; min-height: 2.75rem; padding-block: .6rem; box-sizing: border-box; }
 .saved { margin-block: 1rem; }
 .bookmarks li { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; padding-block: .25rem; }
 .confirm { display: flex; gap: .5rem; flex-wrap: wrap; }
