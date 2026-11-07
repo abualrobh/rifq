@@ -57,10 +57,14 @@ export default function Search({ lang }: { lang: Lang }) {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ q, page }),
-        credentials: 'omit',
+        // same-origin so a browser sends the cached Basic auth of the private test site's password
+        // gate. RIFQ sets no cookies, so nothing else is sent.
+        credentials: 'same-origin',
         cache: 'no-store',
         referrerPolicy: 'no-referrer',
       });
+      // The password gate refused the request: the browser no longer holds the password.
+      if (r.status === 401) return setState({ kind: 'msg', text: t(lang, 'authAgain'), alert: true });
       if (r.status === 429) {
         const s = Number(r.headers.get('retry-after')) || 60;
         return setState({ kind: 'msg', text: t(lang, 'rateLimited', { s }), alert: true });

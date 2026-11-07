@@ -156,3 +156,10 @@ test('build flag: on for development, off for release unless asked; on means the
   assert.equal(localWranglerConfig('x', 120, true).assets.run_worker_first, true);
   assert.deepEqual(localWranglerConfig('x', 120, false).assets.run_worker_first, ['/api/*']);
 });
+
+test('the search island sends same-origin credentials, so the cached Basic auth reaches the gate', () => {
+  const s = readFileSync('src/site/islands/Search.tsx', 'utf8').replace(/\/\/.*$/gm, '');
+  assert.match(s, /credentials:\s*'same-origin'/);
+  assert.ok(!/credentials:\s*'omit'/.test(s));
+  assert.match(s, /status === 401/);
+});

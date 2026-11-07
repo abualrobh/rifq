@@ -1,0 +1,90 @@
+// Password gate in a real browser (gate-on build). The context sends Basic auth through
+// httpCredentials, as Safari or Chrome does after the person enters the password. Queries are
+// picked from the source by program; no Quran text is written here.
+import { test, expect, src, hydrated, utf8, sliceOf } from '../e2e/helpers.ts';
+import { foldPlaceholder, NOT_WORD, WORD_SPLIT } from '../../src/core/fold.ts';
+import { t } from '../../src/core/strings.ts';
+
+const words = (s: string) => s.split(WORD_SPLIT).filter((w) => w && !NOT_WORD.test(w)).map(foldPlaceholder);
+const AYAH_WORDS = src.list.map((a) => words(a.aya_text));
+function brute(q: string): string[] {
+  const terms = foldPlaceholder(q).split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  src.list.forEach((a, n) => {
+    const w = AYAH_WORDS[n];
+    for (let i = 0; i + terms.length <= w.length; i++) if (terms.every((x, k) => w[i + k].startsWith(x))) { out.push(`${a.sora}:${a.aya_no}`); return; }
+  });
+  return out;
+}
+const PHRASE = AYAH_WORDS[Math.min(300, src.list.length - 1)].slice(1, 3).join(' ');
+
+test.describe.configure({ mode: 'serial' });
+
+test('without credentials, or with a wrong password, every path gets 401 with the Basic challenge', async ({ baseURL }) => {
+  // Plain fetch, so no browser or Playwright credentials are added.
+  const wrong = 'Basic ' + Buffer.from('e2e:wrong-made-up').toString('base64');
+  for (const auth of [undefined, wrong]) {
+    const h: Record<string, string> = auth ? { authorization: auth } : {};
+    for (const p of ['/', '/en/', '/2/', '/rifq-basic.css', '/manifest.webmanifest']) {
+      const r = await fetch(baseURL + p, { redirect: 'manual', headers: h });
+      expect(r.status, p).toBe(401);
+      expect(r.headers.get('www-authenticate')).toBe('Basic realm="RIFQ private test", charset="UTF-8"');
+      expect(r.headers.get('cache-control')).toBe('no-store');
+      await r.arrayBuffer();
+    }
+    const s = await fetch(baseURL + '/api/search', { method: 'POST', headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify({ q: PHRASE }) });
+    expect(s.status).toBe(401);
+    await s.arrayBuffer();
+  }
+});
+
+for (const lang of ['ar', 'en'] as const) {
+  test(`search from the search box returns results under the gate, ${lang}`, async ({ page, seen }) => {
+    const r = await page.goto(lang === 'ar' ? '/2/' : '/en/2/');
+    expect(r!.status()).toBe(200);
+    expect(r!.headers()['cache-control']).toBe('private, no-store');
+    await hydrated(page);
+    await page.fill('#q', PHRASE);
+    const resP = page.waitForResponse((x) => x.url().endsWith('/api/search') && x.request().method() === 'POST');
+    await page.press('#q', 'Enter');
+    // The gate answers 401 unless the browser sent the cached Basic auth with the fetch.
+    const res = await resP;
+    expect(res.status(), 'the fetch carries the Basic auth').toBe(200);
+    expect(res.headers()['cache-control']).toBe('private, no-store');
+    const want = brute(PHRASE);
+    await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'resultCount', { n: want.length }));
+    const refs = await page.$$eval('[data-results] li[data-res]', (ls) => ls.map((l) => l.getAttribute('data-res')!));
+    expect(refs).toEqual(want.slice(0, 50));
+    const post = seen.find((s) => s.url.endsWith('/api/search') && s.method === 'POST')!;
+    expect(post.headers['content-type']).toBe('application/json');
+    expect(post.headers['cookie']).toBeUndefined();
+  });
+}
+
+test('no-script form search works under the gate', async ({ browser }) => {
+  const ctx = await browser.newContext({ javaScriptEnabled: false });
+  const page = await ctx.newPage();
+  await page.goto('/2/');
+  await page.fill('#q', PHRASE);
+  await page.press('#q', 'Enter');
+  await page.waitForURL('**/api/search');
+  const refs = await page.$$eval('li[data-res]', (ls) => ls.map((l) => l.getAttribute('data-res')!));
+  expect(refs).toEqual(brute(PHRASE).slice(0, 50));
+  const texts = await page.$$eval('li[data-res] p.ayah', (ps) => ps.map((p) => p.textContent!));
+  texts.forEach((x, i) => { const [s, a] = refs[i].split(':').map(Number); expect(utf8(x).equals(sliceOf(s, a)), refs[i]).toBe(true); });
+  expect(await page.locator('script').count()).toBe(0);
+  await ctx.close();
+});
+
+for (const lang of ['ar', 'en'] as const) {
+  test(`a 401 from search asks for the password again instead of saying search is unavailable, ${lang}`, async ({ page }) => {
+    await page.goto(lang === 'ar' ? '/2/' : '/en/2/');
+    await hydrated(page);
+    await page.route('**/api/search', (r) => r.fulfill({ status: 401, body: 'Authentication required.\n', headers: { 'content-type': 'text/plain' } }));
+    await page.fill('#q', PHRASE);
+    await page.press('#q', 'Enter');
+    await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'authAgain'));
+    await page.click('a[data-next]');
+    await expect(page.locator('p.ayah[data-r]').first()).toBeVisible();
+  });
+}
