@@ -1,0 +1,44 @@
+---
+// Every page uses this layout, so every page shows the source details (RQ-001 AC6) and, in
+// development mode, the unverified-data banner.
+import '../styles/global.css';
+import Settings from '../islands/Settings.tsx';
+import { dev, record } from '../lib/data';
+import { t, homePath, type Lang } from '../../core/strings.ts';
+interface Props { lang: Lang; title: string; alt: string }
+const { lang, title, alt } = Astro.props;
+const other: Lang = lang === 'ar' ? 'en' : 'ar';
+---
+<!doctype html>
+<html lang={lang} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>{title}</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem')}catch(e){}})();</script>
+  </head>
+  <body>
+    {dev && <p class="banner" role="note" data-dev-banner>{t(lang, 'devBanner')}</p>}
+    <a class="skip" href="#content">{t(lang, 'skip')}</a>
+    <header class="site-header">
+      <a class="brand" href={homePath(lang)}>{t(lang, 'siteName')}</a>
+      <a id="lang-switch" href={alt} lang={other} hreflang={other} aria-label={t(lang, 'otherLangLabel')}>{t(lang, 'otherLang')}</a>
+      <Settings lang={lang} client:idle />
+    </header>
+    <main id="content" tabindex="-1"><slot /></main>
+    <footer class="site-footer">
+      <details data-source-details>
+        <summary>{t(lang, 'source')}</summary>
+        <dl dir="ltr">
+          <dt>{t(lang, 'sourceName')}</dt><dd data-source-name>{record.name}</dd>
+          <dt>{t(lang, 'sourceEdition')}</dt><dd data-source-edition>{record.edition}</dd>
+          <dt>{t(lang, 'sourceStatus')}</dt><dd data-source-status>{record.status}</dd>
+          <dt>{t(lang, 'sourceSha')}</dt><dd data-source-sha><code>{record.sha256}</code></dd>
+        </dl>
+      </details>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+/* Stylesheet for the Worker's no-JavaScript results page. Same colours as the site. */
+:root { --bg:#fff; --fg:#1a1a1a; --muted:#4a4a4a; --link:#1d4ed8; --border:#6b7280; --mark-bg:#fde68a; --banner-bg:#fef3c7; --banner-fg:#78350f; --alert:#9f1239; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,sans-serif; line-height:1.6; }
+main, footer { max-width:48rem; margin-inline:auto; padding-inline:1rem; }
+a { color:var(--link); }
+:focus-visible { outline:3px solid var(--link); outline-offset:2px; }
+.banner { margin:0; padding:.5rem 1rem; background:var(--banner-bg); color:var(--banner-fg); font-weight:600; text-align:center; }
+.hint, footer { color:var(--muted); font-size:.875rem; }
+.msg[role="alert"] { color:var(--alert); font-weight:600; }
+.results, .offers { list-style:none; padding:0; }
+.results > li { padding-block:.5rem; border-bottom:1px solid var(--border); }
+.ayah { margin:0; font-family:"Noto Naskh Arabic","Amiri","DejaVu Sans",serif; font-size:1.5rem; line-height:2.2; }
+mark { background:var(--mark-bg); color:var(--fg); }
+form.inline { display:inline; }
+input, button { font:inherit; }

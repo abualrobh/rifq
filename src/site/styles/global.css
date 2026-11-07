@@ -1,0 +1,82 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Colours are checked for WCAG 2.2 AA in test/e2e/read.spec.ts (TP1-23). */
+:root {
+  --bg: #ffffff; --fg: #1a1a1a; --muted: #4a4a4a; --link: #1d4ed8; --border: #6b7280;
+  --btn-bg: #f3f4f6; --mark-bg: #fde68a; --mark-fg: #1a1a1a; --banner-bg: #fef3c7; --banner-fg: #78350f;
+  --focus: #1d4ed8; --alert: #9f1239; --target: #eff6ff;
+  color-scheme: light;
+}
+:root.dark {
+  --bg: #0b0b0c; --fg: #ececec; --muted: #c4c4c4; --link: #93c5fd; --border: #9ca3af;
+  --btn-bg: #1f2937; --mark-bg: #7c2d12; --mark-fg: #fff7ed; --banner-bg: #422006; --banner-fg: #fde68a;
+  --focus: #93c5fd; --alert: #fda4af; --target: #172033;
+  color-scheme: dark;
+}
+
+/* The header is sticky, so reading controls stay reachable mid-surah. --header-h is measured by
+   the Settings island; the fallbacks cover the time before it loads. */
+html { background: var(--bg); color: var(--fg); scroll-padding-top: calc(var(--header-h, 4.5rem) + .5rem); }
+@media (max-width: 40rem) { html { scroll-padding-top: calc(var(--header-h, 7.5rem) + .5rem); } }
+/* Browser scroll anchoring is off: the Settings island keeps the reading place itself, the same
+   way in every browser (Safari has no scroll anchoring), and two corrections would add up. */
+html, body { overflow-anchor: none; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif; line-height: 1.6; }
+a { color: var(--link); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+main, .site-header, .site-footer { max-width: 48rem; margin-inline: auto; padding-inline: 1rem; }
+main:focus { outline: none; }
+
+.banner { margin: 0; padding: .5rem 1rem; background: var(--banner-bg); color: var(--banner-fg); font-weight: 600; text-align: center; }
+.skip { position: absolute; inset-inline-start: -999px; }
+.skip:focus { inset-inline-start: 1rem; top: .5rem; background: var(--bg); padding: .25rem .5rem; z-index: 10; }
+.site-header { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; padding-block: .75rem; border-bottom: 1px solid var(--border); }
+.brand { font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--fg); }
+.site-footer { margin-top: 2rem; padding-block: 1rem; color: var(--muted); font-size: .875rem; border-top: 1px solid var(--border); }
+.site-footer dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; }
+.site-footer dd { margin: 0; }
+
+.btn { border: 1px solid var(--border); background: var(--btn-bg); color: var(--fg); border-radius: .375rem; padding: .25rem .75rem; font: inherit; font-size: .9rem; cursor: pointer; min-height: 2.25rem; }
+.btn:disabled { opacity: .6; cursor: default; }
+.btn[aria-pressed="true"] { font-weight: 700; }
+.btn.danger { border-color: var(--alert); }
+.settings { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-inline-start: auto; }
+.size-label { font-size: .85rem; color: var(--muted); }
+
+.hint { font-size: .85rem; color: var(--muted); margin: .25rem 0; }
+.hint.over, .msg.alert { color: var(--alert); font-weight: 600; }
+.msg { margin: .5rem 0; }
+.search { margin-block: 1rem; }
+.search-label { display: block; font-weight: 600; margin-bottom: .25rem; }
+.search-row { display: flex; gap: .5rem; }
+.search-row input { flex: 1; min-width: 0; font: inherit; font-size: 1.1rem; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: .375rem; background: var(--bg); color: var(--fg); }
+.results, .offers, .bookmarks { list-style: none; padding: 0; margin: .5rem 0; }
+.results > li { padding-block: .5rem; border-bottom: 1px solid var(--border); }
+.offers a, .results a { font-size: .9rem; }
+.pager { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+mark { background: var(--mark-bg); color: var(--mark-fg); }
+
+.home-title { font-size: 1.75rem; margin-block: 1rem; }
+.surah-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .25rem 1rem; }
+.surah-list a { display: inline-block; padding-block: .25rem; }
+.saved { margin-block: 1rem; }
+.bookmarks li { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; padding-block: .25rem; }
+.confirm { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+.surah-nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-block: 1rem; }
+.surah-title { font-size: 1.5rem; margin-block: .5rem; }
+.ayat { list-style: none; padding: 0; margin: 1rem 0; }
+.ayah-row { display: flex; gap: .5rem; align-items: flex-start; padding-block: .5rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); }
+.ayah-row:target { background: var(--target); outline: 2px solid var(--focus); }
+/* No Quran font is chosen yet (D-030). Local system fonts only; nothing is downloaded. */
+.ayah { flex: 1; margin: 0; font-family: "Noto Naskh Arabic", "Amiri", "DejaVu Sans", serif; font-size: var(--ayah-size, 1.5rem); line-height: 2.2; overflow-wrap: anywhere; }
+.bm { flex: none; border: 1px solid var(--border); background: var(--btn-bg); color: var(--fg); border-radius: .375rem; width: 2.5rem; height: 2.5rem; font-size: 1.2rem; cursor: pointer; }
+.bm[data-pending] { visibility: hidden; }
+.bm .bm-on { display: none; }
+.bm[aria-pressed="true"] .bm-on { display: inline; }
+.bm[aria-pressed="true"] .bm-off { display: none; }
+.toast { position: sticky; bottom: 0; margin: 0; background: var(--bg); color: var(--fg); padding: .25rem 0; min-height: 1.5rem; font-weight: 600; }
+.toast:empty { padding: 0; min-height: 0; }
+
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

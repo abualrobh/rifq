@@ -1,0 +1,9 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { t } from '../../core/strings.ts';
+---
+<Layout lang="ar" title={t('ar', 'notFound')} alt="/en/">
+  <h1>{t('ar', 'notFound')}</h1>
+  <p><a href="/">{t('ar', 'home')}</a></p>
+  <p lang="en" dir="ltr">{t('en', 'notFound')} <a href="/en/">{t('en', 'home')}</a></p>
+</Layout>

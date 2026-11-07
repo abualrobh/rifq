@@ -1,0 +1,21 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Search from '../islands/Search.tsx';
+import Saved from '../islands/Saved.tsx';
+import { surahs, counts, names } from '../lib/data';
+import { t, homePath, surahPath, type Lang } from '../../core/strings.ts';
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const other: Lang = lang === 'ar' ? 'en' : 'ar';
+---
+<Layout lang={lang} title={t(lang, 'siteName')} alt={homePath(other)}>
+  <h1 class="home-title">{t(lang, 'siteName')}</h1>
+  <Search lang={lang} client:idle />
+  <Saved lang={lang} counts={counts} names={names} client:idle />
+  <h2 id="surahs-h">{t(lang, 'surahs')}</h2>
+  <ol class="surah-list" aria-labelledby="surahs-h">
+    {surahs.map((s) => (
+      <li><a href={surahPath(lang, s.n)} data-surah-link={s.n}><span>{s.n}. </span><span lang={lang === 'ar' ? 'ar' : 'en'}>{lang === 'ar' ? s.ar : s.en}</span></a></li>
+    ))}
+  </ol>
+</Layout>

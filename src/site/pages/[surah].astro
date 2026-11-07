@@ -1,0 +1,6 @@
+---
+import Reader from '../components/Reader.astro';
+import { surahs } from '../lib/data';
+export const getStaticPaths = () => surahs.map((s) => ({ params: { surah: String(s.n) }, props: { s } }));
+---
+<Reader surah={Astro.props.s} lang="ar" />
