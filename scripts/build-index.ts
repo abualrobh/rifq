@@ -1,19 +1,19 @@
 // Builds the read-only binary search index (format version 2, see search-core.ts).
 // Display text is the raw source bytes. Index words use the search form of the D-027 rules approved
-// under D-073 (variants.ts); rules awaiting the D-012 reviewer follow search-config.ts. Surah names
+// under D-073 (variants.ts); rules awaiting the D-012 reviewer follow the mode in search-config.ts. Surah names
 // in Arabic and English are copied from the source as stored.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { NOT_WORD, WORD_SPLIT } from '../src/core/fold.ts';
 import { INDEX_MAGIC, INDEX_VERSION, indexFlags } from '../src/core/search-core.ts';
-import { RULES_AWAITING_D012_REVIEWER_ENABLED } from '../src/core/search-config.ts';
+import { RULES_AWAITING_D012_REVIEWER, type PendingMode } from '../src/core/search-config.ts';
 import { makeFolds, queryOnlyCodePoints } from '../src/core/variants.ts';
 import type { Source } from '../src/core/source-adapter.ts';
 
-export function buildIndex(src: Pick<Source, 'list' | 'slices'>, pendingOn = RULES_AWAITING_D012_REVIEWER_ENABLED): { buf: Buffer; stats: Record<string, number> } {
+export function buildIndex(src: Pick<Source, 'list' | 'slices'>, mode: PendingMode = RULES_AWAITING_D012_REVIEWER): { buf: Buffer; stats: Record<string, number> } {
   const { list, slices } = src;
   const enc = new TextEncoder();
-  const fold = makeFolds(pendingOn).term;
+  const fold = makeFolds(mode).term;
   // Query-only rules (V-24, V-25, V-26) must have nothing to act on in the source.
   const qOnly = queryOnlyCodePoints();
   let queryOnlyInSource = 0;
@@ -77,7 +77,7 @@ export function buildIndex(src: Pick<Source, 'list' | 'slices'>, pendingOn = RUL
 
   const u = (t: ArrayBufferView) => Buffer.from(t.buffer, t.byteOffset, t.byteLength);
   const sections = [termOff, postOff, postings, firstU32, textOff, nameOff, wordAyahU16, ayahSurah, ayahNo, nameEnOff].map(u).concat([termBlob, textBlob, nameBlob, nameEnBlob]);
-  const flags = indexFlags(pendingOn);
+  const flags = indexFlags(mode);
   const HEADER_U32 = 7 + sections.length;
   const header = new Uint32Array(HEADER_U32);
   header.set([INDEX_MAGIC, INDEX_VERSION, nAyah, nWords, nTerms, nSurah, flags]);
