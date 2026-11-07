@@ -192,11 +192,12 @@ for (const [lang, vp] of [['ar', null], ['en', MOBILE]] as const) {
   });
 }
 
-test('TP2-18 server backstop: the 31st direct request in a minute gets 429 with Retry-After', async ({ request }) => {
+// D-061: the server backstop allows 120 searches per minute per network address.
+test('TP2-18 server backstop: the 121st direct request in a minute gets 429 with Retry-After', async ({ request }) => {
   const codes: number[] = [];
-  for (let i = 0; i < 31; i++) codes.push((await request.post(`${STRICT}/api/search`, { data: { q: PHRASE } })).status());
-  expect(codes.slice(0, 30).every((c) => c === 200)).toBe(true);
-  expect(codes[30]).toBe(429);
+  for (let i = 0; i < 121; i++) codes.push((await request.post(`${STRICT}/api/search`, { data: { q: PHRASE } })).status());
+  expect(codes.slice(0, 120).every((c) => c === 200)).toBe(true);
+  expect(codes[120]).toBe(429);
   const r = await request.post(`${STRICT}/api/search`, { data: { q: PHRASE } });
   expect(r.headers()['retry-after']).toBe('60');
   expect((await request.get(`${STRICT}/2/`)).status()).toBe(200);

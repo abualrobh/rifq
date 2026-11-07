@@ -59,16 +59,23 @@ export function writeHeaders(siteDir: string) {
   }
   if (problems.length) throw new Error('CSP check failed:\n' + problems.slice(0, 20).join('\n'));
   const csp = buildPolicy(scripts, styles);
-  const body = `/*
-  Content-Security-Policy: ${csp}
-  Strict-Transport-Security: max-age=31536000
-  X-Content-Type-Options: nosniff
-  Referrer-Policy: no-referrer
-  X-Frame-Options: DENY
-  Cross-Origin-Opener-Policy: same-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
-  X-Robots-Tag: noindex, nofollow
-`;
+  const headers = assetHeaderMap(csp);
+  const body = '/*\n' + Object.entries(headers).map(([k, v]) => `  ${k}: ${v}\n`).join('');
   writeFileSync(join(siteDir, '_headers'), body);
-  return { csp, scripts: scripts.size, styles: styles.size };
+  return { csp, headers, scripts: scripts.size, styles: styles.size };
+}
+
+// The headers every static asset gets. Written to _headers, and also passed to the Worker, which
+// sets them itself when it serves assets first (the platform does not apply _headers then).
+export function assetHeaderMap(csp: string): Record<string, string> {
+  return {
+    'Content-Security-Policy': csp,
+    'Strict-Transport-Security': 'max-age=31536000',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'X-Frame-Options': 'DENY',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    'X-Robots-Tag': 'noindex, nofollow',
+  };
 }
