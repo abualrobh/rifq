@@ -54,7 +54,7 @@ export default function Saved({ lang, counts, names }: Props) {
           {saves.b.map(([s, a]) => (
             <li key={`${s}:${a}`} data-bm={`${s}:${a}`}>
               {refExists(counts, [s, a])
-                ? <a href={ayahPath(lang, s, a)}>{name(s)} {s}:{a}</a>
+                ? <a href={ayahPath(lang, s, a)} data-bm-link><bdi lang={lang === 'ar' ? 'ar' : 'en'}>{name(s)}</bdi>{' '}<bdi dir="ltr" data-bm-ref>{s}:{a}</bdi></a>
                 : <span className="msg alert" data-bad-bm>{t(lang, 'badRef', { s, a })}</span>}
               <button type="button" className="btn" aria-label={t(lang, 'removeBookmark', { name: name(s) || String(s), a })} onClick={() => remove(s, a)}>{t(lang, 'remove')}</button>
             </li>
