@@ -24,7 +24,10 @@ export default defineConfig({
     launchOptions: { args: ['--no-proxy-server'] },
   },
   webServer: [
-    { command: `scripts/serve-local.sh ${BUILD} 8812 wrangler.e2e.jsonc`, url: 'http://127.0.0.1:8812/', reuseExistingServer: false, timeout: 60_000, stdout: 'ignore', stderr: 'pipe' },
+    // RQ-005: the mock Quran Foundation API on 127.0.0.1:8815 (test/mock/qf-mock.ts). Only the
+    // Worker on 8812 is pointed at it, with made-up credentials and tafsir ID; the browser never is.
+    { command: `node test/mock/qf-mock.ts 8815`, url: 'http://127.0.0.1:8815/__mock/stats', reuseExistingServer: false, timeout: 30_000, stdout: 'ignore', stderr: 'pipe' },
+    { command: `scripts/serve-local.sh ${BUILD} 8812 wrangler.e2e.jsonc --var QF_ENV:prelive --var QF_CLIENT_ID:mock-client-id --var QF_CLIENT_SECRET:mock-client-secret-made-up --var TAFSIR_ID:901 --var QF_TEST_BASE:http://127.0.0.1:8815`, url: 'http://127.0.0.1:8812/', reuseExistingServer: false, timeout: 60_000, stdout: 'ignore', stderr: 'pipe' },
     { command: `scripts/serve-local.sh ${BUILD} 8813 wrangler.jsonc`, url: 'http://127.0.0.1:8813/', reuseExistingServer: false, timeout: 60_000, stdout: 'ignore', stderr: 'pipe' },
   ],
 });

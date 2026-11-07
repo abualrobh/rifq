@@ -12,6 +12,8 @@ const g = gate(mode, src.record, src.sha256);
 if (!g.ok) throw new Error('Source gate failed: ' + g.reasons.join('; '));
 
 export const dev = mode !== 'release';
+// RQ-005: the Tafseer screen and the per-ayah Tafseer links exist only when the build flag is on.
+export const tafseerOn = process.env.RIFQ_TAFSEER === 'on';
 export const record = { name: src.record.name, edition: src.record.edition, status: src.record.status, sha256: src.sha256 as string };
 export const surahs = surahsOf(src.list);
 export const counts: number[] = [0, ...surahs.map((s) => s.items.length)];

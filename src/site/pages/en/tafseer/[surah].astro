@@ -1,0 +1,7 @@
+---
+import Tafseer from '../../../components/Tafseer.astro';
+import { surahs, tafseerOn } from '../../../lib/data';
+// RQ-005: built only when the Tafseer build flag is on.
+export const getStaticPaths = () => (tafseerOn ? surahs.map((s) => ({ params: { surah: String(s.n) }, props: { s } })) : []);
+---
+<Tafseer surah={Astro.props.s} lang="en" />

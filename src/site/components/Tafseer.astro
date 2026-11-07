@@ -1,0 +1,41 @@
+---
+// RQ-005: the Tafseer screen for one surah. The ayah is chosen by the hash (#aN), which is never
+// sent to the server. The Quran section is static HTML built from the approved source file (AC5):
+// every ayah of the surah is in the page, and only the chosen one is shown. The Tafseer section is
+// filled by the TafseerView island from RIFQ's own /api/tafseer route (AC12); no Tafseer is ever
+// in this HTML or in any build output (AC14).
+import Layout from '../layouts/Layout.astro';
+import TafseerView from '../islands/TafseerView.tsx';
+import { dev, surahs } from '../lib/data';
+import { t, surahPath, tafseerPath, type Lang } from '../../core/strings.ts';
+import type { Surah } from '../../core/source-adapter.ts';
+interface Props { surah: Surah; lang: Lang }
+const { surah, lang } = Astro.props;
+const other: Lang = lang === 'ar' ? 'en' : 'ar';
+const name = lang === 'ar' ? surah.ar : surah.en;
+const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
+---
+<Layout lang={lang} title={`${t(lang, 'tafseerTitle')}: ${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={tafseerPath(other, surah.n)}>
+  <nav class="surah-nav" aria-label={t(lang, 'navLabel')}>
+    <a href={surahPath(lang, surah.n)} data-back>{t(lang, 'backToReading')}</a>
+  </nav>
+  {dev && <p class="msg" role="note" data-tafseer-dev>{t(lang, 'tafseerDevNote')}</p>}
+  <h1 class="surah-title">{t(lang, 'tafseerTitle')}: <bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{surah.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{name}</span></h1>
+  <section class="tf-section tf-quran" aria-labelledby="tf-quran-h" data-tf-quran>
+    <h2 id="tf-quran-h">{t(lang, 'quranSection')}</h2>
+    <ol class="tf-ayat" data-surah={surah.n}>
+      {surah.items.map((a) => (
+        <li class="tf-row" data-a={a.aya_no} hidden={a.aya_no !== 1}>
+          <p class="tf-ref" tabindex="-1" data-tf-ref><bdi lang={lang === 'ar' ? 'ar' : 'en'}>{name}</bdi>{t(lang, 'resultRef', { s: a.sora, a: a.aya_no })}</p>
+          <p class="ayah" lang="ar" dir="rtl" translate="no" data-r={`${a.sora}:${a.aya_no}`}>{a.aya_text}</p>
+        </li>
+      ))}
+    </ol>
+    <script is:inline>(function(){var m=/^#a(\d{1,4})(?:;|$)/.exec(location.hash),r=document.querySelectorAll('.tf-row');if(!m)return;var n=+m[1];if(n<1||n>r.length)return;for(var i=0;i<r.length;i++)r[i].hidden=i!==n-1;})();</script>
+  </section>
+  <section class="tf-section tf-tafseer" aria-labelledby="tf-tafseer-h" data-tf-tafseer>
+    <h2 id="tf-tafseer-h">{t(lang, 'tafseerSection')}</h2>
+    <noscript><p class="msg">{t(lang, 'tafseerNoScript')}</p></noscript>
+    <TafseerView lang={lang} s={surah.n} count={surah.items.length} prevCount={prevCount} last={surahs.length} client:load />
+  </section>
+</Layout>

@@ -1,0 +1,47 @@
+---
+// Private development pages (D-081 and the font check). Built only in development builds; on the
+// test site they sit behind the password gate like every other page. Not part of RIFQ.
+import Layout from '../../layouts/Layout.astro';
+import VerifyText from '../../islands/VerifyText.tsx';
+import { dev, surahs } from '../../lib/data';
+export const getStaticPaths = () => (dev ? [{ params: { tool: 'verify-text' } }, { params: { tool: 'font-check' } }] : []);
+const { tool } = Astro.params;
+// Font check: a fixed set of ayat, taken from the approved file at build time.
+const WANT = [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [2, 255], [2, 282], [112, 1], [112, 2], [112, 3], [112, 4]];
+const rows = WANT.map(([s, a]) => surahs[s - 1]?.items[a - 1]).filter((x) => !!x);
+---
+<Layout lang="en" title={`DEVELOPMENT PAGE: ${tool} - RIFQ`} alt="/">
+  <p class="banner" role="note" data-dev-page>DEVELOPMENT PAGE. Private, for Hamzeh only. Not part of RIFQ, not reviewed, not for release.</p>
+  {tool === 'verify-text' && (
+    <>
+      <h1 class="surah-title">D-081: compare the approved file with the Quran Foundation API text</h1>
+      <p>For each surah, RIFQ's Worker fetches <code>/content/api/v4/verses/by_chapter/&#123;surah&#125;?fields=text_qpc_hafs&amp;per_page=50</code> page by page, hashes each ayah's <code>text_qpc_hafs</code> string (UTF-8, no normalization) with SHA-256, and compares it with two hashes of the approved file's <code>aya_text</code>: as stored (ending with a no-break space and the ayah number, D-068) and with that ending cut. Only counts, references and hashes are shown. No Quran text is sent to this page.</p>
+      <p>Whether <code>text_qpc_hafs</code> is the King Fahd Complex file is not stated in the Quran Foundation docs (unverified).</p>
+      <VerifyText surahs={surahs.length} client:load />
+    </>
+  )}
+  {tool === 'font-check' && (
+    <>
+      <h1 class="surah-title">Font check: QPC Hafs (UthmanicHafs1Ver18) beside Noto Naskh Arabic</h1>
+      <p>The first line of each ayah uses the font file at <code>https://verses.quran.foundation/fonts/quran/hafs/uthmanic_hafs/UthmanicHafs1Ver18.woff2</code>, the address in Quran Foundation's Font Rendering guide, loaded at run time from there (not bundled). The second line uses the self-hosted Noto Naskh Arabic 2.021 (D-069). Both lines are the same bytes from the approved file. If the first line looks like the second, the font did not load.</p>
+      <p data-fc-credit>Quran fonts provided by Quran Foundation.</p>
+      <ol class="fc-list">
+        {rows.map((a) => (
+          <li class="fc-row">
+            <p class="fc-ref">{a.sora}:{a.aya_no}</p>
+            <p class="ayah fc-qpc" lang="ar" dir="rtl" translate="no" data-r={`${a.sora}:${a.aya_no}`}>{a.aya_text}</p>
+            <p class="ayah fc-noto" lang="ar" dir="rtl" translate="no" data-r={`${a.sora}:${a.aya_no}`}>{a.aya_text}</p>
+          </li>
+        ))}
+      </ol>
+    </>
+  )}
+</Layout>
+<style is:global>
+  @font-face { font-family: "QF UthmanicHafs1Ver18"; src: url("https://verses.quran.foundation/fonts/quran/hafs/uthmanic_hafs/UthmanicHafs1Ver18.woff2") format("woff2"); font-display: swap; }
+  .fc-list { list-style: none; padding: 0; }
+  .fc-row { border-bottom: 1px solid var(--border); padding-block: .5rem; }
+  .fc-ref { font-size: .85rem; color: var(--muted); margin: 0; }
+  .fc-qpc { font-family: "QF UthmanicHafs1Ver18", serif; }
+  .fc-noto { font-family: "Noto Naskh Arabic", serif; }
+</style>
