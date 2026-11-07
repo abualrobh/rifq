@@ -15,14 +15,23 @@ import { synthetic } from '../fixtures/load.ts';
 const c = (...cps: number[]) => String.fromCodePoint(...cps);
 const BA = 0x628, LAM = 0x644, MEEM = 0x645, YEH = 0x64a, KAF = 0x643, HEH = 0x647, ALEF = 0x627;
 
-test('rule table: 15 rules under D-073, 3 under D-072, 10 awaiting the D-012 reviewer', () => {
+test('rule table: 15 rules under D-073, 3 under D-072, V-14 under D-074, 9 awaiting the D-012 reviewer', () => {
   const by = (s: string) => RULES.filter((r) => r.status === s).map((r) => r.id);
   assert.deepEqual(by('D-073'), ['V-01', 'V-02', 'V-03', 'V-04', 'V-06', 'V-08', 'V-12', 'V-16', 'V-19', 'V-20', 'V-21', 'V-22', 'V-23', 'V-24', 'V-28']);
   assert.deepEqual(by('D-072'), ['V-25', 'V-26', 'V-27']);
-  assert.deepEqual(by('awaiting D-012 reviewer'), ['V-05', 'V-07', 'V-09', 'V-10', 'V-11', 'V-13', 'V-14', 'V-15', 'V-17', 'V-18']);
+  assert.deepEqual(by('D-074'), ['V-14']);
+  assert.deepEqual(by('awaiting D-012 reviewer'), ['V-05', 'V-07', 'V-09', 'V-10', 'V-11', 'V-13', 'V-15', 'V-17', 'V-18']);
   assert.equal(RULES.length, 28);
   assert.equal(RULES_AWAITING_D012_REVIEWER, 'interim-placeholder', 'interim mode awaiting the D-012 reviewer');
   assert.ok(RULES.filter((r) => r.status === 'awaiting D-012 reviewer').every((r) => !isOn(r)), 'no draft operation is on');
+});
+
+test('D-074: alef with hamza above or below reads as plain alef, in queries and index words', () => {
+  for (const h of [0x623, 0x625]) {
+    assert.equal(foldTerm(c(h, LAM)), c(ALEF, LAM));
+    assert.equal(foldQuery(c(h, LAM)), c(ALEF, LAM));
+    assert.equal(makeFolds('off').term(c(h, LAM)), c(ALEF, LAM), 'on in every mode');
+  }
 });
 
 test('D-073: vowels, tanwin, shadda, sukun forms, maddah, tatweel, waqf and annotation signs are removed; alef wasla reads as alef', () => {
@@ -34,7 +43,7 @@ test('D-073: vowels, tanwin, shadda, sukun forms, maddah, tatweel, waqf and anno
 
 test('awaiting the reviewer, interim mode: the placeholder removes the marks and maps no letter', () => {
   const removed = [0x656, 0x657, 0x65e, 0x670, 0x6e5, 0x6e6, 0x6e7, 0x6e8, 0x654, 0x655];
-  const kept = [0x622, 0x623, 0x625, 0x624, 0x626, 0x649, 0x629];
+  const kept = [0x622, 0x624, 0x626, 0x649, 0x629];
   for (const p of removed) {
     assert.equal(foldTerm(c(BA, p, LAM)), c(BA, LAM), `U+${p.toString(16)} removed from index words`);
     assert.equal(foldQuery(c(BA, p, LAM)), c(BA, LAM), `U+${p.toString(16)} removed from queries`);
@@ -47,7 +56,7 @@ test('awaiting the reviewer, interim mode: the placeholder removes the marks and
 
 test('awaiting the reviewer, off mode: those code points are left as they are', () => {
   const off = makeFolds('off');
-  for (const p of [0x656, 0x657, 0x65e, 0x670, 0x6e5, 0x6e6, 0x6e7, 0x6e8, 0x654, 0x655, 0x622, 0x623, 0x625, 0x624, 0x626, 0x649, 0x629]) {
+  for (const p of [0x656, 0x657, 0x65e, 0x670, 0x6e5, 0x6e6, 0x6e7, 0x6e8, 0x654, 0x655, 0x622, 0x624, 0x626, 0x649, 0x629]) {
     assert.equal(off.term(c(BA, p, LAM)), c(BA, p, LAM), `U+${p.toString(16)} kept in index words`);
     assert.equal(off.query(c(BA, p, LAM)), c(BA, p, LAM), `U+${p.toString(16)} kept in queries`);
   }
@@ -98,8 +107,9 @@ test('index: built with the same rule setting as the code, English names include
   const { buf } = buildIndex(src, 'draft');
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   assert.throws(() => openIndex(ab), /different search rule setting/);
-  assert.equal(openIndex(ab, 1).flags, 1);
-  assert.equal(ix.flags, 2, 'default index records the interim mode');
+
+  assert.equal(ix.flags, 2 | 16, 'default index records the interim mode and D-074');
+  assert.equal(openIndex(ab, 1 | 16).flags, 1 | 16);
   const r = runQuery(ix, '2:5', 1).data as SearchOk;
   assert.equal(r.offers[0].en, 'Synthetic 2');
   assert.equal(r.offers[0].name, src.list.find((a) => a.sora === 2)!.sora_name_ar);

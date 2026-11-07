@@ -11,7 +11,9 @@ export const INDEX_MAGIC = 0x51464952;
 export const INDEX_VERSION = 2;
 // Header flags word: the mode of the rules awaiting the D-012 reviewer that the index was built with.
 export const MODE_FLAGS: Record<PendingMode, number> = { off: 0, draft: 1, 'interim-placeholder': 2 };
-export const indexFlags = (mode: PendingMode = RULES_AWAITING_D012_REVIEWER) => MODE_FLAGS[mode];
+// Bit 4 marks D-074 (V-14 on), so an index built before D-074 is refused.
+export const FLAG_D074 = 16;
+export const indexFlags = (mode: PendingMode = RULES_AWAITING_D012_REVIEWER) => MODE_FLAGS[mode] | FLAG_D074;
 const SECTIONS = 14;
 
 export type Index = {
