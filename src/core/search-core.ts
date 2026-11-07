@@ -2,16 +2,16 @@
 // The matching logic is unchanged. Since round 2 the search form is the approved D-027 rules
 // (variants.ts), and the index format is version 2: version 1 plus a flags word (which rules the
 // index was built with) and the English surah names, both taken from the source at build time.
-import { RULES_AWAITING_D012_REVIEWER_ENABLED } from './search-config.ts';
+import { RULES_AWAITING_D012_REVIEWER, type PendingMode } from './search-config.ts';
 import { foldQuery } from './variants.ts';
 
 export const PAGE = 50;
 export const MAX_CHARS = 100;
 export const INDEX_MAGIC = 0x51464952;
 export const INDEX_VERSION = 2;
-// Header flag bit 0: the index was built with the rules awaiting the D-012 reviewer turned on.
-export const FLAG_PENDING_RULES = 1;
-export const indexFlags = (pendingOn = RULES_AWAITING_D012_REVIEWER_ENABLED) => (pendingOn ? FLAG_PENDING_RULES : 0);
+// Header flags word: the mode of the rules awaiting the D-012 reviewer that the index was built with.
+export const MODE_FLAGS: Record<PendingMode, number> = { off: 0, draft: 1, 'interim-placeholder': 2 };
+export const indexFlags = (mode: PendingMode = RULES_AWAITING_D012_REVIEWER) => MODE_FLAGS[mode];
 const SECTIONS = 14;
 
 export type Index = {

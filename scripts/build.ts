@@ -16,7 +16,7 @@ import { writeIndex } from './build-index.ts';
 import { writeHeaders } from './headers.ts';
 import { checkBuilt, scanClientJs } from './check-bytes.ts';
 import { AUTH_LIMIT_PER_MINUTE } from '../src/worker/gate.ts';
-import { RULES_AWAITING_D012_REVIEWER_ENABLED } from '../src/core/search-config.ts';
+import { RULES_AWAITING_D012_REVIEWER } from '../src/core/search-config.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -126,7 +126,7 @@ export default makeWorker(idx as ArrayBuffer, cfg);
 
   const summary = {
     mode, gate: gateOn, record: cfg.record, sourceSha256: l.sha256, indexSha256: sha256(idx.buf), index: idx.stats,
-    rulesAwaitingD012ReviewerEnabled: RULES_AWAITING_D012_REVIEWER_ENABLED,
+    rulesAwaitingD012Reviewer: RULES_AWAITING_D012_REVIEWER,
     bytes: reports.map((r) => ({ route: r.route, pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches, refErrors: r.refErrors })),
     clientJs: js, csp: hdr.csp, seconds: Math.round((performance.now() - t0) / 10) / 100,
   };

@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { foldQuery, foldTerm, makeFolds, RULES, isOn } from '../../src/core/variants.ts';
-import { RULES_AWAITING_D012_REVIEWER_ENABLED } from '../../src/core/search-config.ts';
+import { RULES_AWAITING_D012_REVIEWER } from '../../src/core/search-config.ts';
+import { foldPlaceholder } from '../../src/core/fold.ts';
 import { parseRef } from '../../src/core/query.ts';
 import { buildIndex } from '../../scripts/build-index.ts';
 import { openIndex } from '../../src/core/search-core.ts';
@@ -20,8 +21,8 @@ test('rule table: 15 rules under D-073, 3 under D-072, 10 awaiting the D-012 rev
   assert.deepEqual(by('D-072'), ['V-25', 'V-26', 'V-27']);
   assert.deepEqual(by('awaiting D-012 reviewer'), ['V-05', 'V-07', 'V-09', 'V-10', 'V-11', 'V-13', 'V-14', 'V-15', 'V-17', 'V-18']);
   assert.equal(RULES.length, 28);
-  assert.equal(RULES_AWAITING_D012_REVIEWER_ENABLED, false, 'the reviewer rules stay off (D-073)');
-  assert.ok(RULES.filter((r) => r.status === 'awaiting D-012 reviewer').every((r) => !isOn(r)));
+  assert.equal(RULES_AWAITING_D012_REVIEWER, 'interim-placeholder', 'interim mode awaiting the D-012 reviewer');
+  assert.ok(RULES.filter((r) => r.status === 'awaiting D-012 reviewer').every((r) => !isOn(r)), 'no draft operation is on');
 });
 
 test('D-073: vowels, tanwin, shadda, sukun forms, maddah, tatweel, waqf and annotation signs are removed; alef wasla reads as alef', () => {
@@ -31,13 +32,29 @@ test('D-073: vowels, tanwin, shadda, sukun forms, maddah, tatweel, waqf and anno
   assert.equal(foldQuery(c(0x621, BA)), c(0x621, BA), 'V-16 keeps standalone hamza');
 });
 
-test('awaiting the reviewer: those code points are left as they are, and the draft operations apply only when turned on', () => {
-  const pending = [0x656, 0x657, 0x65e, 0x670, 0x6e5, 0x6e6, 0x6e7, 0x6e8, 0x654, 0x655, 0x622, 0x623, 0x625, 0x624, 0x626, 0x649, 0x629];
-  for (const p of pending) {
-    assert.equal(foldTerm(c(BA, p, LAM)), c(BA, p, LAM), `U+${p.toString(16)} kept in index words`);
-    assert.equal(foldQuery(c(BA, p, LAM)), c(BA, p, LAM), `U+${p.toString(16)} kept in queries`);
+test('awaiting the reviewer, interim mode: the placeholder removes the marks and maps no letter', () => {
+  const removed = [0x656, 0x657, 0x65e, 0x670, 0x6e5, 0x6e6, 0x6e7, 0x6e8, 0x654, 0x655];
+  const kept = [0x622, 0x623, 0x625, 0x624, 0x626, 0x649, 0x629];
+  for (const p of removed) {
+    assert.equal(foldTerm(c(BA, p, LAM)), c(BA, LAM), `U+${p.toString(16)} removed from index words`);
+    assert.equal(foldQuery(c(BA, p, LAM)), c(BA, LAM), `U+${p.toString(16)} removed from queries`);
   }
-  const on = makeFolds(true);
+  for (const p of kept) assert.equal(foldQuery(c(BA, p, LAM)), c(BA, p, LAM), `U+${p.toString(16)} kept`);
+  // On every placeholder mark, the interim form equals the round 1 placeholder form.
+  const marks = [...Array(0x65f - 0x64b + 1).keys()].map((i) => 0x64b + i).concat([0x670, 0x640], [...Array(0x6ed - 0x6d6 + 1).keys()].map((i) => 0x6d6 + i));
+  for (const m of marks) assert.equal(foldTerm(c(BA, m, LAM)), foldPlaceholder(c(BA, m, LAM)), `U+${m.toString(16)}`);
+});
+
+test('awaiting the reviewer, off mode: those code points are left as they are', () => {
+  const off = makeFolds('off');
+  for (const p of [0x656, 0x657, 0x65e, 0x670, 0x6e5, 0x6e6, 0x6e7, 0x6e8, 0x654, 0x655, 0x622, 0x623, 0x625, 0x624, 0x626, 0x649, 0x629]) {
+    assert.equal(off.term(c(BA, p, LAM)), c(BA, p, LAM), `U+${p.toString(16)} kept in index words`);
+    assert.equal(off.query(c(BA, p, LAM)), c(BA, p, LAM), `U+${p.toString(16)} kept in queries`);
+  }
+});
+
+test('awaiting the reviewer, draft mode: the draft operations apply', () => {
+  const on = makeFolds('draft');
   assert.equal(on.term(c(BA, 0x670, LAM)), c(BA, LAM), 'V-07 draft removes the dagger alef');
   assert.equal(on.term(c(0x623, LAM)), c(ALEF, LAM), 'V-14 draft folds alef with hamza');
   assert.equal(on.query(c(0x622, LAM)), c(0x621, ALEF, LAM), 'V-13 draft');
@@ -78,10 +95,11 @@ test('D-072 V-27 and Q081: Extended Arabic-Indic digits and "S : A" with spaces 
 
 test('index: built with the same rule setting as the code, English names included', () => {
   const { src, ix } = synthetic('variants');
-  const { buf } = buildIndex(src, true);
+  const { buf } = buildIndex(src, 'draft');
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   assert.throws(() => openIndex(ab), /different search rule setting/);
   assert.equal(openIndex(ab, 1).flags, 1);
+  assert.equal(ix.flags, 2, 'default index records the interim mode');
   const r = runQuery(ix, '2:5', 1).data as SearchOk;
   assert.equal(r.offers[0].en, 'Synthetic 2');
   assert.equal(r.offers[0].name, src.list.find((a) => a.sora === 2)!.sora_name_ar);

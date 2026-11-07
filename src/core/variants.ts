@@ -4,7 +4,7 @@
 // from the draft variant list (private-data/drafts/d027-variant-list.json) by rule ID.
 // Code points are written as numbers so that this file holds no Arabic-script characters.
 import { PRESENTATION_FORMS } from './presentation-forms.ts';
-import { RULES_AWAITING_D012_REVIEWER_ENABLED } from './search-config.ts';
+import { RULES_AWAITING_D012_REVIEWER, type PendingMode } from './search-config.ts';
 
 export type RuleStatus = 'D-073' | 'D-072' | 'awaiting D-012 reviewer';
 export type Rule = {
@@ -15,6 +15,8 @@ export type Rule = {
   seq?: [number[], number[]][]; // sequence replacements, applied first
   map?: [number, number[]][]; // single code point to code points
   remove?: number[];
+  // For rules awaiting the D-012 reviewer: what the interim mode does (the round 1 placeholder).
+  interimRemove?: number[];
 };
 
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
@@ -50,13 +52,15 @@ export const RULES: Rule[] = [
   { id: 'V-25', status: 'D-072', side: 'query', map: V25_MAP },
   { id: 'V-26', status: 'D-072', side: 'query', map: PRESENTATION_FORMS.map(([c, to]) => [c, [...to]]) },
   { id: 'V-27', status: 'D-072', side: 'query' },
-  // Awaiting the D-012 reviewer. Off unless RULES_AWAITING_D012_REVIEWER_ENABLED is true. The
-  // operations are the draft list's proposals, kept here so the reviewer can test them.
-  { id: 'V-05', status: 'awaiting D-012 reviewer', side: 'both', remove: [0x0656, 0x0657, 0x065e] },
-  { id: 'V-07', status: 'awaiting D-012 reviewer', side: 'both', remove: [0x0670] },
-  { id: 'V-09', status: 'awaiting D-012 reviewer', side: 'both', remove: [0x06e5, 0x06e6] },
-  { id: 'V-10', status: 'awaiting D-012 reviewer', side: 'both', seq: [[[0x0640, 0x06e7], [0x064a]], [[0x0640, 0x06e8], [0x0646]]], map: [[0x06e7, [0x064a]], [0x06e8, [0x0646]]] },
-  { id: 'V-11', status: 'awaiting D-012 reviewer', side: 'both', seq: [[[0x0640, 0x0654], [0x0621]], [[0x064a, 0x0655], [0x0621]], [[0x0648, 0x0655], [0x0621]]], map: [[0x0654, [0x0621]], [0x0655, [0x0621]]] },
+  // Awaiting the D-012 reviewer; see RULES_AWAITING_D012_REVIEWER in search-config.ts. The seq, map
+  // and remove operations are the draft list's proposals ('draft' mode). interimRemove is the round 1
+  // placeholder behaviour for the same code points ('interim-placeholder' mode, awaiting the
+  // reviewer); a rule with no interimRemove keeps its characters in that mode, as the placeholder did.
+  { id: 'V-05', status: 'awaiting D-012 reviewer', side: 'both', remove: [0x0656, 0x0657, 0x065e], interimRemove: [0x0656, 0x0657, 0x065e] },
+  { id: 'V-07', status: 'awaiting D-012 reviewer', side: 'both', remove: [0x0670], interimRemove: [0x0670] },
+  { id: 'V-09', status: 'awaiting D-012 reviewer', side: 'both', remove: [0x06e5, 0x06e6], interimRemove: [0x06e5, 0x06e6] },
+  { id: 'V-10', status: 'awaiting D-012 reviewer', side: 'both', interimRemove: [0x06e7, 0x06e8], seq: [[[0x0640, 0x06e7], [0x064a]], [[0x0640, 0x06e8], [0x0646]]], map: [[0x06e7, [0x064a]], [0x06e8, [0x0646]]] },
+  { id: 'V-11', status: 'awaiting D-012 reviewer', side: 'both', interimRemove: [0x0654, 0x0655], seq: [[[0x0640, 0x0654], [0x0621]], [[0x064a, 0x0655], [0x0621]], [[0x0648, 0x0655], [0x0621]]], map: [[0x0654, [0x0621]], [0x0655, [0x0621]]] },
   { id: 'V-13', status: 'awaiting D-012 reviewer', side: 'both', seq: [[[0x0622], [0x0621, 0x0627]]] },
   { id: 'V-14', status: 'awaiting D-012 reviewer', side: 'both', map: [[0x0623, [0x0627]], [0x0625, [0x0627]]] },
   { id: 'V-15', status: 'awaiting D-012 reviewer', side: 'both', map: [[0x0624, [0x0621]], [0x0626, [0x0621]]] },
@@ -64,8 +68,9 @@ export const RULES: Rule[] = [
   { id: 'V-18', status: 'awaiting D-012 reviewer', side: 'both' }, // draft keeps ta marbuta and heh apart
 ];
 
-export const isOn = (r: Rule, pendingOn = RULES_AWAITING_D012_REVIEWER_ENABLED) =>
-  r.status !== 'awaiting D-012 reviewer' || pendingOn;
+const pending = (r: Rule) => r.status === 'awaiting D-012 reviewer';
+// True when a rule acts as drafted. A pending rule in interim mode acts through interimRemove only.
+export const isOn = (r: Rule, mode: PendingMode = RULES_AWAITING_D012_REVIEWER) => !pending(r) || mode === 'draft';
 
 type Compiled = { seq: [string, string][]; cp: Map<number, string> };
 
@@ -73,11 +78,12 @@ const str = (cps: readonly number[]) => String.fromCodePoint(...cps);
 
 // Order follows the draft list: removals of query-only controls, then query-only maps, then
 // sequence replacements, then single code point maps and removals.
-function compile(side: 'index' | 'query', pendingOn: boolean): { pre: Map<number, string>; main: Compiled } {
+function compile(side: 'index' | 'query', mode: PendingMode): { pre: Map<number, string>; main: Compiled } {
   const pre = new Map<number, string>();
   const main: Compiled = { seq: [], cp: new Map() };
   for (const r of RULES) {
-    if (!isOn(r, pendingOn)) continue;
+    if (pending(r) && mode === 'interim-placeholder') { for (const c of r.interimRemove ?? []) main.cp.set(c, ''); continue; }
+    if (!isOn(r, mode)) continue;
     if (r.side === 'query') {
       if (side !== 'query') continue;
       for (const c of r.remove ?? []) pre.set(c, '');
@@ -105,9 +111,9 @@ function applyMain(s: string, c: Compiled): string {
   return mapCps(s, c.cp);
 }
 
-export function makeFolds(pendingOn = RULES_AWAITING_D012_REVIEWER_ENABLED) {
-  const ix = compile('index', pendingOn).main;
-  const q = compile('query', pendingOn);
+export function makeFolds(mode: PendingMode = RULES_AWAITING_D012_REVIEWER) {
+  const ix = compile('index', mode).main;
+  const q = compile('query', mode);
   return {
     // A word of the search index. Built from source words at build time only.
     term: (s: string) => applyMain(s, ix),
