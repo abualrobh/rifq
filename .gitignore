@@ -5,3 +5,22 @@ node_modules/
 .wrangler/
 test-results/
 playwright-report/
+# Build output, search indexes and archives never go into the public repository (D-071, M-1).
+*.bin
+*.zip
+*.gz
+*.tgz
+*.7z
+*.br
+*.tar
+*.xz
+*.bz2
+*.zst
+*.rar
+build/
+# Secrets (D-071, L-2).
+.dev.vars*
+.env*
+*.pem
+*.key
+wrangler.toml.bak

@@ -1,33 +1,43 @@
 // TypeScript port of the round 4 search core (prototype/round4/search-core.mjs).
-// The matching logic and the index format are unchanged. scripts/compare-core.ts checks that this
-// port returns the same response as the round 4 file on every test query.
-import { foldPlaceholder } from './fold.ts';
+// The matching logic is unchanged. Since round 2 the search form is the approved D-027 rules
+// (variants.ts), and the index format is version 2: version 1 plus a flags word (which rules the
+// index was built with) and the English surah names, both taken from the source at build time.
+import { RULES_AWAITING_D012_REVIEWER_ENABLED } from './search-config.ts';
+import { foldQuery } from './variants.ts';
 
 export const PAGE = 50;
 export const MAX_CHARS = 100;
 export const INDEX_MAGIC = 0x51464952;
-export const INDEX_VERSION = 1;
+export const INDEX_VERSION = 2;
+// Header flag bit 0: the index was built with the rules awaiting the D-012 reviewer turned on.
+export const FLAG_PENDING_RULES = 1;
+export const indexFlags = (pendingOn = RULES_AWAITING_D012_REVIEWER_ENABLED) => (pendingOn ? FLAG_PENDING_RULES : 0);
+const SECTIONS = 14;
 
 export type Index = {
-  nAyah: number; nWords: number; nTerms: number; nSurah: number;
+  nAyah: number; nWords: number; nTerms: number; nSurah: number; flags: number;
   termOff: Uint32Array; postOff: Uint32Array; postings: Uint32Array; ayahFirstWord: Uint32Array;
   textOff: Uint32Array; nameOff: Uint32Array; wordAyah: Uint16Array; ayahSurah: Uint16Array; ayahNo: Uint16Array;
-  termBlob: Uint8Array; textBlob: Uint8Array; nameBlob: Uint8Array;
+  termBlob: Uint8Array; textBlob: Uint8Array; nameBlob: Uint8Array; nameEnOff: Uint32Array; nameEnBlob: Uint8Array;
 };
 
-export type Result = { s: number; a: number; name: string; text: string; hl: number[] };
+export type Result = { s: number; a: number; name: string; en: string; text: string; hl: number[] };
 export type SearchOut = { total: number; page: number; results: Result[] };
 
-export function openIndex(buf: ArrayBuffer): Index {
-  const h = new Uint32Array(buf, 0, 18);
+// The index must have been built with the same rule setting as this code, or queries and index
+// words would be folded differently.
+export function openIndex(buf: ArrayBuffer, expectFlags = indexFlags()): Index {
+  const h = new Uint32Array(buf, 0, 7 + SECTIONS);
   if (h[0] !== INDEX_MAGIC || h[1] !== INDEX_VERSION) throw new Error('bad index');
-  const [nAyah, nWords, nTerms, nSurah] = [h[2], h[3], h[4], h[5]];
-  const o = (i: number) => h[6 + i];
+  const [nAyah, nWords, nTerms, nSurah, flags] = [h[2], h[3], h[4], h[5], h[6]];
+  if (flags !== expectFlags) throw new Error('index was built with a different search rule setting');
+  const o = (i: number) => h[7 + i];
   const termOff = new Uint32Array(buf, o(0), nTerms + 1);
   const textOff = new Uint32Array(buf, o(4), nAyah + 1);
   const nameOff = new Uint32Array(buf, o(5), nSurah + 1);
+  const nameEnOff = new Uint32Array(buf, o(9), nSurah + 1);
   return {
-    nAyah, nWords, nTerms, nSurah,
+    nAyah, nWords, nTerms, nSurah, flags,
     termOff,
     postOff: new Uint32Array(buf, o(1), nTerms + 1),
     postings: new Uint32Array(buf, o(2), nWords),
@@ -37,9 +47,11 @@ export function openIndex(buf: ArrayBuffer): Index {
     wordAyah: new Uint16Array(buf, o(6), nWords),
     ayahSurah: new Uint16Array(buf, o(7), nAyah),
     ayahNo: new Uint16Array(buf, o(8), nAyah),
-    termBlob: new Uint8Array(buf, o(9), termOff[nTerms]),
-    textBlob: new Uint8Array(buf, o(10), textOff[nAyah]),
-    nameBlob: new Uint8Array(buf, o(11), nameOff[nSurah]),
+    termBlob: new Uint8Array(buf, o(10), termOff[nTerms]),
+    textBlob: new Uint8Array(buf, o(11), textOff[nAyah]),
+    nameBlob: new Uint8Array(buf, o(12), nameOff[nSurah]),
+    nameEnOff,
+    nameEnBlob: new Uint8Array(buf, o(13), nameEnOff[nSurah]),
   };
 }
 
@@ -77,7 +89,7 @@ type List = { ps: number; pe: number; size: number; sorted: boolean; view: Uint3
 // inside one ayah. Starts from the term with the fewest words, then checks only those candidates
 // against the other terms, rarest first. Work never depends on Mushaf size.
 export function search(ix: Index, query: string, page = 1): SearchOut {
-  const terms = foldPlaceholder(query).split(/\s+/).filter(Boolean);
+  const terms = foldQuery(query).split(/\s+/).filter(Boolean);
   const len = terms.length;
   if (!len) return { total: 0, page, results: [] };
   const post = ix.postings, seen = new Map<string, List>();
@@ -153,11 +165,17 @@ export function surahName(ix: Index, s: number): string {
   return dec.decode(ix.nameBlob.subarray(ix.nameOff[s - 1], ix.nameOff[s]));
 }
 
+// English surah name, as stored in the source (sora_name_en).
+export function surahNameEn(ix: Index, s: number): string {
+  return dec.decode(ix.nameEnBlob.subarray(ix.nameEnOff[s - 1], ix.nameEnOff[s]));
+}
+
 function toResult(ix: Index, ay: number, hl: number[]): Result {
   const s = ix.ayahSurah[ay];
   return {
     s, a: ix.ayahNo[ay],
     name: surahName(ix, s),
+    en: surahNameEn(ix, s),
     text: dec.decode(ix.textBlob.subarray(ix.textOff[ay], ix.textOff[ay + 1])),
     hl,
   };

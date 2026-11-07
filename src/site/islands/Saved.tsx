@@ -46,6 +46,9 @@ export default function Saved({ lang, counts, names }: Props) {
       <h2 id="saved-h">{t(lang, 'bookmarks')}</h2>
       <p className="hint">{t(lang, 'bookmarksNote')}</p>
       {ready && ok && saves.b.length === 0 && <p data-empty>{t(lang, 'noBookmarks')}</p>}
+      {/* Before the island loads, the empty-state line keeps its space (hidden), so the surah list
+          below does not move when it appears and a tap during loading opens the surah under it. */}
+      {!ready && <p className="reserve" aria-hidden="true">{t(lang, 'noBookmarks')}</p>}
       {ready && saves.b.length > 0 && (
         <ul className="bookmarks" data-bookmarks>
           {saves.b.map(([s, a]) => (

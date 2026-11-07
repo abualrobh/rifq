@@ -1,5 +1,5 @@
 // RQ-001 browser tests against the local build. Test IDs from qa-test-plans.md.
-import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow, topAyah, pageAyat, sha, NET4G } from './helpers.ts';
+import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow, topAyah, pageAyat, sha, NET4G, openSearch } from './helpers.ts';
 import { t, ACCOUNT_WORDS } from '../../src/core/strings.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -146,6 +146,7 @@ test('TP1-23: text, controls and focus meet WCAG 2.2 AA contrast in both themes'
     await page.goto('/2/');
     await hydrated(page);
     if (theme === 'dark') await page.click('[data-night]');
+    await openSearch(page);
     await page.fill('#q', src.list[0].aya_text.split(' ')[0]);
     await page.press('#q', 'Enter');
     await page.waitForSelector('[data-results] mark');
@@ -328,4 +329,74 @@ test('TP1-40 (measured, placeholder profile): surah open time with 4x CPU and pl
   }
   test.info().annotations.push({ type: 'timing-ms', description: JSON.stringify(out) });
   for (const v of Object.values(out)) expect(Math.max(...v)).toBeLessThan(3000);
+});
+
+// D-069: the Quran font is self-hosted and preloaded, and the CSP allows only same-origin fonts.
+test('D-069: Noto Naskh Arabic is preloaded from this site, loads, and draws the Quran text', async ({ page, seen }) => {
+  await page.goto('/2/');
+  await hydrated(page);
+  const r = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const pre = document.querySelector<HTMLLinkElement>('link[rel=preload][as=font]');
+    const faces = [...document.fonts].map((f) => [f.family.replace(/"/g, ''), f.status]);
+    return { pre: pre?.getAttribute('href'), cross: pre?.getAttribute('crossorigin'), type: pre?.getAttribute('type'), faces, check: document.fonts.check('24px "Noto Naskh Arabic"'), family: getComputedStyle(document.querySelector('p.ayah')!).fontFamily };
+  });
+  expect(r.pre).toBe('/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2');
+  expect(r.cross).toBe('anonymous');
+  expect(r.type).toBe('font/woff2');
+  expect(r.faces).toContainEqual(['Noto Naskh Arabic', 'loaded']);
+  expect(r.check).toBe(true);
+  expect(r.family).toMatch(/^"?Noto Naskh Arabic"?, "?Scheherazade New"?, serif$/);
+  const fonts = seen.filter((x) => x.url.includes('/fonts/'));
+  expect(fonts.map((x) => new URL(x.url).pathname)).toContain('/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2');
+  for (const x of fonts) expect(new URL(x.url).hostname).toBe('127.0.0.1');
+  test.info().annotations.push({ type: 'font-requests', description: JSON.stringify(fonts.map((x) => new URL(x.url).pathname)) });
+});
+
+test('D-069: font files and licences are served; the policy allows fonts from this site only', async ({ request }) => {
+  for (const p of ['/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2', '/fonts/scheherazade-new/ScheherazadeNew-Regular.woff2', '/fonts/noto-naskh-arabic/OFL.txt', '/fonts/scheherazade-new/OFL.txt']) {
+    const r = await request.get(p);
+    expect(r.status(), p).toBe(200);
+  }
+  const csp = (await request.get('/2/')).headers()['content-security-policy'];
+  expect(csp).toContain("font-src 'self'");
+});
+
+// D-070, design review H-2: one header row at phone width, and search behind one button.
+for (const lang of ['ar', 'en'] as const) {
+  test(`H-2: the reader header is one row at 390 px and the search form is behind a button, ${lang}`, async ({ page }) => {
+    await page.setViewportSize(MOBILE);
+    await page.goto(lang === 'ar' ? '/2/' : '/en/2/');
+    await hydrated(page);
+    const h = await page.evaluate(() => document.querySelector('.site-header')!.getBoundingClientRect().height);
+    expect(h).toBeLessThanOrEqual(64);
+    await expect(page.locator('#q')).toBeHidden();
+    const toggle = page.locator('[data-search-toggle]');
+    const box = (await toggle.boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    await expect(page.locator('[data-larger]')).toBeHidden();
+    const display = page.locator('[data-display-toggle]');
+    await expect(display).toHaveAttribute('aria-expanded', 'false');
+    await display.click();
+    await expect(display).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-larger]')).toBeVisible();
+    expect(await page.evaluate(() => document.querySelector('.site-header')!.getBoundingClientRect().height)).toBe(h);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-larger]')).toBeHidden();
+    await openSearch(page);
+    await expect(page.locator('#q')).toBeVisible();
+    const first = await page.evaluate(() => document.querySelector('p.ayah')!.getBoundingClientRect().top);
+    test.info().annotations.push({ type: 'first-ayah-top-px-with-search-open', description: String(Math.round(first)) });
+    await noOverflow(page);
+  });
+}
+
+test('M-1: focusing a header control by script does not move the reading place', async ({ page }) => {
+  await page.goto('/2/#a100');
+  await hydrated(page);
+  expect(await topAyah(page)).toBe(100);
+  for (const sel of ['[data-smaller]', '[data-larger]', '[data-night]', '#lang-switch', '.brand']) {
+    await page.evaluate((s) => (document.querySelector(s) as HTMLElement).focus(), sel);
+    expect(await topAyah(page), sel).toBe(100);
+  }
 });

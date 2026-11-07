@@ -1,14 +1,24 @@
-// Builds the read-only binary search index. Port of the prototype builder: same format, same bytes.
-// Display text is the raw source bytes. The search form is the placeholder (not D-027 or D-028).
+// Builds the read-only binary search index (format version 2, see search-core.ts).
+// Display text is the raw source bytes. Index words use the search form of the D-027 rules approved
+// under D-073 (variants.ts); rules awaiting the D-012 reviewer follow search-config.ts. Surah names
+// in Arabic and English are copied from the source as stored.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { foldPlaceholder, NOT_WORD, WORD_SPLIT } from '../src/core/fold.ts';
-import { INDEX_MAGIC, INDEX_VERSION } from '../src/core/search-core.ts';
+import { NOT_WORD, WORD_SPLIT } from '../src/core/fold.ts';
+import { INDEX_MAGIC, INDEX_VERSION, indexFlags } from '../src/core/search-core.ts';
+import { RULES_AWAITING_D012_REVIEWER_ENABLED } from '../src/core/search-config.ts';
+import { makeFolds, queryOnlyCodePoints } from '../src/core/variants.ts';
 import type { Source } from '../src/core/source-adapter.ts';
 
-export function buildIndex(src: Pick<Source, 'list' | 'slices'>): { buf: Buffer; stats: Record<string, number> } {
+export function buildIndex(src: Pick<Source, 'list' | 'slices'>, pendingOn = RULES_AWAITING_D012_REVIEWER_ENABLED): { buf: Buffer; stats: Record<string, number> } {
   const { list, slices } = src;
   const enc = new TextEncoder();
+  const fold = makeFolds(pendingOn).term;
+  // Query-only rules (V-24, V-25, V-26) must have nothing to act on in the source.
+  const qOnly = queryOnlyCodePoints();
+  let queryOnlyInSource = 0;
+  for (const a of list) for (const ch of a.aya_text) if (qOnly.has(ch.codePointAt(0)!)) queryOnlyInSource++;
+  if (queryOnlyInSource) throw new Error(`source holds ${queryOnlyInSource} code points that only query rules map`);
   const terms = new Map<string, number[]>();
   const wordAyah: number[] = [];
   const ayahFirstWord: number[] = [];
@@ -16,7 +26,7 @@ export function buildIndex(src: Pick<Source, 'list' | 'slices'>): { buf: Buffer;
     ayahFirstWord.push(wordAyah.length);
     for (const tok of a.aya_text.split(WORD_SPLIT)) {
       if (!tok || NOT_WORD.test(tok)) continue;
-      const form = foldPlaceholder(tok);
+      const form = fold(tok);
       if (!form) throw new Error('empty form at ayah index ' + n);
       const g = wordAyah.length;
       wordAyah.push(n);
@@ -49,10 +59,16 @@ export function buildIndex(src: Pick<Source, 'list' | 'slices'>): { buf: Buffer;
   const names: string[] = [];
   for (const a of list) names[a.sora] = a.sora_name_ar;
   const nSurah = names.length - 1;
-  const nameBufs = names.slice(1).map((n) => Buffer.from(n, 'utf8'));
-  const nameBlob = Buffer.concat(nameBufs);
-  const nameOff = new Uint32Array(nSurah + 1);
-  let no = 0; nameBufs.forEach((s, i) => { nameOff[i] = no; no += s.length; }); nameOff[nSurah] = no;
+  const namesEn: string[] = [];
+  for (const a of list) namesEn[a.sora] = a.sora_name_en;
+  const blob = (arr: string[]) => {
+    const bufs = arr.slice(1).map((n) => Buffer.from(n, 'utf8'));
+    const off = new Uint32Array(nSurah + 1);
+    let no = 0; bufs.forEach((s, i) => { off[i] = no; no += s.length; }); off[nSurah] = no;
+    return { blob: Buffer.concat(bufs), off };
+  };
+  const { blob: nameBlob, off: nameOff } = blob(names);
+  const { blob: nameEnBlob, off: nameEnOff } = blob(namesEn);
 
   const ayahSurah = Uint16Array.from(list, (a) => a.sora);
   const ayahNo = Uint16Array.from(list, (a) => a.aya_no);
@@ -60,16 +76,17 @@ export function buildIndex(src: Pick<Source, 'list' | 'slices'>): { buf: Buffer;
   const firstU32 = Uint32Array.from(ayahFirstWord);
 
   const u = (t: ArrayBufferView) => Buffer.from(t.buffer, t.byteOffset, t.byteLength);
-  const sections = [termOff, postOff, postings, firstU32, textOff, nameOff, wordAyahU16, ayahSurah, ayahNo].map(u).concat([termBlob, textBlob, nameBlob]);
-  const HEADER_U32 = 6 + sections.length;
+  const sections = [termOff, postOff, postings, firstU32, textOff, nameOff, wordAyahU16, ayahSurah, ayahNo, nameEnOff].map(u).concat([termBlob, textBlob, nameBlob, nameEnBlob]);
+  const flags = indexFlags(pendingOn);
+  const HEADER_U32 = 7 + sections.length;
   const header = new Uint32Array(HEADER_U32);
-  header.set([INDEX_MAGIC, INDEX_VERSION, nAyah, nWords, nTerms, nSurah]);
+  header.set([INDEX_MAGIC, INDEX_VERSION, nAyah, nWords, nTerms, nSurah, flags]);
   let off = HEADER_U32 * 4;
-  sections.forEach((s, i) => { off = Math.ceil(off / 4) * 4; header[6 + i] = off; off += s.length; });
+  sections.forEach((s, i) => { off = Math.ceil(off / 4) * 4; header[7 + i] = off; off += s.length; });
   const buf = Buffer.alloc(off);
   u(header).copy(buf, 0);
-  sections.forEach((s, i) => s.copy(buf, header[6 + i]));
-  return { buf, stats: { bytes: buf.length, nAyah, nWords, nTerms, nSurah, textBytes: textBlob.length } };
+  sections.forEach((s, i) => s.copy(buf, header[7 + i]));
+  return { buf, stats: { bytes: buf.length, nAyah, nWords, nTerms, nSurah, flags, textBytes: textBlob.length } };
 }
 
 export function writeIndex(src: Pick<Source, 'list' | 'slices'>, outPath: string) {

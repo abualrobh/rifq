@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* D-069: the Quran font is self-hosted, unmodified apart from WOFF2 compression, with its OFL
+   licence next to it in /fonts/. Scheherazade New is the fallback (official WOFF2, unmodified).
+   The font file is preloaded by the layout. font-display: swap shows the text at once in the
+   device font and swaps when the file arrives (the swap or block choice is open, shortlist item 5). */
+@font-face { font-family: "Noto Naskh Arabic"; src: url("/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Scheherazade New"; src: url("/fonts/scheherazade-new/ScheherazadeNew-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+
 /* Colours are checked for WCAG 2.2 AA in test/e2e/read.spec.ts (TP1-23). */
 :root {
   --bg: #ffffff; --fg: #1a1a1a; --muted: #4a4a4a; --link: #1d4ed8; --border: #6b7280;
@@ -16,9 +23,10 @@
 }
 
 /* The header is sticky, so reading controls stay reachable mid-surah. --header-h is measured by
-   the Settings island; the fallbacks cover the time before it loads. */
-html { background: var(--bg); color: var(--fg); scroll-padding-top: calc(var(--header-h, 4.5rem) + .5rem); }
-@media (max-width: 40rem) { html { scroll-padding-top: calc(var(--header-h, 7.5rem) + .5rem); } }
+   the Settings island; the fallback covers the time before it loads. The offset sits on the ayah
+   rows (scroll-margin), not on the page (scroll-padding), so focusing a header control never
+   scrolls the reading place (design review M-1). */
+html { background: var(--bg); color: var(--fg); }
 /* Browser scroll anchoring is off: the Settings island keeps the reading place itself, the same
    way in every browser (Safari has no scroll anchoring), and two corrections would add up. */
 html, body { overflow-anchor: none; }
@@ -31,18 +39,29 @@ main:focus { outline: none; }
 .banner { margin: 0; padding: .5rem 1rem; background: var(--banner-bg); color: var(--banner-fg); font-weight: 600; text-align: center; }
 .skip { position: absolute; inset-inline-start: -999px; }
 .skip:focus { inset-inline-start: 1rem; top: .5rem; background: var(--bg); padding: .25rem .5rem; z-index: 10; }
-.site-header { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; padding-block: .75rem; border-bottom: 1px solid var(--border); }
+.site-header { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; flex-wrap: nowrap; gap: .5rem 1rem; align-items: center; padding-block: .375rem; border-bottom: 1px solid var(--border); }
+.site-header #lang-switch { display: inline-flex; align-items: center; min-height: 2.75rem; }
 .brand { font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--fg); }
 .site-footer { margin-top: 2rem; padding-block: 1rem; color: var(--muted); font-size: .875rem; border-top: 1px solid var(--border); }
+.site-footer summary { padding-block: .75rem; cursor: pointer; }
 .site-footer dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; }
 .site-footer dd { margin: 0; }
 
-.btn { border: 1px solid var(--border); background: var(--btn-bg); color: var(--fg); border-radius: .375rem; padding: .25rem .75rem; font: inherit; font-size: .9rem; cursor: pointer; min-height: 2.25rem; }
+.btn { border: 1px solid var(--border); background: var(--btn-bg); color: var(--fg); border-radius: .375rem; padding: .25rem .75rem; font: inherit; font-size: .9rem; cursor: pointer; min-height: 2.75rem; min-width: 2.75rem; }
 .btn:disabled { opacity: .6; cursor: default; }
 .btn[aria-pressed="true"] { font-weight: 700; }
 .btn.danger { border-color: var(--alert); }
-.settings { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-inline-start: auto; }
+.settings { display: flex; gap: .5rem; align-items: center; margin-inline-start: auto; position: static; }
+.display-panel { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.display-toggle { display: none; }
 .size-label { font-size: .85rem; color: var(--muted); }
+/* Design review H-2: at phone width the size and night controls fold into one Display button, so
+   the sticky header is a single row. The panel opens over the text and does not move it. */
+@media (max-width: 40rem) {
+  .display-toggle { display: inline-flex; align-items: center; }
+  .display-panel { display: none; position: absolute; top: 100%; inset-inline-end: .5rem; z-index: 6; background: var(--bg); border: 1px solid var(--border); border-radius: .5rem; padding: .5rem; box-shadow: 0 4px 12px rgb(0 0 0 / .15); }
+  .display-panel.open { display: flex; }
+}
 
 .hint { font-size: .85rem; color: var(--muted); margin: .25rem 0; }
 .hint.over, .msg.alert { color: var(--alert); font-weight: 600; }
@@ -53,25 +72,35 @@ main:focus { outline: none; }
 .search-row input { flex: 1; min-width: 0; font: inherit; font-size: 1.1rem; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: .375rem; background: var(--bg); color: var(--fg); }
 .results, .offers, .bookmarks { list-style: none; padding: 0; margin: .5rem 0; }
 .results > li { padding-block: .5rem; border-bottom: 1px solid var(--border); }
-.offers a, .results a { font-size: .9rem; }
+.offers a, .results a { font-size: .9rem; display: inline-flex; align-items: center; flex-wrap: wrap; min-height: 2.75rem; }
 .pager { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
 mark { background: var(--mark-bg); color: var(--mark-fg); }
 
 .home-title { font-size: 1.75rem; margin-block: 1rem; }
-.surah-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .25rem 1rem; }
-.surah-list a { display: inline-block; padding-block: .25rem; }
+h2 { font-size: 1.25rem; font-weight: 600; margin-block: 1.5rem .5rem; }
+.surah-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0 1rem; }
+.surah-list a { display: flex; align-items: center; min-height: 2.75rem; }
+.continue a { display: inline-flex; align-items: center; min-height: 2.75rem; }
 .saved { margin-block: 1rem; }
 .bookmarks li { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; padding-block: .25rem; }
 .confirm { display: flex; gap: .5rem; flex-wrap: wrap; }
+.reserve { visibility: hidden; }
 
-.surah-nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-block: 1rem; }
-.surah-title { font-size: 1.5rem; margin-block: .5rem; }
+.surah-nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-block: .25rem; }
+.surah-nav a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.surah-title { font-size: 1.5rem; margin-block: .25rem; }
+/* Design review H-2: on reader pages the search form sits behind one button. */
+.reader-search > summary { display: inline-flex; align-items: center; list-style: none; }
+.reader-search > summary::-webkit-details-marker { display: none; }
+.reader-search > .search { margin-block: .5rem 1rem; }
 .ayat { list-style: none; padding: 0; margin: 1rem 0; }
-.ayah-row { display: flex; gap: .5rem; align-items: flex-start; padding-block: .5rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); }
+.ayah-row { display: flex; gap: .5rem; align-items: flex-start; padding-block: .5rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); scroll-margin-top: calc(var(--header-h, 3.75rem) + .5rem); }
 .ayah-row:target { background: var(--target); outline: 2px solid var(--focus); }
-/* No Quran font is chosen yet (D-030). Local system fonts only; nothing is downloaded. */
-.ayah { flex: 1; margin: 0; font-family: "Noto Naskh Arabic", "Amiri", "DejaVu Sans", serif; font-size: var(--ayah-size, 1.5rem); line-height: 2.2; overflow-wrap: anywhere; }
-.bm { flex: none; border: 1px solid var(--border); background: var(--btn-bg); color: var(--fg); border-radius: .375rem; width: 2.5rem; height: 2.5rem; font-size: 1.2rem; cursor: pointer; }
+/* D-069 font (self-hosted above), then the fallback. Mushaf accuracy still needs the D-012 reviewer. */
+.ayah { flex: 1; margin: 0; font-family: "Noto Naskh Arabic", "Scheherazade New", serif; font-size: var(--ayah-size, 1.5rem); line-height: 2.2; overflow-wrap: anywhere; }
+/* Design review M-3 and M-6: a borderless 44 px bookmark control; the border shows on focus only. */
+.bm { flex: none; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: .375rem; width: 2.75rem; height: 2.75rem; font-size: 1.2rem; cursor: pointer; }
+.bm[aria-pressed="true"] { color: var(--link); }
 .bm[data-pending] { visibility: hidden; }
 .bm .bm-on { display: none; }
 .bm[aria-pressed="true"] .bm-on { display: inline; }

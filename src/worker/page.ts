@@ -23,6 +23,9 @@ export function renderPage(lang: Lang, q: string, out: ApiOut, cfg: PageCfg, wai
   const dir = lang === 'ar' ? 'rtl' : 'ltr';
   const parts: string[] = [];
   const err = errorText(lang, out, q, wait);
+  // Surah names in the interface language, from the index (copied from the source at build time).
+  const nameLang = lang === 'en' ? 'en' : 'ar';
+  const nameOf = (x: { name: string; en: string }) => (lang === 'en' ? x.en : x.name);
   if (err) {
     parts.push(`<p role="alert" class="msg">${h(err)}</p>`);
   } else {
@@ -33,15 +36,16 @@ export function renderPage(lang: Lang, q: string, out: ApiOut, cfg: PageCfg, wai
       for (const o of d.offers) {
         const label = o.kind === 'ayah' ? t(lang, 'offerAyah', { s: o.s, a: o.a, name: '' }) : t(lang, 'offerSurah', { s: o.s, name: '' });
         const href = o.kind === 'ayah' ? ayahPath(lang, o.s, o.a) : surahPath(lang, o.s);
-        parts.push(`<li><a href="${h(href)}">${h(label)}<span lang="ar" dir="rtl">${h(o.name)}</span></a></li>`);
+        parts.push(`<li><a href="${h(href)}">${h(label)}<bdi lang="${nameLang}">${h(nameOf(o))}</bdi></a></li>`);
       }
       parts.push('</ul></nav>');
     }
-    parts.push(`<p role="status">${h(d.total === 0 ? t(lang, 'noResults') : t(lang, 'resultCount', { n: d.total }))}</p>`);
+    const status = d.total > 0 ? t(lang, 'resultCount', { n: d.total }) : d.offers.length ? t(lang, 'offerCount', { n: d.offers.length }) : t(lang, 'noResults');
+    parts.push(`<p role="status">${h(status)}</p>`);
     parts.push('<ol class="results">');
     for (const r of d.results) {
       const text = segment(r.text, r.hl).map((p) => (p.hl ? `<mark>${h(p.text)}</mark>` : h(p.text))).join('');
-      parts.push(`<li data-res="${r.s}:${r.a}"><a href="${h(ayahPath(lang, r.s, r.a))}">${h(t(lang, 'openResult', { name: '', s: r.s, a: r.a }))}<span lang="ar" dir="rtl">${h(r.name)}</span></a><p class="ayah" lang="ar" dir="rtl">${text}</p></li>`);
+      parts.push(`<li data-res="${r.s}:${r.a}"><a href="${h(ayahPath(lang, r.s, r.a))}"><bdi lang="${nameLang}">${h(nameOf(r))}</bdi>${h(t(lang, 'resultRef', { s: r.s, a: r.a }))}</a><p class="ayah" lang="ar" dir="rtl">${text}</p></li>`);
     }
     parts.push('</ol>');
     const pages = Math.ceil(d.total / PAGE);

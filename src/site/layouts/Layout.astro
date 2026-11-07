@@ -18,6 +18,9 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
     <title>{title}</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <!-- D-069: the Quran font is fetched early. crossorigin is required for font preloads, even on
+         the same origin; anonymous mode still sends same-origin credentials (the test site gate). -->
+    <link rel="preload" href="/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
     <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem')}catch(e){}})();</script>
   </head>
   <body>

@@ -20,7 +20,10 @@ const name = lang === 'ar' ? surah.ar : surah.en;
     {next && <a rel="next" data-next href={next}>{t(lang, 'nextSurah')}</a>}
   </nav>
   <h1 class="surah-title"><span>{surah.n}. </span><span lang={lang === 'ar' ? 'ar' : 'en'}>{name}</span></h1>
-  <Search lang={lang} client:idle />
+  <details class="reader-search" data-reader-search>
+    <summary class="btn" data-search-toggle>{t(lang, 'searchOpen')}</summary>
+    <Search lang={lang} client:idle />
+  </details>
   <ReaderTools lang={lang} s={surah.n} count={surah.items.length} client:idle />
   <ol class="ayat" aria-label={t(lang, 'ayatLabel')} data-surah={surah.n}>
     {surah.items.map((a) => (

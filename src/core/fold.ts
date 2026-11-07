@@ -1,8 +1,11 @@
-// PLACEHOLDER SEARCH FORM. This is NOT the D-027 variant list or the D-028 plain-spelling text.
-// It removes Arabic marks, tatweel and Quranic annotation signs from a SEARCH-ONLY copy.
-// No letter is mapped to another letter: no hamza, alef or ya variant is assumed.
-// It is never applied to displayed text. No Unicode normalization is used anywhere.
-// Code points are written as escapes so that this file holds no Arabic-script characters.
+// Word splitting shared by the index builder, the island and the Worker page, and the old
+// placeholder form.
+//
+// The search form itself is in variants.ts (D-027 rules approved under D-072 and D-073).
+// foldPlaceholder is the round 1 placeholder. Search no longer uses it. It is kept only for the
+// public repository check (scripts/check-no-quran.ts), where removing every mark is the wider net.
+// No Unicode normalization is used anywhere. Code points are written as escapes so that this file
+// holds no Arabic-script characters.
 export const PLACEHOLDER_MARKS = /[\u064b-\u065f\u0670\u06d6-\u06ed\u0640]/g;
 export const foldPlaceholder = (s: string): string => s.replace(PLACEHOLDER_MARKS, '');
 
