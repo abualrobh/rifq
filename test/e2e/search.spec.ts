@@ -341,7 +341,10 @@ test('TP2-32: 100 characters accepted, 101 shows the limit, and the server also 
     await hydrated(page);
     await page.fill('#q', q100);
     await expect(page.locator('[data-count]')).toHaveText(t(lang, 'charCount', { n: 100 }));
+    // Wait for the 100-character search's own answer, so it cannot arrive after the 101 message.
+    const seq = Number(await page.locator('[data-search-status]').getAttribute('data-seq'));
     await page.press('#q', 'Enter');
+    await expect(page.locator('[data-search-status]')).not.toHaveAttribute('data-seq', String(seq));
     await expect(page.locator('[data-search-status]')).not.toHaveText(t(lang, 'tooLong', { n: 100 }));
     const before = seen.filter((s) => s.url.endsWith('/api/search')).length;
     await page.fill('#q', q101);
