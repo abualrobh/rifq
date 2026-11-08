@@ -200,9 +200,17 @@ for (const [lang, vp] of [['ar', null], ['en', MOBILE]] as const) {
 }
 
 // D-061: the server backstop allows 120 searches per minute per network address.
+// The local Workers runtime counts in fixed 60-second windows aligned to the wall clock
+// (window = floor(now / 60 s)), so the test starts just after a window boundary and checks that all
+// requests stayed inside that one window. This waits up to 60 s.
 test('TP2-18 server backstop: the 121st direct request in a minute gets 429 with Retry-After', async ({ request }) => {
+  test.setTimeout(180_000);
+  const win = () => Math.floor(Date.now() / 60_000);
+  await new Promise((x) => setTimeout(x, 60_000 - (Date.now() % 60_000) + 500));
+  const start = win();
   const codes: number[] = [];
   for (let i = 0; i < 121; i++) codes.push((await request.post(`${STRICT}/api/search`, { data: { q: PHRASE } })).status());
+  expect(win(), 'all 121 requests inside one limiter window').toBe(start);
   expect(codes.slice(0, 120).every((c) => c === 200)).toBe(true);
   expect(codes[120]).toBe(429);
   const r = await request.post(`${STRICT}/api/search`, { data: { q: PHRASE } });
