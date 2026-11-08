@@ -16,9 +16,10 @@ import type { Lang } from '../core/strings.ts';
 import { authorised, REALM, SignInGuard, type GateEnv, type RateLimit } from './gate.ts';
 import { renderPage, type PageCfg } from './page.ts';
 import { makeVerify, type VerifyHashes } from './verify.ts';
+import { makeQuoteCheck, type LettersQuran } from './quote-check.ts';
 import { CATALOGUE_PATH, SHAPE_PATH, makeTafseer, TAFSEER_LIMIT_PER_MINUTE, type TafseerCfg, type TafseerEnv } from './tafseer.ts';
 
-export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; verifyHashes?: VerifyHashes | null };
+export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; verifyHashes?: VerifyHashes | null; lettersQuran?: LettersQuran | null };
 export type Env = GateEnv & TafseerEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit; TAFSEER_LIMIT?: RateLimit };
 export type WorkerDeps = Parameters<typeof makeTafseer>[1];
 
@@ -150,6 +151,8 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   const catalogueOn = !!(tafseer && cfg.dev && cfg.gate);
   // D-081: development builds behind the password gate only.
   const verify = cfg.dev && cfg.gate && cfg.verifyHashes ? makeVerify(cfg.verifyHashes, cfg.dev, deps) : null;
+  // D-084 quote check page: development builds behind the gate, with Tafseer on.
+  const quotes = cfg.dev && cfg.gate && tafseer && cfg.lettersQuran ? makeQuoteCheck(cfg.lettersQuran, cfg.dev, deps) : null;
   const guard = new SignInGuard();
   const assetHeaders = cfg.assetHeaders ? { ...BASE_HEADERS, ...cfg.assetHeaders } : null;
   if (assetHeaders) delete (assetHeaders as Record<string, string>)['cache-control'];
@@ -183,6 +186,17 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
         return withHeaders(r, assetHeaders);
       }
       return new Response('Not found', { status: 404, headers: BASE_HEADERS });
+    }
+    if (pathname === '/api/dev/quote-check' && quotes) {
+      if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
+      if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
+      if (crossSite(req)) return json(403, { status: 'cross_site' });
+      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const raw = await readCapped(req, MAX_TAFSEER_BODY);
+      let s = 0;
+      try { s = typeof raw === 'string' ? Number((JSON.parse(raw) as { s?: unknown }).s) : 0; } catch { s = 0; }
+      const out = await quotes.surah(env, s);
+      return json(out.status, out.data);
     }
     if (pathname === '/api/dev/verify-text' && verify) {
       if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });

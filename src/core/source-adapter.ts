@@ -6,7 +6,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { SourceRecord } from './source-gate.ts';
 
-export type Ayah = { sora: number; aya_no: number; sora_name_ar: string; sora_name_en: string; aya_text: string };
+// aya_text_emlaey: the plain-spelling text in the same file, used only by the D-085 quote check.
+export type Ayah = { sora: number; aya_no: number; sora_name_ar: string; sora_name_en: string; aya_text: string; aya_text_emlaey?: string };
 export type Loaded = { record: SourceRecord; recordPath: string; filePath: string; sha256: string | null; raw: Buffer | null };
 export type Source = Loaded & { raw: Buffer; list: Ayah[]; slices: Buffer[] };
 

@@ -51,8 +51,12 @@ export function makeSynthetic(dir: string, status = 'UNVERIFIED, synthetic test 
       if (s === 2 && a === 5) words.push(SYN_EQUIV_A, SYN_EQUIV_B);
       if (s === 5 && a === 60) words.push(String.fromCodePoint(0x6de));
       const text = words.join(' ') + '\u00a0' + digits(a);
+      // A made-up "plain spelling" form for aya_text_emlaey (D-085 tests): marks removed, and an
+      // alef added after the first letter of every word of 4 or more letters, the way plain
+      // spelling writes an alef that Uthmani script leaves out. Not Quran text.
+      const emlaey = words.map((w) => { const p = w.replace(/[\u064b-\u0652\u0670]/gu, ''); return [...p].length >= 4 ? [...p][0] + '\u0627' + [...p].slice(1).join('') : p; }).join(' ');
       id++;
-      rows.push(`\t{\n\t\t"id" : ${id},\n\t\t"jozz" : 1,\n\t\t"sora" : ${s},\n\t\t"sora_name_en" : "Synthetic ${s}",\n\t\t"sora_name_ar" : "${nameAr}",\n\t\t"page" : 1,\n\t\t"line_start" : 1,\n\t\t"line_end" : 1,\n\t\t"aya_no" : ${a},\n\t\t"aya_text" : "${text}",\n\t\t"aya_text_emlaey" : ""\n\t}`);
+      rows.push(`\t{\n\t\t"id" : ${id},\n\t\t"jozz" : 1,\n\t\t"sora" : ${s},\n\t\t"sora_name_en" : "Synthetic ${s}",\n\t\t"sora_name_ar" : "${nameAr}",\n\t\t"page" : 1,\n\t\t"line_start" : 1,\n\t\t"line_end" : 1,\n\t\t"aya_no" : ${a},\n\t\t"aya_text" : "${text}",\n\t\t"aya_text_emlaey" : "${emlaey}"\n\t}`);
     }
   }
   const body = Buffer.from('[\n' + rows.join(',\n') + '\n]\n', 'utf8');

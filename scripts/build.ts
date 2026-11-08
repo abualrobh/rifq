@@ -8,7 +8,7 @@
 // --tafseer turns on RQ-005 (the Tafseer screen, the per-ayah links and /api/tafseer). It is on by
 // default in development builds and off by default in release builds. A release build with
 // Tafseer on runs the Tafseer release check first (scripts/tafseer-release-check.ts: AC15 records,
-// D-078 quotes, D-079 fingerprints) and stops unless it passes. No Tafseer is fetched by any other
+// D-079 fingerprints; the D-084 quote check is reported but never blocks) and stops unless it passes. No Tafseer is fetched by any other
 // build, and none is ever written into a build (AC14).
 // --fingerprints names the D-079 store (private data repository); --tafseer-record the AC15 record.
 // Steps: source gate, search index, Astro pages, security headers, byte comparison of every ayah,
@@ -22,7 +22,7 @@ import { gate, type Mode } from '../src/core/source-gate.ts';
 import { writeIndex } from './build-index.ts';
 import { writeHeaders } from './headers.ts';
 import { checkBuilt, extractAyat, READER_ROUTES, sameBytes, scanClientJs, TAFSEER_ROUTES } from './check-bytes.ts';
-import { bareAyah } from '../src/core/tafseer-quotes.ts';
+import { bareAyah, lettersOnly } from '../src/core/tafseer-quotes.ts';
 import { checkFingerprints, type FingerprintFile } from '../src/core/tafseer-fingerprints.ts';
 import { TAFSEER_LIMIT_PER_MINUTE } from '../src/worker/tafseer.ts';
 import { readJson, runTafseerCheck, type TafseerRecord } from './tafseer-release-check.ts';
@@ -92,8 +92,9 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
     if (tf.record) tRecord = readJson<TafseerRecord>(tf.record);
     if (mode === 'release') {
       const rep = await runTafseerCheck({ recordPath, record: tRecord, fingerprints, env: process.env as QfSecrets, mode: 'release' });
-      const { mismatches, ...short } = rep;
-      log({ step: 'tafseer-release-check', ...short, mismatches: mismatches.length });
+      // Counts only in the log; the reviewer list (Tafseer phrases) is never written by the build.
+      const { reviewerList, ...short } = rep;
+      log({ step: 'tafseer-release-check', ...short, reviewerList: reviewerList.length });
       if (!rep.ok) { process.exitCode = 2; throw new Error('Tafseer release check failed'); }
     }
   }
@@ -160,6 +161,9 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
     tafseer: tf.on,
     // D-081 (development builds only): two SHA-256 hashes per ayah of the approved file's bytes, as
     // stored and with the D-068 ending cut. Hashes only; no text goes to the Worker.
+    // D-084 quote check page (development builds with Tafseer on): the approved text in
+    // letters-only form, one string per ayah, from aya_text and (D-085) aya_text_emlaey. Never displayed.
+    ...(mode !== 'release' && tf.on ? { lettersQuran: { counts: [0, ...surahCounts(src.list)], letters: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))), emlaey: src.list.map((a) => lettersOnly(a.aya_text_emlaey ?? '')) } } : {}),
     ...(mode !== 'release' ? { verifyHashes: {
       counts: [0, ...surahCounts(src.list)],
       full: src.slices.map((b) => sha256(b)),

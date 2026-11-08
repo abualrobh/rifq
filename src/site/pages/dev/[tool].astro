@@ -3,8 +3,9 @@
 // test site they sit behind the password gate like every other page. Not part of RIFQ.
 import Layout from '../../layouts/Layout.astro';
 import VerifyText from '../../islands/VerifyText.tsx';
+import QuoteCheck from '../../islands/QuoteCheck.tsx';
 import { dev, surahs } from '../../lib/data';
-export const getStaticPaths = () => (dev ? [{ params: { tool: 'verify-text' } }, { params: { tool: 'font-check' } }] : []);
+export const getStaticPaths = () => (dev ? [{ params: { tool: 'verify-text' } }, { params: { tool: 'font-check' } }, { params: { tool: 'quote-check' } }] : []);
 const { tool } = Astro.params;
 // Font check: a fixed set of ayat, taken from the approved file at build time.
 const WANT = [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [2, 255], [2, 282], [112, 1], [112, 2], [112, 3], [112, 4]];
@@ -18,6 +19,14 @@ const rows = WANT.map(([s, a]) => surahs[s - 1]?.items[a - 1]).filter((x) => !!x
       <p>For each surah, RIFQ's Worker fetches <code>/content/api/v4/verses/by_chapter/&#123;surah&#125;?fields=text_qpc_hafs&amp;per_page=50</code> page by page, hashes each ayah's <code>text_qpc_hafs</code> string (UTF-8, no normalization) with SHA-256, and compares it with two hashes of the approved file's <code>aya_text</code>: as stored (ending with a no-break space and the ayah number, D-068) and with that ending cut. Only counts, references and hashes are shown. No Quran text is sent to this page.</p>
       <p>Whether <code>text_qpc_hafs</code> is the King Fahd Complex file is not stated in the Quran Foundation docs (unverified).</p>
       <VerifyText surahs={surahs.length} client:load />
+    </>
+  )}
+  {tool === 'quote-check' && (
+    <>
+      <h1 class="surah-title">D-084: Tafseer quote check for the D-012 reviewers</h1>
+      <p>For each surah you choose, RIFQ's Worker fetches the configured work's passages (<code>/content/api/v4/tafsirs/&#123;TAFSIR_ID&#125;/by_chapter/&#123;surah&#125;?per_page=50</code>, page by page with a pause), finds phrases in ( ), ornate parentheses and &#123; &#125;, and matches each against the approved Quran text by letters only: vowel marks, Quranic marks, tatweel, ayah numbers and punctuation are ignored, and the approved search spelling rules (D-072, D-073, D-074) are applied. Results: matched in the passage's own ayat, in the same surah, elsewhere, unmatched, or too short (one word that is not in its own ayat). Phrases in &#123; &#125; can be readings (qira'at), so they are always listed and never count as failures. This check never blocks a release.</p>
+      <p>The list shows every phrase that did not match its own ayat, and every phrase in braces, with the phrase exactly as delivered. It is Tafseer text: keep downloads private. Pre-live data covers surahs 1 and 2 only.</p>
+      <QuoteCheck surahs={surahs.length} client:load />
     </>
   )}
   {tool === 'font-check' && (

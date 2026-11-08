@@ -236,8 +236,11 @@ export function layer2(root: string, recordPath: string): Finding[] {
   // and single Arabic words equal to a surah name.
   const tri = new Set<string>();
   for (const a of src.list) {
-    const w = words(a.aya_text).map(foldPlaceholder);
-    for (let i = 0; i + 2 < w.length; i++) tri.add(`${w[i]} ${w[i + 1]} ${w[i + 2]}`);
+    // D-085: the plain-spelling text (aya_text_emlaey) is checked as well as aya_text.
+    for (const t of [a.aya_text, a.aya_text_emlaey ?? '']) {
+      const w = words(t).map(foldPlaceholder);
+      for (let i = 0; i + 2 < w.length; i++) tri.add(`${w[i]} ${w[i + 1]} ${w[i + 2]}`);
+    }
   }
   const foldedNames = new Set([...arNames.keys()].map(foldPlaceholder));
   for (const x of texts) {
