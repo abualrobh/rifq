@@ -63,41 +63,66 @@ export function findPhrases(html: string): Phrase[] {
 
 export type Result = 'matched_own_ayah' | 'matched_same_surah' | 'matched_elsewhere' | 'unmatched' | 'too_short';
 
-// The approved text in letters-only form: one string per ayah, in source order.
-export type LettersIndex = { refs: string[]; surah: number[]; letters: string[]; surahText: Map<number, string>; all: string; at: Map<string, number> };
+// The approved text in letters-only form, one string per ayah, in source order, in two forms:
+// "uthmani" from aya_text, and (D-085) "emlaey" from aya_text_emlaey, the plain-spelling text
+// stored in the same approved file. The emlaey text is used only for matching: it is never shown,
+// and only its letters-only form goes into a build (private builds only). While the file is the
+// D-045 development copy, the D-045 caution applies to both forms.
+export type Form = 'uthmani' | 'emlaey';
+type FormIndex = { letters: string[]; surahText: Map<number, string>; all: string };
+export type LettersIndex = { refs: string[]; surah: number[]; at: Map<string, number>; forms: Partial<Record<Form, FormIndex>> };
+// Kept for callers of the first version: the Uthmani letters per ayah.
+export const uthmaniLetters = (ix: LettersIndex) => ix.forms.uthmani?.letters ?? [];
 
-export function lettersIndex(rows: { s: number; a: number; letters: string }[]): LettersIndex {
-  const refs: string[] = [], surah: number[] = [], letters: string[] = [];
-  const at = new Map<string, number>();
+function formIndex(rows: { s: number }[], letters: string[]): FormIndex {
   const bySurah = new Map<number, string[]>();
-  rows.forEach((r, i) => {
-    refs.push(`${r.s}:${r.a}`); surah.push(r.s); letters.push(r.letters); at.set(`${r.s}:${r.a}`, i);
-    if (!bySurah.has(r.s)) bySurah.set(r.s, []);
-    if (r.letters) bySurah.get(r.s)!.push(r.letters);
-  });
+  rows.forEach((r, i) => { if (!bySurah.has(r.s)) bySurah.set(r.s, []); if (letters[i]) bySurah.get(r.s)!.push(letters[i]); });
   const surahText = new Map<number, string>();
   for (const [s, l] of bySurah) surahText.set(s, ' ' + l.join(' ') + ' ');
-  return { refs, surah, letters, surahText, all: ' ' + letters.filter(Boolean).join(' ') + ' ', at };
+  return { letters, surahText, all: ' ' + letters.filter(Boolean).join(' ') + ' ' };
 }
 
-export const indexFromSource = (list: { sora: number; aya_no: number; aya_text: string }[]) =>
-  lettersIndex(list.map((x) => ({ s: x.sora, a: x.aya_no, letters: lettersOnly(bareAyah(x.aya_text)) })));
+export function lettersIndex(rows: { s: number; a: number; letters: string; emlaey?: string }[]): LettersIndex {
+  const at = new Map<string, number>();
+  rows.forEach((r, i) => at.set(`${r.s}:${r.a}`, i));
+  const forms: Partial<Record<Form, FormIndex>> = { uthmani: formIndex(rows, rows.map((r) => r.letters)) };
+  if (rows.some((r) => typeof r.emlaey === 'string' && r.emlaey)) forms.emlaey = formIndex(rows, rows.map((r) => r.emlaey ?? ''));
+  return { refs: rows.map((r) => `${r.s}:${r.a}`), surah: rows.map((r) => r.s), at, forms };
+}
 
-export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; from: number; to: number }): { letters: string; words: number; result: Result } {
+export const indexFromSource = (list: { sora: number; aya_no: number; aya_text: string; aya_text_emlaey?: string }[]) =>
+  lettersIndex(list.map((x) => ({ s: x.sora, a: x.aya_no, letters: lettersOnly(bareAyah(x.aya_text)), emlaey: typeof x.aya_text_emlaey === 'string' ? lettersOnly(x.aya_text_emlaey) : undefined })));
+
+export type MatchedForm = 'uthmani' | 'emlaey' | 'both' | null;
+
+// A level (own ayah range, same surah, anywhere) matches if the phrase matches it in either form;
+// the first level that matches decides the result, and `form` says which form(s) matched there.
+export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; from: number; to: number }): { letters: string; words: number; result: Result; form: MatchedForm } {
   const words = lettersOnlyWords(phrase);
   const letters = words.join(' ');
-  if (!words.length) return { letters, words: 0, result: 'too_short' };
+  if (!words.length) return { letters, words: 0, result: 'too_short', form: null };
   const needle = ' ' + letters + ' ';
-  const ownParts: string[] = [];
-  for (let a = own.from; a <= own.to; a++) { const i = ix.at.get(`${own.s}:${a}`); if (i !== undefined && ix.letters[i]) ownParts.push(ix.letters[i]); }
-  if ((' ' + ownParts.join(' ') + ' ').includes(needle)) return { letters, words: words.length, result: 'matched_own_ayah' };
-  if (words.length < 2) return { letters, words: words.length, result: 'too_short' };
-  if ((ix.surahText.get(own.s) ?? '').includes(needle)) return { letters, words: words.length, result: 'matched_same_surah' };
-  if (ix.all.includes(needle)) return { letters, words: words.length, result: 'matched_elsewhere' };
-  return { letters, words: words.length, result: 'unmatched' };
+  const forms = (Object.entries(ix.forms) as [Form, FormIndex][]);
+  const at = (test: (f: FormIndex) => boolean): MatchedForm => {
+    const hit = forms.filter(([, f]) => test(f)).map(([k]) => k);
+    return hit.length === 2 ? 'both' : hit.length === 1 ? hit[0] : null;
+  };
+  const ownText = (f: FormIndex) => {
+    const parts: string[] = [];
+    for (let a = own.from; a <= own.to; a++) { const i = ix.at.get(`${own.s}:${a}`); if (i !== undefined && f.letters[i]) parts.push(f.letters[i]); }
+    return ' ' + parts.join(' ') + ' ';
+  };
+  let f = at((x) => ownText(x).includes(needle));
+  if (f) return { letters, words: words.length, result: 'matched_own_ayah', form: f };
+  if (words.length < 2) return { letters, words: words.length, result: 'too_short', form: null };
+  f = at((x) => (x.surahText.get(own.s) ?? '').includes(needle));
+  if (f) return { letters, words: words.length, result: 'matched_same_surah', form: f };
+  f = at((x) => x.all.includes(needle));
+  if (f) return { letters, words: words.length, result: 'matched_elsewhere', form: f };
+  return { letters, words: words.length, result: 'unmatched', form: null };
 }
 
-export type ReviewItem = { ref: string; range: string; bracket: Bracket; label: Phrase['label']; phrase: string; letters: string; result: Result; unclosed?: boolean };
+export type ReviewItem = { ref: string; range: string; bracket: Bracket; label: Phrase['label']; phrase: string; letters: string; result: Result; form: MatchedForm; unclosed?: boolean };
 export type QuoteSummary = { phrases: number; byResult: Record<Result, number>; braces: number; unclosed: number };
 
 export const emptyCounts = (): Record<Result, number> => ({ matched_own_ayah: 0, matched_same_surah: 0, matched_elsewhere: 0, unmatched: 0, too_short: 0 });
@@ -112,7 +137,7 @@ export function checkPassage(ix: LettersIndex, html: string, own: { s: number; f
     if (p.label === 'qiraah_or_quote') sum.braces++;
     if (p.unclosed) sum.unclosed++;
     if (m.result !== 'matched_own_ayah' || p.label === 'qiraah_or_quote' || p.unclosed) {
-      list.push({ ref, range: `${own.s}:${own.from}-${own.to}`, bracket: p.bracket, label: p.label, phrase: p.text, letters: m.letters, result: m.result, ...(p.unclosed ? { unclosed: true } : {}) });
+      list.push({ ref, range: `${own.s}:${own.from}-${own.to}`, bracket: p.bracket, label: p.label, phrase: p.text, letters: m.letters, result: m.result, form: m.form, ...(p.unclosed ? { unclosed: true } : {}) });
     }
   }
 }

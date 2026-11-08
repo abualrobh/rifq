@@ -162,8 +162,8 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
     // D-081 (development builds only): two SHA-256 hashes per ayah of the approved file's bytes, as
     // stored and with the D-068 ending cut. Hashes only; no text goes to the Worker.
     // D-084 quote check page (development builds with Tafseer on): the approved text in
-    // letters-only form, one string per ayah. Never displayed.
-    ...(mode !== 'release' && tf.on ? { lettersQuran: { counts: [0, ...surahCounts(src.list)], letters: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))) } } : {}),
+    // letters-only form, one string per ayah, from aya_text and (D-085) aya_text_emlaey. Never displayed.
+    ...(mode !== 'release' && tf.on ? { lettersQuran: { counts: [0, ...surahCounts(src.list)], letters: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))), emlaey: src.list.map((a) => lettersOnly(a.aya_text_emlaey ?? '')) } } : {}),
     ...(mode !== 'release' ? { verifyHashes: {
       counts: [0, ...surahCounts(src.list)],
       full: src.slices.map((b) => sha256(b)),

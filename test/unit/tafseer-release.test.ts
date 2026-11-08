@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthetic } from '../fixtures/load.ts';
-import { bareAyah, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
+import { bareAyah, uthmaniLetters, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
 import { checkFingerprints, sha256Hex } from '../../src/core/tafseer-fingerprints.ts';
 import { releaseRecordProblems, runTafseerCheck, TAFSEER_RECORD_FORMAT } from '../../scripts/tafseer-release-check.ts';
 import { fingerprintEntries } from '../../scripts/tafseer-fingerprint.ts';
@@ -58,11 +58,37 @@ test('D-084 matching: own ayah, same surah, elsewhere, unmatched, too short', ()
   // One word: too short unless it is in the own ayah.
   assert.equal(matchPhrase(ix, w[2], own(5, 10)).result, 'matched_own_ayah');
   const lone = words(5, 30)[1];
-  const inOwn = ix.letters[ix.at.get('5:10')!].split(' ').includes(lettersOnly(lone));
+  const inOwn = uthmaniLetters(ix)[ix.at.get('5:10')!].split(' ').includes(lettersOnly(lone));
   assert.equal(matchPhrase(ix, lone, own(5, 10)).result, inOwn ? 'matched_own_ayah' : 'too_short');
   assert.equal(matchPhrase(ix, '', own(5, 10)).result, 'too_short');
   // Part of a word is not a word.
   assert.equal(matchPhrase(ix, `${w[1].slice(1)} ${w[2]}`, own(5, 10)).result === 'matched_own_ayah', false);
+});
+
+test('D-085: a phrase in the plain spelling of the file (aya_text_emlaey) matches; the form is recorded', () => {
+  const rec = src.list.find((x) => x.sora === 5 && x.aya_no === 10)! as { aya_text: string; aya_text_emlaey: string };
+  const em = rec.aya_text_emlaey.split(' ');
+  // Pick three consecutive words that include a word of 4 or more letters, so the plain form
+  // differs from the Uthmani one (an added alef).
+  let k = 0;
+  while (k + 3 <= em.length && !words(5, 10).slice(k, k + 3).some((w) => [...w.replace(/[\u064b-\u0652]/gu, '')].length >= 4)) k++;
+  const fromEmlaey = em.slice(k, k + 3).join(' ');
+  const m = matchPhrase(ix, fromEmlaey, own(5, 10));
+  assert.deepEqual([m.result, m.form], ['matched_own_ayah', 'emlaey']);
+  // The same words from aya_text match the Uthmani form only.
+  const u = matchPhrase(ix, words(5, 10).slice(k, k + 3).join(' '), own(5, 10));
+  assert.deepEqual([u.result, u.form], ['matched_own_ayah', 'uthmani']);
+  // Words that are written the same in both forms (no word of 4 or more letters) match both.
+  const shortWords = (s: number, a: number) => words(s, a).filter((w) => [...w.replace(/[\u064b-\u0652]/gu, '')].length < 4);
+  const both = src.list.map((x) => ({ x, w: shortWords(x.sora, x.aya_no) })).find(({ x, w }) => w.length >= 2 && words(x.sora, x.aya_no).join(' ').includes(w.slice(0, 2).join(' ')));
+  if (both) assert.equal(matchPhrase(ix, both.w.slice(0, 2).join(' '), own(both.x.sora, both.x.aya_no)).form, 'both');
+  // Elsewhere through the plain form.
+  const e = matchPhrase(ix, fromEmlaey, own(4, 1));
+  assert.deepEqual([e.result, e.form], ['matched_elsewhere', 'emlaey']);
+  // Without the emlaey form (an index built from aya_text only) the plain phrase does not match.
+  const uOnly = indexFromSource(src.list.map(({ sora, aya_no, aya_text }) => ({ sora, aya_no, aya_text })));
+  assert.equal(matchPhrase(uOnly, fromEmlaey, own(5, 10)).result, 'unmatched');
+  assert.equal(matchPhrase(ix, 'no match at all', own(5, 10)).form, null);
 });
 
 test('D-084 reviewer list: everything not matched to its own ayat, all braces; CSV quoting', () => {
@@ -75,7 +101,7 @@ test('D-084 reviewer list: everything not matched to its own ayat, all braces; C
   assert.deepEqual(list.map((x) => [x.bracket, x.label, x.result]), [['{}', 'qiraah_or_quote', 'matched_own_ayah'], ['()', 'quote', 'matched_same_surah']]);
   assert.equal(list[0].phrase, w, 'phrase as delivered');
   const csv = reviewCsv([{ ...list[0], phrase: 'a "b", c' }]);
-  assert.ok(csv.startsWith('ref,range,bracket,label,phrase,letters_only,result,unclosed\r\n'));
+  assert.ok(csv.startsWith('ref,range,bracket,label,phrase,letters_only,result,matched_form,unclosed\r\n'));
   assert.ok(csv.includes('"a ""b"", c"'));
   // by_chapter records with identical neighbouring text form one passage with a range.
   assert.deepEqual(chapterPassages([{ verse_key: '2:4', text: 'T' }, { verse_key: '2:3', text: 'T' }, { verse_key: '2:5', text: 'U' }, { verse_key: '2:6', text: '' }]).map((p) => [p.ref, p.from, p.to]), [['2:3', 3, 4], ['2:5', 5, 5]]);
@@ -128,7 +154,7 @@ test('release check against the mock: D-084 results are reported, never block; a
   const braces = rep.reviewerList.filter((x) => x.ref === `2:${CASE.braces}`);
   assert.deepEqual(braces.map((x) => [x.label, x.result]), [['qiraah_or_quote', 'matched_own_ayah'], ['qiraah_or_quote', 'too_short']]);
   const lone = (quoteFrom(src, 2, 20) ?? '').split(' ')[0];
-  const inOwn = ix.letters[ix.at.get(`2:${CASE.tooShort}`)!].split(' ').includes(lettersOnly(lone));
+  const inOwn = uthmaniLetters(ix)[ix.at.get(`2:${CASE.tooShort}`)!].split(' ').includes(lettersOnly(lone));
   assert.deepEqual(r(CASE.tooShort), inOwn ? [] : ['too_short']);
   assert.equal(rep.quotes.phrases, 9);
   assert.equal(rep.quotes.braces, 2);

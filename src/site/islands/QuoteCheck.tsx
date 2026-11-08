@@ -81,11 +81,11 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
         <>
           <h2>Reviewer list: {list.length}</h2>
           <table data-qc-list>
-            <thead><tr><th scope="col">Ayah</th><th scope="col">Passage range</th><th scope="col">Bracket</th><th scope="col">Label</th><th scope="col">Phrase as delivered</th><th scope="col">Letters only</th><th scope="col">Result</th></tr></thead>
+            <thead><tr><th scope="col">Ayah</th><th scope="col">Passage range</th><th scope="col">Bracket</th><th scope="col">Label</th><th scope="col">Phrase as delivered</th><th scope="col">Letters only</th><th scope="col">Result</th><th scope="col">Matched form</th></tr></thead>
             <tbody>{list.map((r, i) => (
               <tr key={i} data-qc-row={r.result}>
                 <td dir="ltr">{r.ref}</td><td dir="ltr">{r.range}</td><td dir="ltr">{r.bracket}</td><td>{r.label}</td>
-                <td lang="ar" dir="rtl" translate="no">{r.phrase}</td><td lang="ar" dir="rtl" translate="no">{r.letters}</td><td>{r.result}{r.unclosed ? ' (unclosed)' : ''}</td>
+                <td lang="ar" dir="rtl" translate="no">{r.phrase}</td><td lang="ar" dir="rtl" translate="no">{r.letters}</td><td>{r.result}{r.unclosed ? ' (unclosed)' : ''}</td><td>{r.form ?? ''}</td>
               </tr>
             ))}</tbody>
           </table>

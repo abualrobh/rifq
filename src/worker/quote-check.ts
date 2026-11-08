@@ -10,7 +10,9 @@ import { chapterPassages, checkPassage, lettersIndex, newSummary, type LettersIn
 import { byChapterPath, parseByChapter, QfClient, qfConfig, QfError, type QfSecrets } from './qf.ts';
 import { PAGE_PAUSE_MS } from './verify.ts';
 
-export type LettersQuran = { counts: number[]; letters: string[] }; // letters-only text per ayah, in source order
+// Letters-only text per ayah, in source order: Uthmani (aya_text) and, under D-085, plain spelling
+// (aya_text_emlaey), used for matching only and never displayed.
+export type LettersQuran = { counts: number[]; letters: string[]; emlaey?: string[] };
 
 type Deps = { fetch?: (u: string, i: RequestInit) => Promise<Response>; now?: () => number; pauseMs?: number; timeoutMs?: number };
 
@@ -19,9 +21,9 @@ export function makeQuoteCheck(q: LettersQuran, devAllowed: boolean, deps: Deps 
   let ix: LettersIndex | null = null;
   const index = () => {
     if (ix) return ix;
-    const rows: { s: number; a: number; letters: string }[] = [];
+    const rows: { s: number; a: number; letters: string; emlaey?: string }[] = [];
     let i = 0;
-    for (let s = 1; s < q.counts.length; s++) for (let a = 1; a <= q.counts[s]; a++) rows.push({ s, a, letters: q.letters[i++] ?? '' });
+    for (let s = 1; s < q.counts.length; s++) for (let a = 1; a <= q.counts[s]; a++) { rows.push({ s, a, letters: q.letters[i] ?? '', emlaey: q.emlaey?.[i] }); i++; }
     ix = lettersIndex(rows);
     return ix;
   };
