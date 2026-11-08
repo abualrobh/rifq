@@ -7,7 +7,7 @@ import { reviewCsv, type CsvRow as ReviewItem } from '../../core/review-csv.ts';
 
 // Proposal: 1 second between surahs, as on the text check page.
 const SURAH_PAUSE_MS = 1000;
-const RESULTS = ['matched_own_ayah', 'matched_same_surah', 'matched_elsewhere', 'unmatched', 'too_short'] as const;
+const RESULTS = ['matched_own_ayah', 'matched_same_surah', 'matched_elsewhere', 'unmatched', 'too_short', 'fragment'] as const;
 
 export default function QuoteCheck({ surahs }: { surahs: number }) {
   const [from, setFrom] = useState('1');
@@ -35,6 +35,7 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
             n.phrases = (n.phrases ?? 0) + d.summary.phrases;
             n.braces = (n.braces ?? 0) + d.summary.braces;
             n.passages = (n.passages ?? 0) + d.passages;
+            n.edge = (n.edge ?? 0) + (d.summary.edgeMatches ?? 0);
             for (const k of RESULTS) n[k] = (n[k] ?? 0) + (d.summary.byResult[k] ?? 0);
             return n;
           });
@@ -72,6 +73,7 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
           <tr><th scope="row">Passages</th><td data-qc-passages>{counts.passages ?? 0}</td></tr>
           <tr><th scope="row">Phrases found</th><td data-qc-phrases>{counts.phrases ?? 0}</td></tr>
           {RESULTS.map((k) => <tr key={k}><th scope="row">{k}</th><td data-qc-count={k}>{counts[k] ?? 0}</td></tr>)}
+          <tr><th scope="row">Of the matches: edge matches (D-088)</th><td data-qc-edge>{counts.edge ?? 0}</td></tr>
           <tr><th scope="row">In braces (qiraah_or_quote)</th><td data-qc-braces>{counts.braces ?? 0}</td></tr>
           <tr><th scope="row">Errors</th><td data-qc-errors>{errors.length}</td></tr>
         </tbody>

@@ -117,6 +117,47 @@ test('QPC encodings: a base letter plus a combining hamza composes to the hamza 
   assert.equal(matchPhrase(idx, `${api} ${cp(0x628, 0x64f, 0x62f, 0x8f0, 0x649)} ${cp(0x661)}`, { s: 9, from: 1, to: 1 }).result, 'matched_own_ayah');
 });
 
+test('D-088: split-off letters at the edges; fragments; middle words exact; 2:72 narrow space before a format character', () => {
+  // Made-up "ayat" (arbitrary letters, not Quran words). 9:1 = [w-ba-tha-jim, kha-zain-sin, w-sheen-dad];
+  // 9:2 = [alef-lam-ba, dal-ra]; 9:3 = [yeh-ghain-feh-dad, meem-noon].
+  const A = (...c: number[]) => cp(...c);
+  const r1 = [A(0x648, 0x628, 0x62b, 0x62c), A(0x62e, 0x632, 0x633), A(0x648, 0x634, 0x636)];
+  const r2 = [A(0x627, 0x644, 0x628), A(0x62f, 0x631)];
+  const r3 = [A(0x64a, 0x63a, 0x641, 0x636), A(0x645, 0x646)];
+  const idx = lettersIndex([{ s: 9, a: 1, letters: r1.join(' ') }, { s: 9, a: 2, letters: r2.join(' ') }, { s: 9, a: 3, letters: r3.join(' ') }]);
+  const o = (a: number) => ({ s: 9, from: a, to: a });
+  const m = (t: string, a: number) => { const x = matchPhrase(idx, t, o(a)); return [x.result, x.match]; };
+  // A separated "and" before the bracket: the first word is the end of the Quran word.
+  assert.deepEqual(m(`${A(0x628, 0x62b, 0x62c)} ${r1[1]}`, 1), ['matched_own_ayah', 'edge']);
+  // A trailing split-off "and": the last word is the start of the Quran word.
+  assert.deepEqual(m(`${r1[0]} ${r1[1]} ${A(0x648)}`, 1), ['matched_own_ayah', 'edge']);
+  // A separated question alef: the first word is the end of alef-lam-ba.
+  assert.deepEqual(m(`${A(0x644, 0x628)} ${r2[1]}`, 2), ['matched_own_ayah', 'edge']);
+  // Whole words are exact.
+  assert.deepEqual(m(r1.join(' '), 1), ['matched_own_ayah', 'exact']);
+  // A part word in the middle never matches; edge matches still look in the same surah.
+  assert.deepEqual(m(`${r1[0]} ${A(0x632, 0x633)} ${r1[2]}`, 1), ['unmatched', null]);
+  assert.deepEqual(m(`${A(0x628, 0x62b, 0x62c)} ${r1[1]}`, 2), ['matched_same_surah', 'edge']);
+  // A different first letter (as in a reading with ta for ya) is not an edge match.
+  assert.deepEqual(m(`${A(0x62a, 0x63a, 0x641, 0x636)} ${r3[1]}`, 3), ['unmatched', null]);
+  // Fragments: one letter, or two letters in all, are counted but not listed.
+  assert.deepEqual(m(A(0x648), 1), ['fragment', null]);
+  assert.deepEqual(m(`${A(0x648)} ${A(0x645)}`, 1), ['fragment', null]);
+  assert.deepEqual(m(A(0x648, 0x645), 1), ['fragment', null]);
+  assert.deepEqual(m(A(0x62f, 0x631), 2), ['matched_own_ayah', 'exact'], 'a two-letter whole word of the own ayah still matches');
+  assert.deepEqual(m(A(0x62e, 0x632, 0x633), 2), ['too_short', null], 'three letters, one word: too short as before');
+  const sum = newSummary(); const list: ReviewItem[] = [];
+  checkPassage(idx, `<p>${OPEN}${A(0x648)}${CLOSE} ${OPEN}${A(0x628, 0x62b, 0x62c)} ${r1[1]}${CLOSE} {${A(0x62a)}} (${A(0x632, 0x632, 0x632)} ${A(0x630, 0x630)})</p>`, o(1), '9:1', sum, list);
+  assert.deepEqual([sum.phrases, sum.byResult.fragment, sum.byResult.matched_own_ayah, sum.edgeMatches], [4, 2, 1, 1]);
+  assert.deepEqual(list.map((x) => [x.bracket, x.result, x.match]), [['{}', 'fragment', null], ['()', 'unmatched', null]], 'fragments off the list except in braces');
+  assert.ok(reviewCsv(list).includes('"fragment","","",""'));
+  // 2:72 style: HAIR SPACE + superscript alef + hamza mark + sukun-like mark + HAIR SPACE + WORD
+  // JOINER inside one word. Made-up letters ra and ta.
+  assert.deepEqual(lettersOnlyWords(A(0x631, 0x64e, 0x200a, 0x670, 0x654, 0x6e1, 0x200a, 0x2060, 0x62a)), [A(0x631, 0x62a)]);
+  assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x2060, 0x62a)), [A(0x631, 0x62a)]);
+  assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x62a)), [A(0x631), A(0x62a)], 'a narrow space between letters still splits');
+});
+
 test('D-084 phrases: ( ), ornate parentheses either way, and { } as qiraah_or_quote, kept as delivered', () => {
   const w = words(3, 2).slice(0, 2).join(' ');
   const p = findPhrases(`<p>a (${w}) b ${OPEN}${w}${CLOSE} c ${CLOSE}${w}${OPEN} d {${w}} e (x</p><p>y)</p>`);
@@ -143,10 +184,14 @@ test('D-084 matching: own ayah, same surah, elsewhere, unmatched, too short', ()
   assert.equal(matchPhrase(ix, w[2], own(5, 10)).result, 'matched_own_ayah');
   const lone = words(5, 30)[1];
   const inOwn = uthmaniLetters(ix)[ix.at.get('5:10')!].split(' ').includes(lettersOnly(lone));
-  assert.equal(matchPhrase(ix, lone, own(5, 10)).result, inOwn ? 'matched_own_ayah' : 'too_short');
+  assert.equal(matchPhrase(ix, lone, own(5, 10)).result, inOwn ? 'matched_own_ayah' : [...lettersOnly(lone)].length <= 2 ? 'fragment' : 'too_short');
   assert.equal(matchPhrase(ix, '', own(5, 10)).result, 'too_short');
-  // Part of a word is not a word.
-  assert.equal(matchPhrase(ix, `${w[1].slice(1)} ${w[2]}`, own(5, 10)).result === 'matched_own_ayah', false);
+  // D-088: the first word may be the end of a Quran word and the last word its start (edge match),
+  // but a part word in the middle never matches.
+  const e1 = matchPhrase(ix, `${w[1].slice(1)} ${w[2]}`, own(5, 10));
+  assert.deepEqual([e1.result, e1.match], ['matched_own_ayah', 'edge']);
+  assert.equal(matchPhrase(ix, `${w[1]} ${[...w[2]].slice(1).join('')} ${w[3]}`, own(5, 10)).result === 'matched_own_ayah', false);
+  assert.equal(matchPhrase(ix, w.slice(1, 4).join(' '), own(5, 10)).match, 'exact');
 });
 
 test('D-085: a phrase in the plain spelling of the file (aya_text_emlaey) matches; the form is recorded', () => {
@@ -185,7 +230,7 @@ test('D-084 reviewer list: everything not matched to its own ayat, all braces; C
   assert.deepEqual(list.map((x) => [x.bracket, x.label, x.result]), [['{}', 'qiraah_or_quote', 'matched_own_ayah'], ['()', 'quote', 'matched_same_surah']]);
   assert.equal(list[0].phrase, w, 'phrase as delivered');
   const csv = reviewCsv([{ ...list[0], phrase: 'a "b", c' }]);
-  assert.ok(csv.startsWith('ref,range,bracket,label,phrase,letters_only,result,matched_form,unclosed\r\n'));
+  assert.ok(csv.startsWith('ref,range,bracket,label,phrase,letters_only,result,matched_form,match_type,unclosed\r\n'));
   assert.ok(csv.includes('"a ""b"", c"'));
   // by_chapter records with identical neighbouring text form one passage with a range.
   assert.deepEqual(chapterPassages([{ verse_key: '2:4', text: 'T' }, { verse_key: '2:3', text: 'T' }, { verse_key: '2:5', text: 'U' }, { verse_key: '2:6', text: '' }]).map((p) => [p.ref, p.from, p.to]), [['2:3', 3, 4], ['2:5', 5, 5]]);

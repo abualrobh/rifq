@@ -43,16 +43,20 @@ const NOT_LETTER = new RegExp(`[^${cls([[0x621, 0x63a], [0x641, 0x64a], [0x671, 
 // into spaces and split the word. So, before anything else:
 //  a. format and invisible characters are removed (not turned into spaces): U+200B to U+200F,
 //     U+2060 to U+2064, U+FEFF, U+00AD, U+034F, U+061C and U+180E;
-//  b. a narrow space (U+2000 to U+200A, or U+202F) directly followed by a combining mark
-//     (Unicode category Mn) is removed; any other one stays and becomes a word break in step 3.
+//  b. a narrow space (U+2000 to U+200A, or U+202F) directly followed by a combining mark (Mn)
+//     or a format character (Cf) is removed; any other one stays and becomes a word break.
 // This applies to phrases and to the Quran text alike. The Tafseer text itself is never changed,
 // and D-079 fingerprints are of the raw delivered bytes.
 const INVISIBLE = new RegExp(`[${cls([[0x200b, 0x200f], [0x2060, 0x2064], [0xfeff, 0xfeff], [0xad, 0xad], [0x34f, 0x34f], [0x61c, 0x61c], [0x180e, 0x180e]])}]`, 'gu');
-const NARROW_BEFORE_MARK = new RegExp(`[${cls([[0x2000, 0x200a], [0x202f, 0x202f]])}](?=\\p{Mn})`, 'gu');
+// The narrow-space rule runs first, before any format character is removed: a narrow space
+// directly followed by a combining mark (Mn) or a format character (Cf) is dropped. The API also
+// writes HAIR SPACE + WORD JOINER + letter inside a word (seen at 2:72), which the first version
+// of this rule missed because the WORD JOINER was not a mark.
+const NARROW_BEFORE_MARK = new RegExp(`[${cls([[0x2000, 0x200a], [0x202f, 0x202f]])}](?=[\\p{Mn}\\p{Cf}])`, 'gu');
 // Format characters of any kind (category Cf) are removed in step 0 as well, so none can reach
 // step 3 and split a word.
 const FORMAT = /\p{Cf}/gu;
-export const stripInvisibles = (s: string) => s.replace(INVISIBLE, '').replace(FORMAT, '').replace(NARROW_BEFORE_MARK, '');
+export const stripInvisibles = (s: string) => s.replace(NARROW_BEFORE_MARK, '').replace(INVISIBLE, '').replace(FORMAT, '');
 
 // Step 1a, hamza composition (encoding equivalence, not a spelling rule). The API's QPC text writes
 // some hamza letters as a base letter plus a combining hamza mark, where the approved file uses the
@@ -100,7 +104,8 @@ export function findPhrases(html: string): Phrase[] {
   return out;
 }
 
-export type Result = 'matched_own_ayah' | 'matched_same_surah' | 'matched_elsewhere' | 'unmatched' | 'too_short';
+export type Result = 'matched_own_ayah' | 'matched_same_surah' | 'matched_elsewhere' | 'unmatched' | 'too_short' | 'fragment';
+export type MatchType = 'exact' | 'edge' | null;
 
 // The approved text in letters-only form, one string per ayah, in source order, in two forms:
 // "uthmani" from aya_text, and (D-085) "emlaey" from aya_text_emlaey, the plain-spelling text
@@ -134,16 +139,28 @@ export const indexFromSource = (list: { sora: number; aya_no: number; aya_text: 
 
 export type MatchedForm = 'uthmani' | 'emlaey' | 'both' | null;
 
-// A level (own ayah range, same surah, anywhere) matches if the phrase matches it in either form;
-// the first level that matches decides the result, and `form` says which form(s) matched there.
-export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; from: number; to: number }): { letters: string; words: number; result: Result; form: MatchedForm } {
+// D-088 (may be reopened after both D-012 reviewers review): when a quote starts or ends with a
+// split-off letter, as Jalalayn writes (one bracket around a separated "and" or question alef,
+// then the rest), its first and last words may match part of a Quran word: the first word may be
+// the end of the aligned Quran word and the last word its start. Every other word must match
+// exactly. This applies to phrases of 2 or more letters-only words. A phrase of at most 2 letters
+// in all (a one-letter piece, or a two-letter split piece) is a "fragment": counted, but left off
+// the reviewers' list, unless it matches whole words of its own ayah range. Braces are still
+// always listed (a one-letter reading can matter).
+// At each level (own ayah range, same surah, anywhere) an exact match is tried first, then an
+// edge match; the first level that matches decides the result. `form` says which form(s) matched
+// there, and `match` whether it was exact or edge.
+export const FRAGMENT_MAX_LETTERS = 2;
+
+export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; from: number; to: number }): { letters: string; words: number; result: Result; form: MatchedForm; match: MatchType } {
   const words = lettersOnlyWords(phrase);
   const letters = words.join(' ');
-  if (!words.length) return { letters, words: 0, result: 'too_short', form: null };
-  const needle = ' ' + letters + ' ';
+  const out = (result: Result, form: MatchedForm = null, match: MatchType = null) => ({ letters, words: words.length, result, form, match });
+  if (!words.length) return out('too_short');
+  const exact = ' ' + letters + ' ';
   const forms = (Object.entries(ix.forms) as [Form, FormIndex][]);
-  const at = (test: (f: FormIndex) => boolean): MatchedForm => {
-    const hit = forms.filter(([, f]) => test(f)).map(([k]) => k);
+  const at = (test: (f: FormIndex) => string | undefined, needle: string): MatchedForm => {
+    const hit = forms.filter(([, f]) => (test(f) ?? '').includes(needle)).map(([k]) => k);
     return hit.length === 2 ? 'both' : hit.length === 1 ? hit[0] : null;
   };
   const ownText = (f: FormIndex) => {
@@ -151,23 +168,34 @@ export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; 
     for (let a = own.from; a <= own.to; a++) { const i = ix.at.get(`${own.s}:${a}`); if (i !== undefined && f.letters[i]) parts.push(f.letters[i]); }
     return ' ' + parts.join(' ') + ' ';
   };
-  let f = at((x) => ownText(x).includes(needle));
-  if (f) return { letters, words: words.length, result: 'matched_own_ayah', form: f };
-  if (words.length < 2) return { letters, words: words.length, result: 'too_short', form: null };
-  f = at((x) => (x.surahText.get(own.s) ?? '').includes(needle));
-  if (f) return { letters, words: words.length, result: 'matched_same_surah', form: f };
-  f = at((x) => x.all.includes(needle));
-  if (f) return { letters, words: words.length, result: 'matched_elsewhere', form: f };
-  return { letters, words: words.length, result: 'unmatched', form: null };
+  const levels: [Result, (f: FormIndex) => string | undefined][] = [
+    ['matched_own_ayah', ownText], ['matched_same_surah', (f) => f.surahText.get(own.s)], ['matched_elsewhere', (f) => f.all],
+  ];
+  const total = words.reduce((n, w) => n + [...w].length, 0);
+  // Whole words of the own ayah range always count, even for a short phrase.
+  const ownExact = at(ownText, exact);
+  if (ownExact) return out('matched_own_ayah', ownExact, 'exact');
+  if (total <= FRAGMENT_MAX_LETTERS) return out('fragment');
+  if (words.length < 2) return out('too_short');
+  // Edge needle: no space before the first word or after the last, so the first word may be the
+  // end of a Quran word and the last word the start of one; inner spaces keep every other word whole.
+  for (const [result, text] of levels) {
+    const e = result === 'matched_own_ayah' ? null : at(text, exact);
+    if (e) return out(result, e, 'exact');
+    const g = at(text, letters);
+    if (g) return out(result, g, 'edge');
+  }
+  return out('unmatched');
 }
 
-export type ReviewItem = { ref: string; range: string; bracket: Bracket; label: Phrase['label']; phrase: string; letters: string; result: Result; form: MatchedForm; unclosed?: boolean };
-export type QuoteSummary = { phrases: number; byResult: Record<Result, number>; braces: number; unclosed: number };
+export type ReviewItem = { ref: string; range: string; bracket: Bracket; label: Phrase['label']; phrase: string; letters: string; result: Result; form: MatchedForm; match: MatchType; unclosed?: boolean };
+export type QuoteSummary = { phrases: number; byResult: Record<Result, number>; braces: number; unclosed: number; edgeMatches: number };
 
-export const emptyCounts = (): Record<Result, number> => ({ matched_own_ayah: 0, matched_same_surah: 0, matched_elsewhere: 0, unmatched: 0, too_short: 0 });
+export const emptyCounts = (): Record<Result, number> => ({ matched_own_ayah: 0, matched_same_surah: 0, matched_elsewhere: 0, unmatched: 0, too_short: 0, fragment: 0 });
 
 // Checks one passage. Every phrase is counted; the reviewer list holds every phrase that did not
-// match its own ayah range, every phrase in braces, and every unclosed bracket.
+// match its own ayah range, except fragments (D-088), plus every phrase in braces and every
+// unclosed bracket. Edge matches count as matched at their level; match says exact or edge.
 export function checkPassage(ix: LettersIndex, html: string, own: { s: number; from: number; to: number }, ref: string, sum: QuoteSummary, list: ReviewItem[]) {
   for (const p of findPhrases(html)) {
     const m = matchPhrase(ix, p.text, own);
@@ -175,13 +203,15 @@ export function checkPassage(ix: LettersIndex, html: string, own: { s: number; f
     sum.byResult[m.result]++;
     if (p.label === 'qiraah_or_quote') sum.braces++;
     if (p.unclosed) sum.unclosed++;
-    if (m.result !== 'matched_own_ayah' || p.label === 'qiraah_or_quote' || p.unclosed) {
-      list.push({ ref, range: `${own.s}:${own.from}-${own.to}`, bracket: p.bracket, label: p.label, phrase: p.text, letters: m.letters, result: m.result, form: m.form, ...(p.unclosed ? { unclosed: true } : {}) });
+    if (m.match === 'edge') sum.edgeMatches++;
+    const listed = p.label === 'qiraah_or_quote' || p.unclosed || (m.result !== 'matched_own_ayah' && m.result !== 'fragment');
+    if (listed) {
+      list.push({ ref, range: `${own.s}:${own.from}-${own.to}`, bracket: p.bracket, label: p.label, phrase: p.text, letters: m.letters, result: m.result, form: m.form, match: m.match, ...(p.unclosed ? { unclosed: true } : {}) });
     }
   }
 }
 
-export const newSummary = (): QuoteSummary => ({ phrases: 0, byResult: emptyCounts(), braces: 0, unclosed: 0 });
+export const newSummary = (): QuoteSummary => ({ phrases: 0, byResult: emptyCounts(), braces: 0, unclosed: 0, edgeMatches: 0 });
 
 export { reviewCsv } from './review-csv.ts';
 
