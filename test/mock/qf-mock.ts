@@ -23,7 +23,7 @@ export const CASE = {
   grouped: [3, 4, 5], hostile: 6, none: 7, error500: 8, rate429: 9, slow: 10,
   quoteExact: 11, quoteAltered: 12, changed: 13, reviewed: 14,
   // D-084 cases, every phrase cut from the source by program (see passageText).
-  quoteSameSurah: 15, quoteElsewhere: 16, quoteUnmatched: 17, braces: 18, tooShort: 19, wasla: 27,
+  quoteSameSurah: 15, quoteElsewhere: 16, quoteUnmatched: 17, braces: 18, tooShort: 19, wasla: 27, apiAlef: 28,
 } as const;
 // Ornate parentheses, written as escapes (the public-repository check allows no Arabic-block
 // characters outside the strings file).
@@ -65,8 +65,8 @@ export function passageText(id: number, s: number, a: number, q?: Quran, version
   // Jalalayn). 15: words of 2:20 (same surah). 16: words of 1:2 (another surah). 17: own words with
   // every letter shifted one code point (cannot match). 18: a qira'ah in braces (one own word) and
   // braces around shifted letters. 19: one word from 2:20 alone (too short). 27: own words with
-  // the first plain alef written as alef wasla (Uthmani style).
-  const D084 = [CASE.quoteExact, CASE.quoteAltered, CASE.quoteSameSurah, CASE.quoteElsewhere, CASE.quoteUnmatched, CASE.braces, CASE.tooShort, CASE.wasla] as number[];
+  // the first plain alef written as alef wasla (Uthmani style). 28: see below.
+  const D084 = [CASE.quoteExact, CASE.quoteAltered, CASE.quoteSameSurah, CASE.quoteElsewhere, CASE.quoteUnmatched, CASE.braces, CASE.tooShort, CASE.wasla, CASE.apiAlef] as number[];
   if (s === 2 && D084.includes(a)) {
     const own = quoteFrom(q, 2, a);
     if (own === null) return `<p>MOCK QUOTE 2:${a} (no source given). Not Tafseer.</p>`;
@@ -81,6 +81,9 @@ export function passageText(id: number, s: number, a: number, q?: Quran, version
     else if (a === CASE.braces) body = `{${own.split(' ')[0]}} and {${shift(own.split(' ')[0])}}`;
     else if (a === CASE.tooShort) body = `(${(quoteFrom(q, 2, 20) ?? '').split(' ')[0]})`;
     else if (a === CASE.wasla) body = `(${own.replace('\u0627', '\u0671')})`;
+    // 28: own words in ornate parentheses with a superscript alef written the way the real API
+    // writes it (HAIR SPACE + U+0670 + WORD JOINER), after the first letter of the first word.
+    else if (a === CASE.apiAlef) body = `${OPEN}${[...own][0]}\u200a\u0670\u2060${[...own].slice(1).join('')}${CLOSE}`;
     return `<p>MOCK QUOTE 2:${a} before ${body} after. Not Tafseer.</p>`;
   }
   if (s === 2 && a === CASE.changed) return `<p>MOCK PASSAGE 2:${a} version ${version}. Not Tafseer.</p>`;

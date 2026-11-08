@@ -34,8 +34,21 @@ const DROP = new RegExp(`[${cls([[0x64b, 0x65f], [0x670, 0x670], [0x610, 0x61a],
 // Arabic letters: hamza to ghain, feh to yeh, alef wasla to yeh barree, and the extended letters.
 const NOT_LETTER = new RegExp(`[^${cls([[0x621, 0x63a], [0x641, 0x64a], [0x671, 0x6d3], [0x6d5, 0x6d5], [0x6ee, 0x6ef], [0x6fa, 0x6fc], [0x6ff, 0x6ff], [0x750, 0x77f], [0x8a0, 0x8c9]])}]+`, 'gu');
 
+// Step 0 (fix after the first real pre-live run, 2026-11-08): the API writes a standalone
+// superscript alef as HAIR SPACE + U+0670 + WORD JOINER, inside the word. Step 3 would turn those
+// into spaces and split the word. So, before anything else:
+//  a. format and invisible characters are removed (not turned into spaces): U+200B to U+200F,
+//     U+2060 to U+2064, U+FEFF, U+00AD, U+034F, U+061C and U+180E;
+//  b. a narrow space (U+2000 to U+200A, or U+202F) directly followed by a combining mark
+//     (Unicode category Mn) is removed; any other one stays and becomes a word break in step 3.
+// This applies to phrases and to the Quran text alike. The Tafseer text itself is never changed,
+// and D-079 fingerprints are of the raw delivered bytes.
+const INVISIBLE = new RegExp(`[${cls([[0x200b, 0x200f], [0x2060, 0x2064], [0xfeff, 0xfeff], [0xad, 0xad], [0x34f, 0x34f], [0x61c, 0x61c], [0x180e, 0x180e]])}]`, 'gu');
+const NARROW_BEFORE_MARK = new RegExp(`[${cls([[0x2000, 0x200a], [0x202f, 0x202f]])}](?=\\p{Mn})`, 'gu');
+export const stripInvisibles = (s: string) => s.replace(INVISIBLE, '').replace(NARROW_BEFORE_MARK, '');
+
 export function lettersOnlyWords(s: string): string[] {
-  return foldQuery(s).replace(DROP, '').replace(NOT_LETTER, ' ').trim().split(' ').filter(Boolean);
+  return foldQuery(stripInvisibles(s)).replace(DROP, '').replace(NOT_LETTER, ' ').trim().split(' ').filter(Boolean);
 }
 export const lettersOnly = (s: string) => lettersOnlyWords(s).join(' ');
 

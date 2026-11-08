@@ -111,7 +111,7 @@ test('D-084 page route: behind the gate, one surah via by_chapter, counts and re
   assert.equal((await post('{"s":2}', { 'content-type': 'application/json' })).status, 401);
   const d = await (await post('{"s":2}')).json();
   assert.equal(d.status, 'ok');
-  assert.equal(d.summary.phrases, 9);
+  assert.equal(d.summary.phrases, 10);
   assert.equal(d.summary.byResult.unmatched >= 1, true);
   assert.ok(d.list.some((x: { ref: string; result: string }) => x.ref === `2:${CASE.quoteElsewhere}` && x.result === 'matched_elsewhere'));
   assert.ok(mock.state.paths.every((p) => p.startsWith(`/content/api/v4/tafsirs/${MOCK_TAFSIR_ID}/by_chapter/2?`)));

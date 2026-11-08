@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthetic } from '../fixtures/load.ts';
-import { bareAyah, uthmaniLetters, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
+import { bareAyah, uthmaniLetters, stripInvisibles, lettersIndex, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
 import { checkFingerprints, sha256Hex } from '../../src/core/tafseer-fingerprints.ts';
 import { releaseRecordProblems, runTafseerCheck, TAFSEER_RECORD_FORMAT } from '../../scripts/tafseer-release-check.ts';
 import { fingerprintEntries } from '../../scripts/tafseer-fingerprint.ts';
@@ -31,6 +31,51 @@ test('D-084 letters-only form: marks, Quranic signs, tatweel, digits and punctua
   // Alef maqsura and yeh stay apart (V-17 awaits the D-012 reviewer).
   assert.notEqual(lettersOnly(cp(0x639, 0x644, 0x649)), lettersOnly(cp(0x639, 0x644, 0x64a)));
   assert.deepEqual(lettersOnlyWords('Latin words only'), []);
+});
+
+test('API superscript alef: HAIR SPACE + U+0670 + WORD JOINER stays inside the word', () => {
+  // The exact sequence seen in the real pre-live text, built from code points: sad, kasra, ra,
+  // fatha, HAIR SPACE, superscript alef, WORD JOINER, ta, fatha.
+  const api = cp(0x635, 0x650, 0x631, 0x64e, 0x200a, 0x670, 0x2060, 0x637, 0x64e);
+  assert.deepEqual(lettersOnlyWords(api), [cp(0x635, 0x631, 0x637)]);
+  // The same word as the approved file would store it (no spaces or joiners) gives the same letters.
+  assert.equal(lettersOnly(cp(0x635, 0x650, 0x631, 0x64e, 0x670, 0x637, 0x64e)), lettersOnly(api));
+  // Every listed invisible is removed, not turned into a space.
+  for (const inv of [0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xfeff, 0xad, 0x34f, 0x61c, 0x180e]) {
+    assert.deepEqual(lettersOnlyWords(cp(0x628, inv, 0x644)), [cp(0x628, 0x644)], inv.toString(16));
+  }
+  // A narrow space before any combining mark is removed; elsewhere it still separates words.
+  for (const sp of [0x2000, 0x2005, 0x2009, 0x200a, 0x202f]) {
+    assert.deepEqual(lettersOnlyWords(cp(0x628, sp, 0x64e, 0x644)), [cp(0x628, 0x644)], sp.toString(16));
+    assert.deepEqual(lettersOnlyWords(cp(0x628, sp, 0x644)), [cp(0x628), cp(0x644)], sp.toString(16) + ' between letters');
+  }
+  // stripInvisibles changes nothing else, and the Tafseer text itself is never touched.
+  const plain = cp(0x628, 0x64e, 0x20, 0x644);
+  assert.equal(stripInvisibles(plain), plain);
+  assert.equal(api.length, 9, 'the input string is unchanged');
+});
+
+test('regression: Uthmani quotes written the API way match their own ayah (1:6 and 1:7 style)', () => {
+  // Made-up "ayat" built from code points, each with a superscript alef, as the approved file would
+  // store it; the "quote" is the same words written with HAIR SPACE + U+0670 + WORD JOINER, an ayah
+  // number inside, in ornate parentheses. Not Quran text.
+  // Made-up words (arbitrary letters with marks and a superscript alef), not Quran words.
+  const w1 = cp(0x62b, 0x64e, 0x62c, 0x652, 0x62e, 0x650, 0x632);
+  const w2 = cp(0x634, 0x64f, 0x63a, 0x64e, 0x670, 0x641, 0x650);
+  const w3 = cp(0x636, 0x64e, 0x638, 0x651, 0x64e, 0x670, 0x642, 0x652, 0x643);
+  const w4 = cp(0x630, 0x650, 0x632, 0x64e, 0x670, 0x62d, 0x64f);
+  const w5 = cp(0x62c, 0x64e, 0x636, 0x652, 0x62b, 0x650, 0x63a);
+  const stored6 = [w1, w2, w3].join(' ');
+  const stored7 = [w4, w5].join(' ');
+  const idx = lettersIndex([{ s: 9, a: 6, letters: lettersOnly(stored6) }, { s: 9, a: 7, letters: lettersOnly(stored7) }]);
+  const apiWay = (t: string) => t.replace(/\u0670/gu, '\u200a\u0670\u2060');
+  const q6 = findPhrases(`<p>${OPEN}${apiWay(stored6)} ${cp(0x666)}${CLOSE}</p>`)[0];
+  const q7 = findPhrases(`<p>${OPEN}${apiWay(stored7)} ${cp(0x667)}${CLOSE}</p>`)[0];
+  assert.ok(q6.text.includes('\u200a') && q6.text.includes('\u2060'), 'the phrase is kept as delivered');
+  assert.equal(matchPhrase(idx, q6.text, { s: 9, from: 6, to: 6 }).result, 'matched_own_ayah');
+  assert.equal(matchPhrase(idx, q7.text, { s: 9, from: 7, to: 7 }).result, 'matched_own_ayah');
+  // Before this fix the hair space split the word: the letters had one word more than the ayah.
+  assert.equal(lettersOnlyWords(q6.text).length, 3);
 });
 
 test('D-084 phrases: ( ), ornate parentheses either way, and { } as qiraah_or_quote, kept as delivered', () => {
@@ -156,7 +201,8 @@ test('release check against the mock: D-084 results are reported, never block; a
   const lone = (quoteFrom(src, 2, 20) ?? '').split(' ')[0];
   const inOwn = uthmaniLetters(ix)[ix.at.get(`2:${CASE.tooShort}`)!].split(' ').includes(lettersOnly(lone));
   assert.deepEqual(r(CASE.tooShort), inOwn ? [] : ['too_short']);
-  assert.equal(rep.quotes.phrases, 9);
+  assert.equal(rep.quotes.phrases, 10);
+  assert.deepEqual(r(CASE.apiAlef), [], 'HAIR SPACE + U+0670 + WORD JOINER inside a word: matched, not listed');
   assert.equal(rep.quotes.braces, 2);
   // Without the changed fingerprint the check passes, whatever the quote results.
   const ok = await run([{ ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' }]);
