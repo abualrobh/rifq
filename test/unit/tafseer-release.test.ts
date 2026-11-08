@@ -1,46 +1,84 @@
-// D-078 quote check, D-079 store format, and the AC15 release check, on synthetic data and the mock.
+// D-084 quote check (changes D-078), D-079 store format, and the AC15 release check, on synthetic
+// data and the mock. Phrases are cut from the synthetic source by program; no Arabic is typed here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthetic } from '../fixtures/load.ts';
-import { compareQuote, findQuotes, quranIndex, bareAyah } from '../../src/core/tafseer-quotes.ts';
+import { bareAyah, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
 import { checkFingerprints, sha256Hex } from '../../src/core/tafseer-fingerprints.ts';
 import { releaseRecordProblems, runTafseerCheck, TAFSEER_RECORD_FORMAT } from '../../scripts/tafseer-release-check.ts';
 import { fingerprintEntries } from '../../scripts/tafseer-fingerprint.ts';
-import { alter, CASE, CLOSE, createMockQf, MOCK_CLIENT_ID, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, OPEN, passageText } from '../mock/qf-mock.ts';
+import { CASE, CLOSE, createMockQf, MOCK_CLIENT_ID, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, OPEN, passageText, quoteFrom } from '../mock/qf-mock.ts';
 
 const { src, syn } = synthetic('tafseer-release');
-const ix = quranIndex(src.list);
+const ix = indexFromSource(src.list);
 const words = (s: number, a: number) => bareAyah(src.list.find((x) => x.sora === s && x.aya_no === a)!.aya_text).split(' ');
 const ENV = { QF_CLIENT_ID: MOCK_CLIENT_ID, QF_CLIENT_SECRET: MOCK_CLIENT_SECRET, QF_ENV: 'prelive', QF_TEST_BASE: 'http://127.0.0.1:9998' };
+const cp = (...c: number[]) => String.fromCodePoint(...c);
+const own = (s: number, a: number) => ({ s, from: a, to: a });
 
-test('D-078: quotes are found between ornate parentheses in either order, and braces', () => {
-  const w = words(3, 2).slice(0, 2).join(' ');
-  const q = findQuotes(`<p>a ${OPEN}${w}${CLOSE} b ${CLOSE}${w}${OPEN} c {${w}} d</p>`);
-  assert.equal(q.length, 3);
-  assert.ok(q.every((x) => x.text === w && x.via === 'delimiter'));
-  const un = findQuotes(`<p>${OPEN}${w}</p><p>${CLOSE}</p>`);
-  assert.ok(un[0].unclosed, 'a quote never runs across paragraphs');
-  assert.equal(findQuotes('<p>no quotes here</p>').length, 0);
-  const mk = findQuotes(`<p><span class="x quran">${w}</span></p>`, { pairs: [], markup: [{ tag: 'span', className: 'quran' }] });
-  assert.deepEqual(mk.map((x) => [x.via, x.text]), [['markup', w]]);
+test('D-084 letters-only form: marks, Quranic signs, tatweel, digits and punctuation go; spelling rules apply', () => {
+  // A word with fatha, shadda, sukun, tanween, superscript alef, a small high mark (U+06D6), an
+  // annotation sign (U+0610) and tatweel reads as its bare letters.
+  const bare = cp(0x628, 0x644, 0x645);
+  assert.equal(lettersOnly(cp(0x628, 0x64e, 0x651, 0x644, 0x640, 0x652, 0x670, 0x645, 0x64b, 0x6d6, 0x610)), bare);
+  // Ayah numbers in Arabic-Indic, extended and Latin digits, and punctuation, are dropped.
+  assert.deepEqual(lettersOnlyWords(`${bare} ${cp(0x662)} ${cp(0x6f3)} 7 , ${cp(0x60c)} ${bare}. "${bare}"`), [bare, bare, bare]);
+  // Alef wasla reads as alef (rule V-12, D-073; nothing added).
+  assert.equal(lettersOnly(cp(0x671, 0x644, 0x644, 0x647)), lettersOnly(cp(0x627, 0x644, 0x644, 0x647)));
+  // Hamza on alef reads as alef (V-14, D-074); a Farsi yeh as yeh (V-25, D-072).
+  assert.equal(lettersOnly(cp(0x623, 0x645, 0x631)), cp(0x627, 0x645, 0x631));
+  assert.equal(lettersOnly(cp(0x641, 0x6cc)), cp(0x641, 0x64a));
+  // Alef maqsura and yeh stay apart (V-17 awaits the D-012 reviewer).
+  assert.notEqual(lettersOnly(cp(0x639, 0x644, 0x649)), lettersOnly(cp(0x639, 0x644, 0x64a)));
+  assert.deepEqual(lettersOnlyWords('Latin words only'), []);
 });
 
-test('D-078: exact bytes on word edges pass; a one-mark change, a part word, or an unknown run fail', () => {
+test('D-084 phrases: ( ), ornate parentheses either way, and { } as qiraah_or_quote, kept as delivered', () => {
+  const w = words(3, 2).slice(0, 2).join(' ');
+  const p = findPhrases(`<p>a (${w}) b ${OPEN}${w}${CLOSE} c ${CLOSE}${w}${OPEN} d {${w}} e (x</p><p>y)</p>`);
+  assert.deepEqual(p.map((x) => [x.bracket, x.label, x.text === w, !!x.unclosed]), [
+    ['()', 'quote', true, false], ['\ufd3f\ufd3e', 'quote', true, false], ['\ufd3f\ufd3e', 'quote', true, false], ['{}', 'qiraah_or_quote', true, false], ['()', 'quote', false, true],
+  ]);
+  assert.equal(p[4].text, 'x', 'a phrase never runs across paragraphs');
+});
+
+test('D-084 matching: own ayah, same surah, elsewhere, unmatched, too short', () => {
   const w = words(5, 10);
-  const exact = w.slice(1, 4).join(' ');
-  assert.deepEqual(compareQuote(ix, { via: 'delimiter', text: ` ${exact} `, start: 0, end: 0 }), { result: 'exact', from: '5:10', to: '5:10' });
-  // Across two ayat, joined by one space.
-  const tail = words(5, 10).slice(-2).join(' '), head = words(5, 11).slice(0, 2).join(' ');
-  assert.deepEqual(compareQuote(ix, { via: 'delimiter', text: `${tail} ${head}`, start: 0, end: 0 }), { result: 'exact', from: '5:10', to: '5:11' });
-  const changed = alter(exact);
-  const r = compareQuote(ix, { via: 'delimiter', text: changed, start: 0, end: 0 });
-  assert.equal(r.result, 'mismatch');
-  const part = w[1].slice(1);
-  assert.equal(compareQuote(ix, { via: 'delimiter', text: part, start: 0, end: 0 }).result, 'mismatch', 'inside a word does not count');
-  assert.deepEqual(compareQuote(ix, { via: 'delimiter', text: 'not quran', start: 0, end: 0 }), { result: 'mismatch', reason: 'not_found' });
-  assert.deepEqual(compareQuote(ix, { via: 'delimiter', text: '  ', start: 0, end: 0 }), { result: 'mismatch', reason: 'empty' });
-  // Different spacing (a no-break space between words) is different bytes: a mismatch.
-  assert.equal(compareQuote(ix, { via: 'delimiter', text: w.slice(1, 3).join('\u00a0'), start: 0, end: 0 }).result, 'mismatch');
+  // Plain spelling with an ayah number inside still matches the own ayah.
+  const plain = w.slice(1, 4).join(' ').replace(/[\u064b-\u0652]/gu, '') + ' ' + cp(0x661, 0x660);
+  assert.equal(matchPhrase(ix, plain, own(5, 10)).result, 'matched_own_ayah');
+  assert.equal(matchPhrase(ix, w.slice(1, 4).join(' '), own(5, 11)).result, 'matched_same_surah');
+  assert.equal(matchPhrase(ix, w.slice(1, 4).join(' '), own(4, 1)).result, 'matched_elsewhere');
+  // Across two ayat, consecutive words.
+  const across = `${words(5, 10).slice(-2).join(' ')} ${words(5, 11).slice(0, 2).join(' ')}`;
+  assert.equal(matchPhrase(ix, across, { s: 5, from: 10, to: 11 }).result, 'matched_own_ayah');
+  assert.equal(matchPhrase(ix, across, own(5, 10)).result, 'matched_same_surah', 'outside the own range');
+  // Words out of order do not match.
+  assert.equal(matchPhrase(ix, [w[3], w[2], w[1]].join(' '), own(5, 10)).result, 'unmatched');
+  // One word: too short unless it is in the own ayah.
+  assert.equal(matchPhrase(ix, w[2], own(5, 10)).result, 'matched_own_ayah');
+  const lone = words(5, 30)[1];
+  const inOwn = ix.letters[ix.at.get('5:10')!].split(' ').includes(lettersOnly(lone));
+  assert.equal(matchPhrase(ix, lone, own(5, 10)).result, inOwn ? 'matched_own_ayah' : 'too_short');
+  assert.equal(matchPhrase(ix, '', own(5, 10)).result, 'too_short');
+  // Part of a word is not a word.
+  assert.equal(matchPhrase(ix, `${w[1].slice(1)} ${w[2]}`, own(5, 10)).result === 'matched_own_ayah', false);
+});
+
+test('D-084 reviewer list: everything not matched to its own ayat, all braces; CSV quoting', () => {
+  const sum = newSummary(); const list: ReviewItem[] = [];
+  const w = words(5, 10).slice(0, 3).join(' ');
+  checkPassage(ix, `<p>(${w}) {${w}} (${words(5, 20).slice(0, 3).join(' ')})</p>`, own(5, 10), '5:10', sum, list);
+  assert.equal(sum.phrases, 3);
+  assert.equal(sum.byResult.matched_own_ayah, 2);
+  assert.equal(sum.braces, 1);
+  assert.deepEqual(list.map((x) => [x.bracket, x.label, x.result]), [['{}', 'qiraah_or_quote', 'matched_own_ayah'], ['()', 'quote', 'matched_same_surah']]);
+  assert.equal(list[0].phrase, w, 'phrase as delivered');
+  const csv = reviewCsv([{ ...list[0], phrase: 'a "b", c' }]);
+  assert.ok(csv.startsWith('ref,range,bracket,label,phrase,letters_only,result,unclosed\r\n'));
+  assert.ok(csv.includes('"a ""b"", c"'));
+  // by_chapter records with identical neighbouring text form one passage with a range.
+  assert.deepEqual(chapterPassages([{ verse_key: '2:4', text: 'T' }, { verse_key: '2:3', text: 'T' }, { verse_key: '2:5', text: 'U' }, { verse_key: '2:6', text: '' }]).map((p) => [p.ref, p.from, p.to]), [['2:3', 3, 4], ['2:5', 5, 5]]);
 });
 
 test('D-079 store: format, references, hashes, dates and duplicates are checked', async () => {
@@ -69,34 +107,42 @@ test('AC15: a release needs every record, and production', () => {
   assert.equal(releaseRecordProblems({ ...ok, d076: { status: 'deferred' } }, { QF_ENV: 'production' }).length, 1);
 });
 
-test('release check against the mock: an altered quote and a changed passage fail it; the report holds no text', async () => {
+test('release check against the mock: D-084 results are reported, never block; a changed passage still fails (D-079)', async () => {
   const mock = createMockQf({ quran: src });
   const old = await sha256Hex(passageText(MOCK_TAFSIR_ID, 2, CASE.changed, undefined, 1)!);
   const good = await sha256Hex(passageText(MOCK_TAFSIR_ID, 2, CASE.reviewed)!);
-  const rep = await runTafseerCheck({
-    recordPath: syn.recordPath, record: { tafsirId: MOCK_TAFSIR_ID },
-    fingerprints: { format: 'rifq-tafseer-fingerprints/1', entries: [
-      { ref: `2:${CASE.changed}`, tafsirId: MOCK_TAFSIR_ID, sha256: old, reviewed: '2026-11-01' },
-      { ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' }] },
+  const run = (entries: { ref: string; tafsirId: number; sha256: string; reviewed: string }[]) => runTafseerCheck({
+    recordPath: syn.recordPath, record: { tafsirId: MOCK_TAFSIR_ID }, fingerprints: { format: 'rifq-tafseer-fingerprints/1', entries },
     env: ENV, mode: 'dry-run', surahs: [1, 2], fetch: mock.fetch,
   });
+  const rep = await run([{ ref: `2:${CASE.changed}`, tafsirId: MOCK_TAFSIR_ID, sha256: old, reviewed: '2026-11-01' }, { ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' }]);
   assert.equal(rep.ok, false);
+  assert.deepEqual(rep.reasons, ['D-079: 1 passages changed since review'], 'the quote check adds no reason');
   assert.equal(rep.passages, 7 + 40 - 1, 'every ayah but the one with no passage');
-  assert.equal(rep.quotes, 2);
-  assert.equal(rep.exact, 1);
-  assert.deepEqual(rep.mismatches.map((m) => [m.ref, m.result]), [[`2:${CASE.quoteAltered}`, 'mismatch']]);
-  assert.deepEqual(rep.fingerprints.changed, [`2:${CASE.changed}`]);
-  assert.equal(rep.fingerprints.matched, 1);
-  const text = JSON.stringify(rep);
-  for (const a of src.list.slice(0, 60)) for (const w of bareAyah(a.aya_text).split(' ')) if (w.length > 3) assert.ok(!text.includes(w), 'no Quran words in the report');
-  assert.ok(!text.includes('MOCK'), 'no passage text in the report');
+  const r = (ref: number) => rep.reviewerList.filter((x) => x.ref === `2:${ref}`).map((x) => x.result);
+  assert.deepEqual(r(CASE.quoteExact), [], 'own words as stored: matched, not listed');
+  assert.deepEqual(r(CASE.quoteAltered), [], 'plain spelling plus ayah number: matched, not listed');
+  assert.deepEqual(r(CASE.quoteSameSurah), ['matched_same_surah']);
+  assert.deepEqual(r(CASE.quoteElsewhere), ['matched_elsewhere']);
+  assert.deepEqual(r(CASE.quoteUnmatched), ['unmatched']);
+  const braces = rep.reviewerList.filter((x) => x.ref === `2:${CASE.braces}`);
+  assert.deepEqual(braces.map((x) => [x.label, x.result]), [['qiraah_or_quote', 'matched_own_ayah'], ['qiraah_or_quote', 'too_short']]);
+  const lone = (quoteFrom(src, 2, 20) ?? '').split(' ')[0];
+  const inOwn = ix.letters[ix.at.get(`2:${CASE.tooShort}`)!].split(' ').includes(lettersOnly(lone));
+  assert.deepEqual(r(CASE.tooShort), inOwn ? [] : ['too_short']);
+  assert.equal(rep.quotes.phrases, 9);
+  assert.equal(rep.quotes.braces, 2);
+  // Without the changed fingerprint the check passes, whatever the quote results.
+  const ok = await run([{ ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' }]);
+  assert.equal(ok.ok, true);
+  assert.ok(ok.reviewerList.some((x) => x.result === 'unmatched'));
   // In release mode, the AC15 records come first.
   const rel = await runTafseerCheck({ recordPath: syn.recordPath, record: null, fingerprints: null, env: ENV, mode: 'release', surahs: [1], fetch: mock.fetch });
   assert.equal(rel.ok, false);
-  assert.ok(rel.reasons.some((r) => r.startsWith('tafseer record missing')));
-  assert.ok(rel.reasons.some((r) => r.includes('fingerprint store missing')));
-  assert.ok(rel.reasons.some((r) => r.includes('not "production"')));
-  assert.ok(rel.reasons.some((r) => r === 'no tafsir ID to check'));
+  assert.ok(rel.reasons.some((x) => x.startsWith('tafseer record missing')));
+  assert.ok(rel.reasons.some((x) => x.includes('fingerprint store missing')));
+  assert.ok(rel.reasons.some((x) => x.includes('not "production"')));
+  assert.ok(rel.reasons.some((x) => x === 'no tafsir ID to check'));
   assert.equal(rel.passages, 0, 'nothing fetched without a recorded work');
 });
 

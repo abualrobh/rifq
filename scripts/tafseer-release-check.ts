@@ -13,8 +13,11 @@
 //    Hamzeh): D-076 approved with the tafsir ID, the work listed as approved in approved-sources.md,
 //    the D-012 reviewer's check, Hamzeh's D-008 audit, and Quran Foundation's production approval
 //    covering content.tafsirs.read. QF_ENV must be "production".
-// 2. D-078: every quote found in every passage matches the approved Quran file exactly (see
-//    src/core/tafseer-quotes.ts for what "found" and "matches" mean and their limits).
+// 2. D-078 as changed by D-084: the quote check runs over every passage and its results are
+//    reported (counts, and a reviewer list of the phrases it could not match to their own ayat),
+//    but it never blocks a release. See src/core/tafseer-quotes.ts for the method and its limits.
+//    The reviewer list holds the phrases as delivered, which are Tafseer text, so the --out file
+//    is private: keep it in the private data area, never in the public repository.
 // 3. D-079: every passage that has a fingerprint still matches it.
 // 4. Every passage was fetched (no API error), and the fingerprint store is valid.
 // A dry run (--mode dry-run) skips item 1, for testing against the mock. It is never release evidence.
@@ -23,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { loadSource } from '../src/core/source-adapter.ts';
 import { checkFingerprints, fingerprintMap, sha256Hex, type FingerprintFile } from '../src/core/tafseer-fingerprints.ts';
-import { compareQuote, DEFAULT_MARKERS, findQuotes, quranIndex, type QuoteMarkers } from '../src/core/tafseer-quotes.ts';
+import { chapterPassages, checkPassage, indexFromSource, newSummary, type QuoteSummary, type ReviewItem } from '../src/core/tafseer-quotes.ts';
 import { byChapterPath, parseByChapter, QfClient, qfConfig, QfError, SCOPE, type QfSecrets } from '../src/worker/qf.ts';
 
 export type TafseerRecord = {
@@ -35,7 +38,7 @@ export type TafseerRecord = {
   d008Audit?: { date?: string } | null;
   qfProductionApproval?: { date?: string; scopes?: string[] } | null;
   title?: string | null; author?: string | null; edition?: string | null; publisher?: string | null;
-  quoteMarkers?: QuoteMarkers | null;
+  quoteMarkers?: unknown;
 };
 export const TAFSEER_RECORD_FORMAT = 'rifq-tafseer-record/1';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -55,13 +58,12 @@ export function releaseRecordProblems(r: TafseerRecord | null, env: QfSecrets): 
   return out;
 }
 
-export type QuoteFinding = { ref: string; quote: number; via: string; length: number; sha256: string; result: string; reason?: string; from?: string; to?: string };
 export type CheckReport = {
   ok: boolean; mode: 'release' | 'dry-run'; reasons: string[];
   tafsirId: number | null; qfEnv: string | null; quranSha256: string;
-  surahs: number; passages: number; passagesWithQuotes: number; quotes: number; exact: number; mismatches: QuoteFinding[];
+  surahs: number; passages: number; passagesWithPhrases: number; quotes: QuoteSummary; reviewerList: ReviewItem[];
   fingerprints: { entries: number; checked: number; matched: number; changed: string[]; notReviewed: number };
-  apiErrors: string[]; markers: QuoteMarkers;
+  apiErrors: string[];
 };
 
 export async function runTafseerCheck(opts: {
@@ -74,24 +76,23 @@ export async function runTafseerCheck(opts: {
   const reasons = opts.mode === 'release' ? releaseRecordProblems(opts.record, opts.env) : [];
   const fpProblems = opts.fingerprints ? checkFingerprints(opts.fingerprints, counts) : ['fingerprint store missing'];
   reasons.push(...fpProblems.map((p) => 'fingerprints: ' + p));
-  const markers = opts.record?.quoteMarkers ?? DEFAULT_MARKERS;
   const tafsirId = Number.isInteger(opts.record?.tafsirId) ? (opts.record!.tafsirId as number) : null;
   const rep: CheckReport = {
     ok: false, mode: opts.mode, reasons, tafsirId, qfEnv: opts.env.QF_ENV ?? null, quranSha256: src.sha256 as string,
-    surahs: 0, passages: 0, passagesWithQuotes: 0, quotes: 0, exact: 0, mismatches: [],
+    surahs: 0, passages: 0, passagesWithPhrases: 0, quotes: newSummary(), reviewerList: [],
     fingerprints: { entries: opts.fingerprints?.entries.length ?? 0, checked: 0, matched: 0, changed: [], notReviewed: 0 },
-    apiErrors: [], markers,
+    apiErrors: [],
   };
   const q = qfConfig(opts.env, opts.mode === 'dry-run');
   if ('missing' in q) { reasons.push('Quran Foundation settings missing: ' + q.missing.join(', ')); return rep; }
   if (tafsirId === null) { reasons.push('no tafsir ID to check'); return rep; }
   const client = new QfClient(opts.fetch);
-  const ix = quranIndex(src.list);
+  const ix = indexFromSource(src.list);
   const prints = fingerprintMap(opts.fingerprints);
   const surahs = opts.surahs ?? Array.from({ length: counts.length - 1 }, (_, i) => i + 1);
-  const seen = new Set<string>();
   for (const s of surahs) {
     rep.surahs++;
+    const items: { verse_key: string; text: string }[] = [];
     let page: number | null = 1;
     while (page !== null) {
       let got: ReturnType<typeof parseByChapter>;
@@ -101,31 +102,29 @@ export async function runTafseerCheck(opts: {
         rep.apiErrors.push(`surah ${s} page ${page}: ${e instanceof QfError ? e.kind : 'error'}`);
         break;
       }
-      for (const it of got.items) {
-        if (seen.has(it.verse_key)) continue;
-        seen.add(it.verse_key);
-        rep.passages++;
-        const found = findQuotes(it.text, markers);
-        if (found.length) rep.passagesWithQuotes++;
-        found.forEach((fq, n) => {
-          rep.quotes++;
-          const r = compareQuote(ix, fq);
-          if (r.result === 'exact') { rep.exact++; return; }
-          rep.mismatches.push({ ref: it.verse_key, quote: n + 1, via: fq.via, length: [...fq.text].length, sha256: createHash('sha256').update(fq.text, 'utf8').digest('hex').slice(0, 16), result: r.result, reason: r.reason });
-        });
-        const e = prints.get(`${tafsirId}|${it.verse_key}`);
-        if (e) {
-          rep.fingerprints.checked++;
-          if ((await sha256Hex(it.text)) === e.sha256) rep.fingerprints.matched++;
-          else rep.fingerprints.changed.push(it.verse_key);
-        } else rep.fingerprints.notReviewed++;
-      }
+      items.push(...got.items);
       page = got.next;
       if (page !== null && opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
     }
+    const seen = new Set<string>();
+    for (const it of items) {
+      if (seen.has(it.verse_key)) continue;
+      seen.add(it.verse_key);
+      rep.passages++;
+      const e = prints.get(`${tafsirId}|${it.verse_key}`);
+      if (e) {
+        rep.fingerprints.checked++;
+        if ((await sha256Hex(it.text)) === e.sha256) rep.fingerprints.matched++;
+        else rep.fingerprints.changed.push(it.verse_key);
+      } else rep.fingerprints.notReviewed++;
+    }
+    for (const p of chapterPassages(items)) {
+      const before = rep.quotes.phrases;
+      checkPassage(ix, p.text, { s: p.s, from: p.from, to: p.to }, p.ref, rep.quotes, rep.reviewerList);
+      if (rep.quotes.phrases > before) rep.passagesWithPhrases++;
+    }
   }
   if (rep.apiErrors.length) reasons.push(`${rep.apiErrors.length} API errors: not every passage was checked`);
-  if (rep.mismatches.length) reasons.push(`D-078: ${rep.mismatches.length} Quran quotes do not match the approved file`);
   if (rep.fingerprints.changed.length) reasons.push(`D-079: ${rep.fingerprints.changed.length} passages changed since review`);
   rep.ok = reasons.length === 0;
   return rep;
@@ -144,7 +143,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     env: process.env as QfSecrets, mode, surahs: a('surahs')?.split(',').map(Number), delayMs: Number(a('delay-ms') ?? '250'),
   });
   if (a('out')) writeFileSync(a('out')!, JSON.stringify(rep, null, 2));
-  const { mismatches, ...short } = rep;
-  console.log(JSON.stringify({ ...short, mismatches: mismatches.length, firstMismatches: mismatches.slice(0, 5) }));
+  // The console gets counts only: the reviewer list holds Tafseer phrases and goes to --out.
+  const { reviewerList, ...short } = rep;
+  console.log(JSON.stringify({ ...short, reviewerList: reviewerList.length }));
   process.exit(rep.ok ? 0 : 4);
 }

@@ -100,3 +100,22 @@ test('shape page: behind the gate in development builds; shows paths and parser 
   assert.ok((await (await get('')).text()).includes('Show shape'));
   assert.equal((await worker(false).fetch(new Request('http://127.0.0.1/dev/tafseer-shape/?kind=ayah&ref=1:1'), ENV as never)).status, 404);
 });
+
+test('D-084 page route: behind the gate, one surah via by_chapter, counts and reviewer list', async () => {
+  const { lettersOnly, bareAyah } = await import('../../src/core/tafseer-quotes.ts');
+  const mock = createMockQf({ quran: src });
+  const lettersQuran = { counts: [0, ...SYN_COUNTS.slice(1)], letters: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))) };
+  const w = makeWorker(ab, { dev: true, gate: true, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, counts: [0, ...SYN_COUNTS.slice(1)], tafseerLimit: 1000, lettersQuran }, { fetch: mock.fetch, cache: () => null, pauseMs: 0 } as never);
+  const env = { ...ENV, TAFSIR_ID: String(MOCK_TAFSIR_ID) };
+  const post = (body: string, h: Record<string, string> = { ...auth, 'content-type': 'application/json' }) => w.fetch(new Request('http://127.0.0.1/api/dev/quote-check', { method: 'POST', headers: h, body }), env as never);
+  assert.equal((await post('{"s":2}', { 'content-type': 'application/json' })).status, 401);
+  const d = await (await post('{"s":2}')).json();
+  assert.equal(d.status, 'ok');
+  assert.equal(d.summary.phrases, 9);
+  assert.equal(d.summary.byResult.unmatched >= 1, true);
+  assert.ok(d.list.some((x: { ref: string; result: string }) => x.ref === `2:${CASE.quoteElsewhere}` && x.result === 'matched_elsewhere'));
+  assert.ok(mock.state.paths.every((p) => p.startsWith(`/content/api/v4/tafsirs/${MOCK_TAFSIR_ID}/by_chapter/2?`)));
+  assert.equal((await post('{"s":0}')).status, 400);
+  const off = makeWorker(ab, { dev: true, gate: false, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, lettersQuran }, { fetch: mock.fetch });
+  assert.equal((await off.fetch(new Request('http://127.0.0.1/api/dev/quote-check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"s":2}' }), env as never)).status, 404);
+});

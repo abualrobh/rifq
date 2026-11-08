@@ -22,6 +22,8 @@ export const PRELIVE_SURAHS = new Set([1, 2]);
 export const CASE = {
   grouped: [3, 4, 5], hostile: 6, none: 7, error500: 8, rate429: 9, slow: 10,
   quoteExact: 11, quoteAltered: 12, changed: 13, reviewed: 14,
+  // D-084 cases, every phrase cut from the source by program (see passageText).
+  quoteSameSurah: 15, quoteElsewhere: 16, quoteUnmatched: 17, braces: 18, tooShort: 19, wasla: 27,
 } as const;
 // Ornate parentheses, written as escapes (the public-repository check allows no Arabic-block
 // characters outside the strings file).
@@ -58,9 +60,27 @@ export function passageText(id: number, s: number, a: number, q?: Quran, version
       + `<span style="color:red" onclick="window.__pwned=4">styled words</span> <svg onload="window.__pwned=5"><text>svg words</text></svg></p>`
       + `<style>body{display:none}</style><p>second paragraph &#x41;&#66;</p>`;
   }
-  if (s === 2 && (a === CASE.quoteExact || a === CASE.quoteAltered)) {
-    const qt = quoteFrom(q, 2, a);
-    const body = qt === null ? '(no source given)' : `${OPEN}${a === CASE.quoteAltered ? alter(qt) : qt}${CLOSE}`;
+  // D-084 quote cases. 11: own words in ornate parentheses, as stored. 12: own words in ( ) with
+  // every vowel mark removed and an Arabic-Indic ayah number inside (plain spelling, as observed in
+  // Jalalayn). 15: words of 2:20 (same surah). 16: words of 1:2 (another surah). 17: own words with
+  // every letter shifted one code point (cannot match). 18: a qira'ah in braces (one own word) and
+  // braces around shifted letters. 19: one word from 2:20 alone (too short). 27: own words with
+  // the first plain alef written as alef wasla (Uthmani style).
+  const D084 = [CASE.quoteExact, CASE.quoteAltered, CASE.quoteSameSurah, CASE.quoteElsewhere, CASE.quoteUnmatched, CASE.braces, CASE.tooShort, CASE.wasla] as number[];
+  if (s === 2 && D084.includes(a)) {
+    const own = quoteFrom(q, 2, a);
+    if (own === null) return `<p>MOCK QUOTE 2:${a} (no source given). Not Tafseer.</p>`;
+    const plain = (x: string) => x.replace(/[\u064b-\u0652\u0670]/gu, '');
+    const shift = (x: string) => [...x].map((c) => (/[\u0628-\u0639]/u.test(c) ? String.fromCodePoint(c.codePointAt(0)! + 1) : c)).join('');
+    let body = '';
+    if (a === CASE.quoteExact) body = `${OPEN}${own}${CLOSE}`;
+    else if (a === CASE.quoteAltered) body = `(${plain(own)} ${String.fromCodePoint(0x662)})`;
+    else if (a === CASE.quoteSameSurah) body = `(${quoteFrom(q, 2, 20)})`;
+    else if (a === CASE.quoteElsewhere) body = `(${quoteFrom(q, 1, 2)})`;
+    else if (a === CASE.quoteUnmatched) body = `(${shift(own)})`;
+    else if (a === CASE.braces) body = `{${own.split(' ')[0]}} and {${shift(own.split(' ')[0])}}`;
+    else if (a === CASE.tooShort) body = `(${(quoteFrom(q, 2, 20) ?? '').split(' ')[0]})`;
+    else if (a === CASE.wasla) body = `(${own.replace('\u0627', '\u0671')})`;
     return `<p>MOCK QUOTE 2:${a} before ${body} after. Not Tafseer.</p>`;
   }
   if (s === 2 && a === CASE.changed) return `<p>MOCK PASSAGE 2:${a} version ${version}. Not Tafseer.</p>`;
