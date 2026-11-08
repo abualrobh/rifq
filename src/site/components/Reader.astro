@@ -2,8 +2,8 @@
 import Layout from '../layouts/Layout.astro';
 import Search from '../islands/Search.tsx';
 import ReaderTools from '../islands/ReaderTools.tsx';
-import { surahs } from '../lib/data';
-import { t, homePath, surahPath, type Lang } from '../../core/strings.ts';
+import { surahs, tafseerOn } from '../lib/data';
+import { t, homePath, surahPath, tafseerPath, type Lang } from '../../core/strings.ts';
 import type { Surah } from '../../core/source-adapter.ts';
 interface Props { surah: Surah; lang: Lang }
 const { surah, lang } = Astro.props;
@@ -32,6 +32,7 @@ const name = lang === 'ar' ? surah.ar : surah.en;
         <button type="button" class="bm" data-a={a.aya_no} aria-pressed="false" aria-label={t(lang, 'bookmarkOff', { a: a.aya_no })} data-pending tabindex="-1">
           <span aria-hidden="true" class="bm-off">&#9734;</span><span aria-hidden="true" class="bm-on">&#9733;</span>
         </button>
+        {tafseerOn && <a class="tf-link" href={tafseerPath(lang, a.sora, a.aya_no)} aria-label={t(lang, 'tafseerOf', { a: a.aya_no })} data-tf-link>{t(lang, 'tafseerShort')}</a>}
       </li>
     ))}
   </ol>

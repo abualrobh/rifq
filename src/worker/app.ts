@@ -6,15 +6,21 @@
 // without the Worker, and the Worker adds the security headers itself, because the platform does not
 // apply _headers to responses the Worker returns. Failed sign-ins are limited per network address
 // with a lockout (D-071, M-2), and the gate fails closed if that limit cannot be checked.
+// With the build flag tafseer on (cfg.tafseer), POST /api/tafseer answers for one ayah from the
+// Quran Foundation API (RQ-005, src/worker/tafseer.ts), and development builds with the gate on
+// also serve the private catalogue page used to decide D-076.
 import { handleJson, MAX_BODY, runQuery, type ApiOut } from '../core/api.ts';
 import { MemoryLimiter, SERVER_LIMIT, WINDOW_MS } from '../core/ratelimit.ts';
 import { openIndex } from '../core/search-core.ts';
 import type { Lang } from '../core/strings.ts';
 import { authorised, REALM, SignInGuard, type GateEnv, type RateLimit } from './gate.ts';
 import { renderPage, type PageCfg } from './page.ts';
+import { makeVerify, type VerifyHashes } from './verify.ts';
+import { CATALOGUE_PATH, SHAPE_PATH, makeTafseer, TAFSEER_LIMIT_PER_MINUTE, type TafseerCfg, type TafseerEnv } from './tafseer.ts';
 
-export type WorkerCfg = PageCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string> };
-export type Env = GateEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit };
+export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; verifyHashes?: VerifyHashes | null };
+export type Env = GateEnv & TafseerEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit; TAFSEER_LIMIT?: RateLimit };
+export type WorkerDeps = Parameters<typeof makeTafseer>[1];
 
 const BASE_HEADERS: Record<string, string> = {
   'cache-control': 'no-store',
@@ -131,21 +137,76 @@ function withHeaders(r: Response, set: Record<string, string>): Response {
   return out;
 }
 
-export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg) {
+const MAX_TAFSEER_BODY = 256;
+export const FONT_CHECK_PATH = '/dev/font-check/';
+// Documented in the Font Rendering guide: https://verses.quran.foundation/fonts/quran/...
+export const QF_FONT_ORIGIN = 'https://verses.quran.foundation';
+
+export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDeps = {}) {
   const ix = openIndex(indexBuf);
   const mem = new MemoryLimiter(cfg.serverLimit ?? SERVER_LIMIT, WINDOW_MS);
+  const tfMem = new MemoryLimiter(cfg.tafseerLimit ?? TAFSEER_LIMIT_PER_MINUTE, WINDOW_MS);
+  const tafseer = cfg.tafseer ? makeTafseer(cfg, deps) : null;
+  const catalogueOn = !!(tafseer && cfg.dev && cfg.gate);
+  // D-081: development builds behind the password gate only.
+  const verify = cfg.dev && cfg.gate && cfg.verifyHashes ? makeVerify(cfg.verifyHashes, cfg.dev, deps) : null;
   const guard = new SignInGuard();
   const assetHeaders = cfg.assetHeaders ? { ...BASE_HEADERS, ...cfg.assetHeaders } : null;
   if (assetHeaders) delete (assetHeaders as Record<string, string>)['cache-control'];
 
   async function handle(req: Request, env: Env): Promise<Response> {
-    const { pathname } = new URL(req.url);
+    const url = new URL(req.url);
+    const { pathname } = url;
+    // D-076 helper: development builds behind the password gate only.
+    if (catalogueOn && tafseer && (pathname === CATALOGUE_PATH || pathname === CATALOGUE_PATH.slice(0, -1))) {
+      if (req.method !== 'GET') return json(405, { error: 'method' }, { allow: 'GET' });
+      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
+      const c = await tafseer.catalogue(url.origin, env);
+      return html(c.status, c.html);
+    }
+    if (catalogueOn && tafseer && (pathname === SHAPE_PATH || pathname === SHAPE_PATH.slice(0, -1))) {
+      if (req.method !== 'GET') return json(405, { error: 'method' }, { allow: 'GET' });
+      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
+      const c = await tafseer.shape(env, url.searchParams);
+      return html(c.status, c.html);
+    }
     if (!pathname.startsWith('/api/')) {
       if (env.ASSETS) {
         const r = await env.ASSETS.fetch(req);
-        return assetHeaders ? withHeaders(r, assetHeaders) : r;
+        if (!assetHeaders) return r;
+        // Font check page (development builds only): the one page allowed to load the QPC Hafs font
+        // from Quran Foundation's documented font address.
+        if (cfg.dev && (pathname === FONT_CHECK_PATH || pathname === FONT_CHECK_PATH.slice(0, -1))) {
+          const csp = (assetHeaders['Content-Security-Policy'] ?? '').replace("font-src 'self'", `font-src 'self' ${QF_FONT_ORIGIN}`);
+          return withHeaders(r, { ...assetHeaders, 'Content-Security-Policy': csp });
+        }
+        return withHeaders(r, assetHeaders);
       }
       return new Response('Not found', { status: 404, headers: BASE_HEADERS });
+    }
+    if (pathname === '/api/dev/verify-text' && verify) {
+      if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
+      if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
+      if (crossSite(req)) return json(403, { status: 'cross_site' });
+      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const raw = await readCapped(req, MAX_TAFSEER_BODY);
+      let s = 0;
+      try { s = typeof raw === 'string' ? Number((JSON.parse(raw) as { s?: unknown }).s) : 0; } catch { s = 0; }
+      const out = await verify.surah(env, s);
+      return json(out.status, out.data);
+    }
+    if (pathname === '/api/tafseer' && tafseer) {
+      if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
+      if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
+      if (crossSite(req)) return json(403, { status: 'cross_site' });
+      const k = netKey(req);
+      const ok = env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: k })).success : tfMem.allow(k);
+      if (!ok) return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const raw = await readCapped(req, MAX_TAFSEER_BODY);
+      if (raw === 'bad_length') return json(400, { status: 'bad_length' });
+      if (raw === null) return json(413, { status: 'too_long' });
+      const out = await tafseer.api(url.origin, raw, env);
+      return json(out.status, out.data);
     }
     if (pathname !== '/api/search') return json(404, { error: 'not_found' });
     if (req.method !== 'POST') return json(405, { error: 'method' }, { allow: 'POST' });

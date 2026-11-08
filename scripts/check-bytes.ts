@@ -50,9 +50,13 @@ export function compareSurahPage(src: Pick<Source, 'list' | 'slices'>, s: number
   }
 }
 
-export function checkBuilt(src: Pick<Source, 'list' | 'slices'>, siteDir: string): ByteReport[] {
+// Reader routes, and the RQ-005 Tafseer routes (AC5) when the build has Tafseer on.
+export const READER_ROUTES = ['', 'en/'];
+export const TAFSEER_ROUTES = ['tafseer/', 'en/tafseer/'];
+
+export function checkBuilt(src: Pick<Source, 'list' | 'slices'>, siteDir: string, routes: string[] = READER_ROUTES): ByteReport[] {
   const nSurah = src.list[src.list.length - 1].sora;
-  return ['', 'en/'].map((route) => {
+  return routes.map((route) => {
     const rep: ByteReport = { route: '/' + route, pages: 0, ayat: 0, equal: 0, mismatches: [], refErrors: [] };
     for (let s = 1; s <= nSurah; s++) {
       const f = join(siteDir, route, String(s), 'index.html');
@@ -63,13 +67,13 @@ export function checkBuilt(src: Pick<Source, 'list' | 'slices'>, siteDir: string
   });
 }
 
-export async function checkHttp(src: Pick<Source, 'list' | 'slices'>, base: string): Promise<ByteReport[]> {
+export async function checkHttp(src: Pick<Source, 'list' | 'slices'>, base: string, routes: string[] = READER_ROUTES, headers: Record<string, string> = {}): Promise<ByteReport[]> {
   const nSurah = src.list[src.list.length - 1].sora;
   const out: ByteReport[] = [];
-  for (const route of ['', 'en/']) {
+  for (const route of routes) {
     const rep: ByteReport = { route: '/' + route, pages: 0, ayat: 0, equal: 0, mismatches: [], refErrors: [] };
     for (let s = 1; s <= nSurah; s++) {
-      const r = await fetch(`${base}/${route}${s}/`, { headers: { 'accept-encoding': 'gzip' } });
+      const r = await fetch(`${base}/${route}${s}/`, { headers: { 'accept-encoding': 'gzip', ...headers } });
       if (!r.ok) { rep.refErrors.push(`HTTP ${r.status} for ${route}${s}`); continue; }
       compareSurahPage(src, s, Buffer.from(await r.arrayBuffer()), rep);
     }
@@ -91,15 +95,16 @@ export function scanClientJs(src: Pick<Source, 'slices'>, siteDir: string): { fi
   return { files: files.length, hits };
 }
 
-// CLI: node scripts/check-bytes.ts --record <source-record.json> [--site <dir>] [--http <base-url>]
+// CLI: node scripts/check-bytes.ts --record <source-record.json> [--site <dir>] [--http <base-url>] [--tafseer]
 import { fileURLToPath } from 'node:url';
 import { loadSource } from '../src/core/source-adapter.ts';
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const a = (k: string) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : undefined; };
   const src = loadSource(a('record')!);
   const reps: ByteReport[] = [];
-  if (a('site')) reps.push(...checkBuilt(src, a('site')!));
-  if (a('http')) reps.push(...(await checkHttp(src, a('http')!)));
+  const routes = process.argv.includes('--tafseer') ? [...READER_ROUTES, ...TAFSEER_ROUTES] : READER_ROUTES;
+  if (a('site')) reps.push(...checkBuilt(src, a('site')!, routes));
+  if (a('http')) reps.push(...(await checkHttp(src, a('http')!, routes)));
   const summary = reps.map((r) => ({ route: r.route, via: a('http') ? 'http' : 'file', pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches.length, refErrors: r.refErrors.length, firstProblems: [...r.mismatches, ...r.refErrors].slice(0, 5) }));
   console.log(JSON.stringify(summary));
   process.exit(reps.every((r) => r.equal === src.list.length && !r.mismatches.length && !r.refErrors.length) ? 0 : 1);

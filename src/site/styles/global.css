@@ -110,4 +110,23 @@ h2 { font-size: 1.25rem; font-weight: 600; margin-block: 1.5rem .5rem; }
 .toast { position: sticky; bottom: 0; margin: 0; background: var(--bg); color: var(--fg); padding: .25rem 0; min-height: 1.5rem; font-weight: 600; }
 .toast:empty { padding: 0; min-height: 0; }
 
+/* RQ-005 Tafseer. The per-ayah link in the reader is a 44 px target. On the Tafseer screen the
+   Quran and Tafseer sections are separate boxes with their own headings (AC6). Both follow the
+   reader's text size and night mode (AC20). The Tafseer font is not decided (RQ-005 open
+   question), so Tafseer text uses the system font, which also keeps it visibly apart from the
+   Quran text. */
+.tf-link { flex: none; display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; min-width: 2.75rem; padding-inline: .25rem; font-size: .85rem; box-sizing: border-box; }
+.tf-section { border: 1px solid var(--border); border-radius: .5rem; padding: .25rem 1rem .75rem; margin-block: 1rem; }
+.tf-section > h2 { margin-block: .5rem; }
+.tf-ayat { list-style: none; padding: 0; margin: 0; }
+.tf-ref { font-size: .9rem; color: var(--muted); margin: .25rem 0; }
+.tf-text { font-family: system-ui, sans-serif; font-size: calc(var(--ayah-size, 1.5rem) * .75); line-height: 1.9; overflow-wrap: anywhere; }
+.tf-text p { margin-block: .5rem; }
+.tf-range { font-weight: 600; margin-block: .5rem; }
+.tf-review, .tf-credit { font-size: .875rem; color: var(--muted); margin-block: .5rem; }
+.tf-source summary { padding-block: .75rem; cursor: pointer; }
+.tf-source dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; font-size: .9rem; }
+.tf-source dd { margin: 0; }
+.tf-nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-block: .5rem; }
+
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

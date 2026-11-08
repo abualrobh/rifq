@@ -75,6 +75,36 @@ const ar = {
   notFound: 'الصفحة غير موجودة.',
   noScriptSearch: 'تعمل نتائج البحث بدون جافاسكربت أيضًا.',
   backToSearch: 'العودة',
+  tafseerShort: 'تفسير',
+  tafseerOf: 'تفسير الآية {a}',
+  tafseerTitle: 'التفسير',
+  quranSection: 'نص القرآن',
+  tafseerSection: 'التفسير',
+  tafseerLoading: 'جارٍ تحميل التفسير…',
+  tafseerNone: 'لا يتوفر تفسير لهذه الآية.',
+  tafseerUnavailable: 'التفسير غير متاح الآن. القراءة متاحة كالمعتاد.',
+  tafseerChanged: 'تغيّر نص هذا التفسير منذ مراجعته بتاريخ {d}، لذلك لا يُعرض حتى تتم مراجعته من جديد.',
+  tafseerNotConfigured: 'لم يُضبط رقم عمل التفسير في الموقع بعد (D-076)، لذلك لا يُعرض تفسير.',
+  tafseerAuthAgain: 'يحتاج التفسير إلى كلمة مرور موقع الاختبار من جديد. أعد تحميل الصفحة لإدخالها.',
+  tafseerRange: 'يشمل هذا التفسير السورة {s}، الآيات من {from} إلى {to}.',
+  tafseerSourceDetails: 'تفاصيل مصدر التفسير',
+  tfTitle: 'العنوان',
+  tfAuthor: 'المؤلف',
+  tfEdition: 'الطبعة أو الإصدار',
+  tfPublisher: 'الناشر',
+  tfProvider: 'مصدر البيانات',
+  tfLanguage: 'اللغة',
+  tfId: 'رقم العمل',
+  notStated: 'غير مذكور',
+  tafseerCredit: 'التفسير مقدَّم من Quran Foundation.',
+  reviewMatch: 'يطابق هذا النص النصَّ الذي رُوجع بتاريخ {d}.',
+  reviewNone: 'لم تتم مراجعة هذا النص بعد (D-012).',
+  prevAyah: 'الآية السابقة',
+  nextAyah: 'الآية التالية',
+  ayahNavLabel: 'التنقل بين الآيات',
+  backToReading: 'العودة إلى القراءة',
+  tafseerNoScript: 'يحتاج عرض التفسير إلى تفعيل جافاسكربت. نص الآية معروض أعلاه.',
+  tafseerDevNote: 'نسخة تطوير: ميزة التفسير غير معتمدة للإصدار بعد (D-076، D-012، D-008).',
 };
 
 const en: typeof ar = {
@@ -149,6 +179,36 @@ const en: typeof ar = {
   notFound: 'Page not found.',
   noScriptSearch: 'Search results also work without JavaScript.',
   backToSearch: 'Back',
+  tafseerShort: 'Tafseer',
+  tafseerOf: 'Tafseer of ayah {a}',
+  tafseerTitle: 'Tafseer',
+  quranSection: 'Quran text',
+  tafseerSection: 'Tafseer',
+  tafseerLoading: 'Loading the Tafseer…',
+  tafseerNone: 'No Tafseer is available for this ayah.',
+  tafseerUnavailable: 'Tafseer is unavailable for now. Reading still works.',
+  tafseerChanged: 'This Tafseer has been updated since it was reviewed on {d}, so it is not shown until it is reviewed again.',
+  tafseerNotConfigured: 'The Tafseer work is not set on this site yet (D-076), so no Tafseer is shown.',
+  tafseerAuthAgain: 'Tafseer needs the test site password again. Reload the page to enter it.',
+  tafseerRange: 'This passage covers surah {s}, ayat {from} to {to}.',
+  tafseerSourceDetails: 'Tafseer source details',
+  tfTitle: 'Title',
+  tfAuthor: 'Author',
+  tfEdition: 'Edition or version',
+  tfPublisher: 'Publisher',
+  tfProvider: 'Data source',
+  tfLanguage: 'Language',
+  tfId: 'Work ID',
+  notStated: 'not stated',
+  tafseerCredit: 'Tafseer provided by Quran Foundation.',
+  reviewMatch: 'This text matches the text reviewed on {d}.',
+  reviewNone: 'This text has not been reviewed yet (D-012).',
+  prevAyah: 'Previous ayah',
+  nextAyah: 'Next ayah',
+  ayahNavLabel: 'Ayah navigation',
+  backToReading: 'Back to reading',
+  tafseerNoScript: 'Showing the Tafseer needs JavaScript. The ayah text is shown above.',
+  tafseerDevNote: 'Development build: Tafseer is not approved for release yet (D-076, D-012, D-008).',
 };
 
 export type Key = keyof typeof ar;
@@ -161,6 +221,8 @@ export function t(lang: Lang, key: Key, vars: Record<string, string | number> = 
 export const homePath = (lang: Lang) => (lang === 'ar' ? '/' : '/en/');
 export const surahPath = (lang: Lang, s: number) => `${homePath(lang)}${s}/`;
 export const ayahPath = (lang: Lang, s: number, a: number) => `${surahPath(lang, s)}#a${a}`;
+// RQ-005: the Tafseer screen for one surah; the ayah is in the hash, which is not sent to the server.
+export const tafseerPath = (lang: Lang, s: number, a?: number) => `${homePath(lang)}tafseer/${s}/${a ? `#a${a}` : ''}`;
 
 // Words that would signal an account or sign-in prompt. RIFQ has none; tests check that no page
 // shows any of them (RQ-001 AC1, RQ-003 AC5 and AC6).
