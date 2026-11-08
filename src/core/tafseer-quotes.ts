@@ -70,11 +70,15 @@ export const stripInvisibles = (s: string) => s.replace(NARROW_BEFORE_MARK, '').
 // U+0654 and alef + U+0655 are canonical equivalents in Unicode; alef maqsura as the base and a
 // hamza BELOW on yeh or waw are not, and are composed because the API writes the yeh seat that way.
 const HAMZA_SEAT = new RegExp(`([${cls([[0x627, 0x627], [0x648, 0x648], [0x649, 0x64a]])}])(\\p{Mn}*?)([${cls([[0x654, 0x655]])}])`, 'gu');
+// Step 1b (encoding equivalence, 2:72): a combining hamza that step 1a did not compose onto a
+// seat (for example after tatweel or after a superscript alef) becomes the seatless hamza letter
+// U+0621, as the approved file writes it, instead of being removed with the marks.
+const LONE_HAMZA = new RegExp(`[${cls([[0x654, 0x655]])}]`, 'gu');
 export function composeHamza(s: string): string {
   return s.replace(HAMZA_SEAT, (_m, base: string, mid: string, hamza: string) => {
     const to = base === '\u0627' ? (hamza === '\u0654' ? '\u0623' : '\u0625') : base === '\u0648' ? '\u0624' : '\u0626';
     return to + mid;
-  });
+  }).replace(LONE_HAMZA, '\u0621');
 }
 
 export function lettersOnlyWords(s: string): string[] {
@@ -147,8 +151,8 @@ export type MatchedForm = 'uthmani' | 'emlaey' | 'both' | null;
 // in all (a one-letter piece, or a two-letter split piece) is a "fragment": counted, but left off
 // the reviewers' list, unless it matches whole words of its own ayah range. Braces are still
 // always listed (a one-letter reading can matter).
-// At each level (own ayah range, same surah, anywhere) an exact match is tried first, then an
-// edge match; the first level that matches decides the result. `form` says which form(s) matched
+// At the own-ayah level an exact match is tried first, then an edge match; at the same surah and
+// anywhere only exact whole words count. The first level that matches decides the result. `form` says which form(s) matched
 // there, and `match` whether it was exact or edge.
 export const FRAGMENT_MAX_LETTERS = 2;
 
@@ -179,11 +183,17 @@ export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; 
   if (words.length < 2) return out('too_short');
   // Edge needle: no space before the first word or after the last, so the first word may be the
   // end of a Quran word and the last word the start of one; inner spaces keep every other word whole.
+  // Edge matches only at the own-ayah level; the same surah and anywhere need exact whole words,
+  // so a different letter at a word edge (as in a reading with ta for ya) cannot be matched to some
+  // other word elsewhere.
   for (const [result, text] of levels) {
-    const e = result === 'matched_own_ayah' ? null : at(text, exact);
+    if (result === 'matched_own_ayah') {
+      const g = at(text, letters);
+      if (g) return out(result, g, 'edge');
+      continue;
+    }
+    const e = at(text, exact);
     if (e) return out(result, e, 'exact');
-    const g = at(text, letters);
-    if (g) return out(result, g, 'edge');
   }
   return out('unmatched');
 }

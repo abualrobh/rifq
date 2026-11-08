@@ -108,10 +108,13 @@ test('QPC encodings: a base letter plus a combining hamza composes to the hamza 
   assert.equal(composeHamza(cp(0x627, 0x655)), cp(0x625));
   // After composing, the approved rules apply as before: V-14 reads alef with hamza as alef.
   assert.equal(lettersOnly(cp(0x627, 0x654, 0x62b, 0x632)), cp(0x627, 0x62b, 0x632));
-  // A hamza mark on any other letter, or after a letter, is not composed (removed with the marks).
-  assert.equal(composeHamza(cp(0x628, 0x654)), cp(0x628, 0x654));
-  assert.equal(lettersOnly(cp(0x628, 0x654, 0x644)), cp(0x628, 0x644));
-  assert.equal(composeHamza(cp(0x64a, 0x628, 0x654)), cp(0x64a, 0x628, 0x654), 'a letter in between stops it');
+  // A hamza mark that is not on a seat (after any other letter, after tatweel, or after a
+  // superscript alef) becomes the seatless hamza letter U+0621, as the approved file writes it.
+  assert.equal(composeHamza(cp(0x628, 0x654)), cp(0x628, 0x621));
+  assert.equal(lettersOnly(cp(0x628, 0x654, 0x644)), cp(0x628, 0x621, 0x644));
+  assert.equal(composeHamza(cp(0x64a, 0x628, 0x654)), cp(0x64a, 0x628, 0x621), 'a letter in between stops composition');
+  assert.equal(lettersOnly(cp(0x62b, 0x62c, 0x640, 0x654, 0x64b, 0x632)), lettersOnly(cp(0x62b, 0x62c, 0x621, 0x64b, 0x632)), 'hamza on tatweel reads as the seatless hamza');
+  assert.equal(composeHamza(cp(0x627, 0x655)), cp(0x625), 'a seat still composes first');
   // A phrase written the API way matches the ayah written the file way.
   const idx = lettersIndex([{ s: 9, a: 1, letters: lettersOnly([file, cp(0x628, 0x64f, 0x62f, 0x64b, 0x649)].join(' ')) }]);
   assert.equal(matchPhrase(idx, `${api} ${cp(0x628, 0x64f, 0x62f, 0x8f0, 0x649)} ${cp(0x661)}`, { s: 9, from: 1, to: 1 }).result, 'matched_own_ayah');
@@ -137,7 +140,13 @@ test('D-088: split-off letters at the edges; fragments; middle words exact; 2:72
   assert.deepEqual(m(r1.join(' '), 1), ['matched_own_ayah', 'exact']);
   // A part word in the middle never matches; edge matches still look in the same surah.
   assert.deepEqual(m(`${r1[0]} ${A(0x632, 0x633)} ${r1[2]}`, 1), ['unmatched', null]);
-  assert.deepEqual(m(`${A(0x628, 0x62b, 0x62c)} ${r1[1]}`, 2), ['matched_same_surah', 'edge']);
+  // Edge matches only at the own-ayah level: elsewhere the same phrase needs exact whole words.
+  assert.deepEqual(m(`${A(0x628, 0x62b, 0x62c)} ${r1[1]}`, 2), ['unmatched', null]);
+  assert.deepEqual(m(`${r1[0]} ${r1[1]}`, 2), ['matched_same_surah', 'exact']);
+  // A ta-for-ya first word that is the start of a longer word in another ayah is not an edge match
+  // there (made-up 9:4 holds the ta form with a suffix).
+  const idx4 = lettersIndex([{ s: 9, a: 3, letters: r3.join(' ') }, { s: 9, a: 4, letters: `${A(0x62a, 0x63a, 0x641, 0x636, 0x648, 0x627)} ${r3[1]}` }]);
+  assert.equal(matchPhrase(idx4, `${A(0x62a, 0x63a, 0x641, 0x636)} ${r3[1]}`, o(3)).result, 'unmatched');
   // A different first letter (as in a reading with ta for ya) is not an edge match.
   assert.deepEqual(m(`${A(0x62a, 0x63a, 0x641, 0x636)} ${r3[1]}`, 3), ['unmatched', null]);
   // Fragments: one letter, or two letters in all, are counted but not listed.
@@ -153,7 +162,11 @@ test('D-088: split-off letters at the edges; fragments; middle words exact; 2:72
   assert.ok(reviewCsv(list).includes('"fragment","","",""'));
   // 2:72 style: HAIR SPACE + superscript alef + hamza mark + sukun-like mark + HAIR SPACE + WORD
   // JOINER inside one word. Made-up letters ra and ta.
-  assert.deepEqual(lettersOnlyWords(A(0x631, 0x64e, 0x200a, 0x670, 0x654, 0x6e1, 0x200a, 0x2060, 0x62a)), [A(0x631, 0x62a)]);
+  // The API writes the hamza after the superscript alef as a mark (U+0654); the file writes U+0621.
+  const api72 = A(0x631, 0x64e, 0x200a, 0x670, 0x654, 0x6e1, 0x200a, 0x2060, 0x62a);
+  const file72 = A(0x631, 0x64e, 0x670, 0x621, 0x6e1, 0x62a);
+  assert.deepEqual(lettersOnlyWords(api72), [A(0x631, 0x621, 0x62a)]);
+  assert.equal(lettersOnly(api72), lettersOnly(file72));
   assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x2060, 0x62a)), [A(0x631, 0x62a)]);
   assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x62a)), [A(0x631), A(0x62a)], 'a narrow space between letters still splits');
 });
