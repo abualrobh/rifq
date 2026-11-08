@@ -30,7 +30,11 @@ export const bareAyah = (t: string) => t.replace(/\u00a0[\u0660-\u0669\u06f0-\u0
 
 const cls = (r: [number, number][]) => r.map(([a, b]) => (a === b ? `\\u{${a.toString(16)}}` : `\\u{${a.toString(16)}}-\\u{${b.toString(16)}}`)).join('');
 // Marks, superscript alef, Quranic annotation marks and tatweel.
-const DROP = new RegExp(`[${cls([[0x64b, 0x65f], [0x670, 0x670], [0x610, 0x61a], [0x6d6, 0x6ed], [0x640, 0x640]])}]`, 'gu');
+// Step 2 removes every combining mark (Unicode general category Mn, which includes U+064B to
+// U+065F, U+0670, U+0610 to U+061A, the small high signs and Arabic Extended-A marks such as the
+// open tanween U+08F0), every format character (Cf), tatweel, and, as before, the whole range
+// U+06D6 to U+06ED (it also holds U+06E5 and U+06E6, small waw and yeh, which are not Mn).
+const DROP = new RegExp(`[\\p{Mn}\\p{Cf}${cls([[0x6d6, 0x6ed], [0x640, 0x640]])}]`, 'gu');
 // Arabic letters: hamza to ghain, feh to yeh, alef wasla to yeh barree, and the extended letters.
 const NOT_LETTER = new RegExp(`[^${cls([[0x621, 0x63a], [0x641, 0x64a], [0x671, 0x6d3], [0x6d5, 0x6d5], [0x6ee, 0x6ef], [0x6fa, 0x6fc], [0x6ff, 0x6ff], [0x750, 0x77f], [0x8a0, 0x8c9]])}]+`, 'gu');
 
@@ -45,10 +49,32 @@ const NOT_LETTER = new RegExp(`[^${cls([[0x621, 0x63a], [0x641, 0x64a], [0x671, 
 // and D-079 fingerprints are of the raw delivered bytes.
 const INVISIBLE = new RegExp(`[${cls([[0x200b, 0x200f], [0x2060, 0x2064], [0xfeff, 0xfeff], [0xad, 0xad], [0x34f, 0x34f], [0x61c, 0x61c], [0x180e, 0x180e]])}]`, 'gu');
 const NARROW_BEFORE_MARK = new RegExp(`[${cls([[0x2000, 0x200a], [0x202f, 0x202f]])}](?=\\p{Mn})`, 'gu');
-export const stripInvisibles = (s: string) => s.replace(INVISIBLE, '').replace(NARROW_BEFORE_MARK, '');
+// Format characters of any kind (category Cf) are removed in step 0 as well, so none can reach
+// step 3 and split a word.
+const FORMAT = /\p{Cf}/gu;
+export const stripInvisibles = (s: string) => s.replace(INVISIBLE, '').replace(FORMAT, '').replace(NARROW_BEFORE_MARK, '');
+
+// Step 1a, hamza composition (encoding equivalence, not a spelling rule). The API's QPC text writes
+// some hamza letters as a base letter plus a combining hamza mark, where the approved file uses the
+// single hamza letter. Before any mark is removed, on both sides, a base letter followed by a hamza
+// mark (U+0654 above or U+0655 below), with other combining marks allowed in between, becomes:
+//   alef maqsura U+0649 or yeh U+064A + either hamza mark -> yeh with hamza above U+0626
+//   waw U+0648 + either hamza mark                      -> waw with hamza above U+0624
+//   alef U+0627 + hamza above U+0654                    -> alef with hamza above U+0623
+//   alef U+0627 + hamza below U+0655                    -> alef with hamza below U+0625
+// The marks in between are kept (step 2 removes them). Only yeh + U+0654, waw + U+0654, alef +
+// U+0654 and alef + U+0655 are canonical equivalents in Unicode; alef maqsura as the base and a
+// hamza BELOW on yeh or waw are not, and are composed because the API writes the yeh seat that way.
+const HAMZA_SEAT = new RegExp(`([${cls([[0x627, 0x627], [0x648, 0x648], [0x649, 0x64a]])}])(\\p{Mn}*?)([${cls([[0x654, 0x655]])}])`, 'gu');
+export function composeHamza(s: string): string {
+  return s.replace(HAMZA_SEAT, (_m, base: string, mid: string, hamza: string) => {
+    const to = base === '\u0627' ? (hamza === '\u0654' ? '\u0623' : '\u0625') : base === '\u0648' ? '\u0624' : '\u0626';
+    return to + mid;
+  });
+}
 
 export function lettersOnlyWords(s: string): string[] {
-  return foldQuery(stripInvisibles(s)).replace(DROP, '').replace(NOT_LETTER, ' ').trim().split(' ').filter(Boolean);
+  return foldQuery(composeHamza(stripInvisibles(s))).replace(DROP, '').replace(NOT_LETTER, ' ').trim().split(' ').filter(Boolean);
 }
 export const lettersOnly = (s: string) => lettersOnlyWords(s).join(' ');
 

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthetic } from '../fixtures/load.ts';
-import { bareAyah, uthmaniLetters, stripInvisibles, lettersIndex, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
+import { bareAyah, uthmaniLetters, stripInvisibles, composeHamza, lettersIndex, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
 import { checkFingerprints, sha256Hex } from '../../src/core/tafseer-fingerprints.ts';
 import { releaseRecordProblems, runTafseerCheck, TAFSEER_RECORD_FORMAT } from '../../scripts/tafseer-release-check.ts';
 import { fingerprintEntries } from '../../scripts/tafseer-fingerprint.ts';
@@ -24,12 +24,12 @@ test('D-084 letters-only form: marks, Quranic signs, tatweel, digits and punctua
   // Ayah numbers in Arabic-Indic, extended and Latin digits, and punctuation, are dropped.
   assert.deepEqual(lettersOnlyWords(`${bare} ${cp(0x662)} ${cp(0x6f3)} 7 , ${cp(0x60c)} ${bare}. "${bare}"`), [bare, bare, bare]);
   // Alef wasla reads as alef (rule V-12, D-073; nothing added).
-  assert.equal(lettersOnly(cp(0x671, 0x644, 0x644, 0x647)), lettersOnly(cp(0x627, 0x644, 0x644, 0x647)));
+  assert.equal(lettersOnly(cp(0x671, 0x644, 0x62b, 0x632)), lettersOnly(cp(0x627, 0x644, 0x62b, 0x632)));
   // Hamza on alef reads as alef (V-14, D-074); a Farsi yeh as yeh (V-25, D-072).
-  assert.equal(lettersOnly(cp(0x623, 0x645, 0x631)), cp(0x627, 0x645, 0x631));
+  assert.equal(lettersOnly(cp(0x623, 0x62b, 0x632)), cp(0x627, 0x62b, 0x632));
   assert.equal(lettersOnly(cp(0x641, 0x6cc)), cp(0x641, 0x64a));
   // Alef maqsura and yeh stay apart (V-17 awaits the D-012 reviewer).
-  assert.notEqual(lettersOnly(cp(0x639, 0x644, 0x649)), lettersOnly(cp(0x639, 0x644, 0x64a)));
+  assert.notEqual(lettersOnly(cp(0x62b, 0x632, 0x649)), lettersOnly(cp(0x62b, 0x632, 0x64a)));
   assert.deepEqual(lettersOnlyWords('Latin words only'), []);
 });
 
@@ -76,6 +76,45 @@ test('regression: Uthmani quotes written the API way match their own ayah (1:6 a
   assert.equal(matchPhrase(idx, q7.text, { s: 9, from: 7, to: 7 }).result, 'matched_own_ayah');
   // Before this fix the hair space split the word: the letters had one word more than the ayah.
   assert.equal(lettersOnlyWords(q6.text).length, 3);
+});
+
+test('QPC encodings: every combining mark and format character goes; open tanween U+08F0 no longer splits a word', () => {
+  // Made-up word: ba, damma, dal, open tanween (U+08F0, Arabic Extended-A), alef maqsura.
+  assert.deepEqual(lettersOnlyWords(cp(0x628, 0x64f, 0x62f, 0x8f0, 0x649)), [cp(0x628, 0x62f, 0x649)]);
+  // Other Extended-A marks (U+08D3 to U+08FF that are combining) are removed too, not spaced.
+  for (const m of [0x8d4, 0x8e3, 0x8f1, 0x8f2, 0x8f3, 0x8fe]) assert.deepEqual(lettersOnlyWords(cp(0x628, m, 0x644)), [cp(0x628, 0x644)], m.toString(16));
+  // A format character anywhere (category Cf, for example U+2066 or U+06DD) is removed, not spaced.
+  for (const f of [0x2066, 0x2069, 0x6dd, 0x600]) assert.deepEqual(lettersOnlyWords(cp(0x628, f, 0x644)), [cp(0x628, 0x644)], f.toString(16));
+  // Small waw and small yeh (U+06E5, U+06E6: modifier letters, not Mn) are still removed.
+  assert.deepEqual(lettersOnlyWords(cp(0x628, 0x6e5, 0x644, 0x6e6)), [cp(0x628, 0x644)]);
+  // The narrow space before a mark rule still applies, now for any Mn mark, U+08F0 included.
+  assert.deepEqual(lettersOnlyWords(cp(0x628, 0x200a, 0x8f0, 0x644)), [cp(0x628, 0x644)]);
+});
+
+test('QPC encodings: a base letter plus a combining hamza composes to the hamza letter, on both sides', () => {
+  // Made-up word in the API's way: tha, fatha, lam, tatweel, superscript alef, U+06E4, alef
+  // maqsura, HAMZA BELOW (U+0655), kasra, kaf; and the same word as the file stores it, with U+0626.
+  const api = cp(0x62b, 0x64e, 0x644, 0x640, 0x670, 0x6e4, 0x649, 0x655, 0x650, 0x643);
+  const file = cp(0x62b, 0x64e, 0x644, 0x640, 0x670, 0x6e4, 0x626, 0x650, 0x643);
+  assert.equal(lettersOnly(api), lettersOnly(file));
+  assert.equal(lettersOnly(api), cp(0x62b, 0x644, 0x626, 0x643));
+  // Each pair, with a mark in between allowed; marks between are kept for step 2.
+  assert.equal(composeHamza(cp(0x64a, 0x654)), cp(0x626));
+  assert.equal(composeHamza(cp(0x649, 0x654)), cp(0x626));
+  assert.equal(composeHamza(cp(0x649, 0x650, 0x655)), cp(0x626, 0x650));
+  assert.equal(composeHamza(cp(0x648, 0x654)), cp(0x624));
+  assert.equal(composeHamza(cp(0x648, 0x64e, 0x655)), cp(0x624, 0x64e));
+  assert.equal(composeHamza(cp(0x627, 0x654)), cp(0x623));
+  assert.equal(composeHamza(cp(0x627, 0x655)), cp(0x625));
+  // After composing, the approved rules apply as before: V-14 reads alef with hamza as alef.
+  assert.equal(lettersOnly(cp(0x627, 0x654, 0x62b, 0x632)), cp(0x627, 0x62b, 0x632));
+  // A hamza mark on any other letter, or after a letter, is not composed (removed with the marks).
+  assert.equal(composeHamza(cp(0x628, 0x654)), cp(0x628, 0x654));
+  assert.equal(lettersOnly(cp(0x628, 0x654, 0x644)), cp(0x628, 0x644));
+  assert.equal(composeHamza(cp(0x64a, 0x628, 0x654)), cp(0x64a, 0x628, 0x654), 'a letter in between stops it');
+  // A phrase written the API way matches the ayah written the file way.
+  const idx = lettersIndex([{ s: 9, a: 1, letters: lettersOnly([file, cp(0x628, 0x64f, 0x62f, 0x64b, 0x649)].join(' ')) }]);
+  assert.equal(matchPhrase(idx, `${api} ${cp(0x628, 0x64f, 0x62f, 0x8f0, 0x649)} ${cp(0x661)}`, { s: 9, from: 1, to: 1 }).result, 'matched_own_ayah');
 });
 
 test('D-084 phrases: ( ), ornate parentheses either way, and { } as qiraah_or_quote, kept as delivered', () => {
