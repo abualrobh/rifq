@@ -109,12 +109,26 @@ test('QPC encodings: a base letter plus a combining hamza composes to the hamza 
   // After composing, the approved rules apply as before: V-14 reads alef with hamza as alef.
   assert.equal(lettersOnly(cp(0x627, 0x654, 0x62b, 0x632)), cp(0x627, 0x62b, 0x632));
   // A hamza mark that is not on a seat (after any other letter, after tatweel, or after a
-  // superscript alef) becomes the seatless hamza letter U+0621, as the approved file writes it.
-  assert.equal(composeHamza(cp(0x628, 0x654)), cp(0x628, 0x621));
-  assert.equal(lettersOnly(cp(0x628, 0x654, 0x644)), cp(0x628, 0x621, 0x644));
-  assert.equal(composeHamza(cp(0x64a, 0x628, 0x654)), cp(0x64a, 0x628, 0x621), 'a letter in between stops composition');
-  assert.equal(lettersOnly(cp(0x62b, 0x62c, 0x640, 0x654, 0x64b, 0x632)), lettersOnly(cp(0x62b, 0x62c, 0x621, 0x64b, 0x632)), 'hamza on tatweel reads as the seatless hamza');
-  assert.equal(composeHamza(cp(0x627, 0x655)), cp(0x625), 'a seat still composes first');
+  // superscript alef) is not composed; step 2 removes it with the marks (v13 behaviour; the v14
+  // change to U+0621 was reverted).
+  assert.equal(composeHamza(cp(0x628, 0x654)), cp(0x628, 0x654));
+  assert.equal(lettersOnly(cp(0x628, 0x654, 0x644)), cp(0x628, 0x644));
+  assert.equal(composeHamza(cp(0x64a, 0x628, 0x654)), cp(0x64a, 0x628, 0x654), 'a letter in between stops composition');
+  assert.equal(composeHamza(cp(0x627, 0x655)), cp(0x625), 'a seat still composes');
+  // Regression (v14 real run): the API writes the hamza-with-madda alef as tatweel + U+0654 +
+  // fatha + alef; the file stores alef with hamza above + madda (U+0623 U+0653). Made-up word:
+  // alef wasla, lam, sukun-like U+06E1, then that alef, then tha, zain.
+  const apiMadda = cp(0x671, 0x644, 0x6e1, 0x640, 0x654, 0x64e, 0x627, 0x62b, 0x650, 0x632);
+  const fileMadda = cp(0x671, 0x644, 0x6e1, 0x623, 0x653, 0x62b, 0x650, 0x632);
+  assert.equal(lettersOnly(apiMadda), lettersOnly(fileMadda));
+  assert.equal(lettersOnly(apiMadda), cp(0x627, 0x644, 0x627, 0x62b, 0x632));
+  // Also after a preceding letter instead of the article (made-up lam, kasra, ..., tha, zain), as
+  // the approved Uthmani file stores it (alef with hamza above + madda; the file has no U+0622).
+  // The plain form's alef with madda U+0622 stays a separate letter (V-13 awaits the reviewer).
+  assert.equal(lettersOnly(cp(0x644, 0x650, 0x640, 0x64e, 0x654, 0x627, 0x62b, 0x64e, 0x632)), lettersOnly(cp(0x644, 0x650, 0x623, 0x653, 0x62b, 0x64e, 0x632)));
+  assert.notEqual(lettersOnly(cp(0x644, 0x640, 0x654, 0x627, 0x62b, 0x632)), lettersOnly(cp(0x644, 0x622, 0x62b, 0x632)));
+  const madIdx = lettersIndex([{ s: 9, a: 5, letters: lettersOnly(`${fileMadda} ${cp(0x62e, 0x632, 0x633)}`) }]);
+  assert.equal(matchPhrase(madIdx, `${apiMadda} ${cp(0x62e, 0x632, 0x633)}`, { s: 9, from: 5, to: 5 }).result, 'matched_own_ayah');
   // A phrase written the API way matches the ayah written the file way.
   const idx = lettersIndex([{ s: 9, a: 1, letters: lettersOnly([file, cp(0x628, 0x64f, 0x62f, 0x64b, 0x649)].join(' ')) }]);
   assert.equal(matchPhrase(idx, `${api} ${cp(0x628, 0x64f, 0x62f, 0x8f0, 0x649)} ${cp(0x661)}`, { s: 9, from: 1, to: 1 }).result, 'matched_own_ayah');
@@ -162,11 +176,13 @@ test('D-088: split-off letters at the edges; fragments; middle words exact; 2:72
   assert.ok(reviewCsv(list).includes('"fragment","","",""'));
   // 2:72 style: HAIR SPACE + superscript alef + hamza mark + sukun-like mark + HAIR SPACE + WORD
   // JOINER inside one word. Made-up letters ra and ta.
-  // The API writes the hamza after the superscript alef as a mark (U+0654); the file writes U+0621.
+  // The API writes the hamza after the superscript alef as a mark (U+0654), which is removed; the
+  // file writes U+0621, a letter. They differ (accepted: 2:72 goes to the reviewers), but the
+  // narrow spaces no longer split the API word.
   const api72 = A(0x631, 0x64e, 0x200a, 0x670, 0x654, 0x6e1, 0x200a, 0x2060, 0x62a);
   const file72 = A(0x631, 0x64e, 0x670, 0x621, 0x6e1, 0x62a);
-  assert.deepEqual(lettersOnlyWords(api72), [A(0x631, 0x621, 0x62a)]);
-  assert.equal(lettersOnly(api72), lettersOnly(file72));
+  assert.deepEqual(lettersOnlyWords(api72), [A(0x631, 0x62a)]);
+  assert.notEqual(lettersOnly(api72), lettersOnly(file72));
   assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x2060, 0x62a)), [A(0x631, 0x62a)]);
   assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x62a)), [A(0x631), A(0x62a)], 'a narrow space between letters still splits');
 });

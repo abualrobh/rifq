@@ -70,15 +70,16 @@ export const stripInvisibles = (s: string) => s.replace(NARROW_BEFORE_MARK, '').
 // U+0654 and alef + U+0655 are canonical equivalents in Unicode; alef maqsura as the base and a
 // hamza BELOW on yeh or waw are not, and are composed because the API writes the yeh seat that way.
 const HAMZA_SEAT = new RegExp(`([${cls([[0x627, 0x627], [0x648, 0x648], [0x649, 0x64a]])}])(\\p{Mn}*?)([${cls([[0x654, 0x655]])}])`, 'gu');
-// Step 1b (encoding equivalence, 2:72): a combining hamza that step 1a did not compose onto a
-// seat (for example after tatweel or after a superscript alef) becomes the seatless hamza letter
-// U+0621, as the approved file writes it, instead of being removed with the marks.
-const LONE_HAMZA = new RegExp(`[${cls([[0x654, 0x655]])}]`, 'gu');
+// A combining hamza that step 1a does not compose onto a seat (for example after tatweel, or after
+// a superscript alef) is removed with the other marks in step 2. (v14 turned it into U+0621 for
+// 2:72; that was reverted, because the API writes the hamza-with-madda alef, which the file stores
+// as alef with hamza above + madda, as tatweel + U+0654 + fatha + alef, and those words then no
+// longer matched. 2:72 goes to the reviewers instead.)
 export function composeHamza(s: string): string {
   return s.replace(HAMZA_SEAT, (_m, base: string, mid: string, hamza: string) => {
     const to = base === '\u0627' ? (hamza === '\u0654' ? '\u0623' : '\u0625') : base === '\u0648' ? '\u0624' : '\u0626';
     return to + mid;
-  }).replace(LONE_HAMZA, '\u0621');
+  });
 }
 
 export function lettersOnlyWords(s: string): string[] {
