@@ -4,7 +4,7 @@
 import '../styles/global.css';
 import Settings from '../islands/Settings.tsx';
 import { dev, record } from '../lib/data';
-import { t, homePath, type Lang } from '../../core/strings.ts';
+import { t, homePath, privacyPath, type Lang } from '../../core/strings.ts';
 interface Props { lang: Lang; title: string; alt: string }
 const { lang, title, alt } = Astro.props;
 const other: Lang = lang === 'ar' ? 'en' : 'ar';
@@ -42,6 +42,8 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
           <dt>{t(lang, 'sourceSha')}</dt><dd data-source-sha><code>{record.sha256}</code></dd>
         </dl>
       </details>
+      <!-- D-099: every page links to the privacy page. -->
+      <p class="footer-links"><a href={privacyPath(lang)} data-privacy-link>{t(lang, 'privacyLink')}</a></p>
     </footer>
   </body>
 </html>

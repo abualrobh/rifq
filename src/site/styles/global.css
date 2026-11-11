@@ -46,6 +46,14 @@ main:focus { outline: none; }
 .site-footer summary { padding-block: .75rem; cursor: pointer; }
 .site-footer dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; }
 .site-footer dd { margin: 0; }
+.footer-links { margin: 0; }
+.footer-links a { display: inline-block; min-height: 2.75rem; padding-block: .6rem; box-sizing: border-box; }
+
+/* D-099 privacy page: the site's body text, one bold label per item. */
+.pv-lead { font-weight: 600; }
+.pv-list { padding-inline-start: 1.25rem; }
+.pv-list > li { margin-block: .5rem; overflow-wrap: anywhere; }
+.pv-updated { font-size: .875rem; color: var(--muted); }
 
 .btn { border: 1px solid var(--border); background: var(--btn-bg); color: var(--fg); border-radius: .375rem; padding: .25rem .75rem; font: inherit; font-size: .9rem; cursor: pointer; min-height: 2.75rem; min-width: 2.75rem; }
 .btn:disabled { opacity: .6; cursor: default; }

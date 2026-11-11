@@ -105,6 +105,33 @@ const ar = {
   backToReading: 'العودة إلى القراءة',
   tafseerNoScript: 'يحتاج عرض التفسير إلى تفعيل جافاسكربت. نص الآية معروض أعلاه.',
   tafseerDevNote: 'نسخة تطوير: ميزة التفسير غير معتمدة للإصدار بعد (D-076، D-012، D-008).',
+  // Privacy page (/privacy/, /en/privacy/). Text approved by Hamzeh "for now" (D-099), word for
+  // word; do not reword here. The Arabic text still needs the B-09 Arabic review. Each item is a
+  // bold label and its text; the hosting item is split around its one link.
+  privacyLink: 'الخصوصية',
+  pvTitle: 'الخصوصية في رِفْق',
+  pvLead: 'رِفْق مجاني، بلا حساب، وبلا إعلانات، وبلا تتبّع.',
+  pvAccountL: 'لا حساب',
+  pvAccount: 'لا تحتاج إلى تسجيل أو إنشاء حساب.',
+  pvDeviceL: 'علاماتك على جهازك',
+  pvDevice: 'العلامات وموضع القراءة والإعدادات تُحفظ على جهازك فقط، ولا تُرسل إلينا.',
+  pvSearchL: 'البحث',
+  pvSearch: 'تُرسل كلمات البحث إلى خادمنا لإيجاد الآيات فقط، ولا نحفظها ولا نسجّلها.',
+  pvTafseerL: 'التفسير',
+  pvTafseer: 'عند فتح تفسير آية يطلبه خادمنا من Quran Foundation، ولا يُرسل عنوانك أو بيانات جهازك إليهم. ونحتفظ بنص التفسير مدة لا تزيد على 7 أيام.',
+  pvAbuseL: 'الحماية من الإساءة',
+  pvAbuse: 'يُستخدم عنوان شبكتك لفترة قصيرة لعدّ الطلبات ومنع الإفراط فيها، ولا نحفظه.',
+  pvTrackingL: 'لا تتبّع',
+  pvTracking: 'لا إعلانات، ولا أدوات تحليل، ولا برمجيات أو خطوط من جهات أخرى.',
+  pvHostingL: 'الاستضافة',
+  pvHostingBefore: 'يستضيف الموقعَ Cloudflare، وهي تستقبل عنوان شبكتك لتوصيل الصفحات إليك، وفق ',
+  pvHostingLink: 'سياسة الخصوصية الخاصة بها',
+  pvHostingAfter: '.',
+  pvDeleteL: 'حذف بياناتك',
+  pvDelete: 'يمكنك إزالة كل العلامات من داخل التطبيق، أو مسح بيانات الموقع من إعدادات المتصفح.',
+  pvContactL: 'التواصل',
+  pvContact: 'يُضاف لاحقًا',
+  pvUpdated: 'آخر تحديث: 11 نوفمبر 2026',
 };
 
 const en: typeof ar = {
@@ -209,6 +236,31 @@ const en: typeof ar = {
   backToReading: 'Back to reading',
   tafseerNoScript: 'Showing the Tafseer needs JavaScript. The ayah text is shown above.',
   tafseerDevNote: 'Development build: Tafseer is not approved for release yet (D-076, D-012, D-008).',
+  // Privacy page, D-099 approved text (see the Arabic block above).
+  privacyLink: 'Privacy',
+  pvTitle: 'Privacy at RIFQ',
+  pvLead: 'RIFQ is free, with no account, no ads and no tracking.',
+  pvAccountL: 'No account',
+  pvAccount: "you don't need to sign up or create an account.",
+  pvDeviceL: 'Your bookmarks stay on your device',
+  pvDevice: 'bookmarks, your reading position and your settings are saved on your device only, and are not sent to us.',
+  pvSearchL: 'Search',
+  pvSearch: "your search words are sent to our server only to find matching ayat. We don't store or log them.",
+  pvTafseerL: 'Tafseer',
+  pvTafseer: 'when you open the Tafseer of an ayah, our server requests it from Quran Foundation. Your address and device details are not passed to them. We keep Tafseer text for no more than 7 days.',
+  pvAbuseL: 'Protection from abuse',
+  pvAbuse: "your network address is used briefly to count requests and prevent overuse. We don't store it.",
+  pvTrackingL: 'No tracking',
+  pvTracking: 'no ads, no analytics, and no scripts or fonts from other companies.',
+  pvHostingL: 'Hosting',
+  pvHostingBefore: 'the site is hosted by Cloudflare, which receives your network address to deliver pages to you, under ',
+  pvHostingLink: 'its own privacy policy',
+  pvHostingAfter: '.',
+  pvDeleteL: 'Deleting your data',
+  pvDelete: "you can remove all bookmarks in the app, or clear the site's data in your browser settings.",
+  pvContactL: 'Contact',
+  pvContact: 'to be added',
+  pvUpdated: 'Last updated: 11 November 2026',
 };
 
 export type Key = keyof typeof ar;
@@ -223,6 +275,15 @@ export const surahPath = (lang: Lang, s: number) => `${homePath(lang)}${s}/`;
 export const ayahPath = (lang: Lang, s: number, a: number) => `${surahPath(lang, s)}#a${a}`;
 // RQ-005: the Tafseer screen for one surah; the ayah is in the hash, which is not sent to the server.
 export const tafseerPath = (lang: Lang, s: number, a?: number) => `${homePath(lang)}tafseer/${s}/${a ? `#a${a}` : ''}`;
+// D-099: the privacy page, linked from every page's footer.
+export const privacyPath = (lang: Lang) => `${homePath(lang)}privacy/`;
+// The one external address on the privacy page: a plain link, nothing is loaded from it.
+export const CLOUDFLARE_PRIVACY_URL = 'https://www.cloudflare.com/privacypolicy/';
+// Privacy items in page order: [label key, text key]. The hosting item is built separately.
+export const PRIVACY_ITEMS = [
+  ['pvAccountL', 'pvAccount'], ['pvDeviceL', 'pvDevice'], ['pvSearchL', 'pvSearch'], ['pvTafseerL', 'pvTafseer'],
+  ['pvAbuseL', 'pvAbuse'], ['pvTrackingL', 'pvTracking'], ['hosting', 'hosting'], ['pvDeleteL', 'pvDelete'], ['pvContactL', 'pvContact'],
+] as const;
 
 // Words that would signal an account or sign-in prompt. RIFQ has none; tests check that no page
 // shows any of them (RQ-001 AC1, RQ-003 AC5 and AC6).
