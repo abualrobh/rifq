@@ -1,0 +1,29 @@
+---
+// Privacy page (D-099: Hamzeh approved the draft text "for now"; the Arabic still awaits the B-09
+// Arabic review). The text is in src/core/strings.ts, word for word as approved; no cookie claim
+// is made. Static HTML only: the page needs no JavaScript, loads nothing from another site, and
+// gets the same headers as every page (noindex, D-066; the unchanged CSP). Its one external
+// address is a plain link to Cloudflare's privacy policy. Digits are Latin (D-065).
+import Layout from '../layouts/Layout.astro';
+import { t, privacyPath, CLOUDFLARE_PRIVACY_URL, PRIVACY_ITEMS, type Lang } from '../../core/strings.ts';
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const other: Lang = lang === 'ar' ? 'en' : 'ar';
+// In the Arabic text, each run of Latin words (Quran Foundation, Cloudflare) is marked as English
+// and isolated, so it keeps its own direction and the punctuation around it stays in place.
+const parts = (s: string) => (lang === 'ar' ? s.split(/([A-Za-z]+(?: [A-Za-z]+)*)/) : [s]);
+---
+<Layout lang={lang} title={t(lang, 'pvTitle')} alt={privacyPath(other)}>
+  <article class="privacy" data-privacy>
+    <h1 class="home-title">{t(lang, 'pvTitle')}</h1>
+    <p class="pv-lead">{t(lang, 'pvLead')}</p>
+    <ul class="pv-list">
+      {PRIVACY_ITEMS.map(([l, x]) => (
+        l === 'hosting'
+          ? <li data-pv-item="hosting"><strong>{t(lang, 'pvHostingL')}:</strong>{' '}{parts(t(lang, 'pvHostingBefore')).map((p, i) => (i % 2 ? <bdi lang="en" dir="ltr">{p}</bdi> : p))}<a href={CLOUDFLARE_PRIVACY_URL} rel="noopener noreferrer" data-pv-external>{t(lang, 'pvHostingLink')}</a>{t(lang, 'pvHostingAfter')}</li>
+          : <li data-pv-item={l}><strong>{t(lang, l)}:</strong>{' '}{parts(t(lang, x)).map((p, i) => (i % 2 ? <bdi lang="en" dir="ltr">{p}</bdi> : p))}</li>
+      ))}
+    </ul>
+    <p class="pv-updated" data-pv-updated>{t(lang, 'pvUpdated')}</p>
+  </article>
+</Layout>
