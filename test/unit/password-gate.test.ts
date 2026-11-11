@@ -13,7 +13,7 @@ import { assetHeaderMap } from '../../scripts/headers.ts';
 const { syn, ab } = synthetic('pwgate');
 const CSP = "default-src 'none'; script-src 'self' 'sha256-test'";
 const record = { name: 'Synthetic', edition: 'seed', status: 'UNVERIFIED' };
-const gated = { dev: true, record, gate: true, assetHeaders: assetHeaderMap(CSP) };
+const gated = { testMemoryLimits: true, dev: true, record, gate: true, assetHeaders: assetHeaderMap(CSP) };
 const USER = 'tester';
 const PASS = 'made-up pässword:with colon';
 const REALM = 'Basic realm="RIFQ private test", charset="UTF-8"';
@@ -131,7 +131,7 @@ test('right password: the search API answers with private no-store', async () =>
 });
 
 test('gate off: behaviour is unchanged and assets pass straight through', async () => {
-  const w = makeWorker(ab, { dev: true, record });
+  const w = makeWorker(ab, { testMemoryLimits: true, dev: true, record });
   const a = assets();
   const r = await w.fetch(page(), { ...a });
   assert.equal(r.status, 200);

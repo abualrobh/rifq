@@ -7,7 +7,7 @@ import { synthetic } from '../fixtures/load.ts';
 import { makeWorker } from '../../src/worker/app.ts';
 
 const { syn, ab } = synthetic('worker');
-const cfg = { dev: true, record: { name: 'Synthetic', edition: 'seed', status: 'UNVERIFIED' }, serverLimit: 30 };
+const cfg = { testMemoryLimits: true, dev: true, record: { name: 'Synthetic', edition: 'seed', status: 'UNVERIFIED' }, serverLimit: 30 };
 const req = (body: string, type = 'application/json', method = 'POST', path = '/api/search', ip = '10.0.0.1') =>
   new Request('http://127.0.0.1' + path, { method, body: method === 'GET' ? undefined : body, headers: { 'content-type': type, 'cf-connecting-ip': ip } });
 

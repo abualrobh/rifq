@@ -9,6 +9,10 @@
 // With the build flag tafseer on (cfg.tafseer), POST /api/tafseer answers for one ayah from the
 // Quran Foundation API (RQ-005, src/worker/tafseer.ts), and development builds with the gate on
 // also serve the private catalogue page used to decide D-076.
+// Every rate limit binding fails closed (D-095, S-1): if SEARCH_LIMIT or TAFSEER_LIMIT is missing or
+// its limit() call throws, the request gets 503 with the full header set and no upstream call is
+// made, as the gate does for AUTH_LIMIT. Any other thrown error also becomes a fixed 503 with the
+// same headers, so the platform's error page never goes out.
 import { handleJson, MAX_BODY, runQuery, type ApiOut } from '../core/api.ts';
 import { MemoryLimiter, SERVER_LIMIT, WINDOW_MS } from '../core/ratelimit.ts';
 import { openIndex } from '../core/search-core.ts';
@@ -19,7 +23,9 @@ import { makeVerify, type VerifyHashes } from './verify.ts';
 import { makeQuoteCheck, type LettersQuran } from './quote-check.ts';
 import { CATALOGUE_PATH, SHAPE_PATH, makeTafseer, TAFSEER_LIMIT_PER_MINUTE, type TafseerCfg, type TafseerEnv } from './tafseer.ts';
 
-export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; verifyHashes?: VerifyHashes | null; lettersQuran?: LettersQuran | null };
+// testMemoryLimits: unit tests only. It lets tests that pass no binding use per-isolate counters
+// (serverLimit, tafseerLimit). scripts/build.ts never sets it, so deployed builds have no fallback.
+export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; testMemoryLimits?: boolean; verifyHashes?: VerifyHashes | null; lettersQuran?: LettersQuran | null };
 export type Env = GateEnv & TafseerEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit; TAFSEER_LIMIT?: RateLimit };
 export type WorkerDeps = Parameters<typeof makeTafseer>[1];
 
@@ -131,6 +137,29 @@ export function gateUnavailable(): Response {
   });
 }
 
+// A rate limit binding is missing or failing (D-095), or the Worker hit an unexpected error: refuse
+// with a fixed body and the full header set. Nothing is sent upstream.
+export function unavailable(): Response {
+  return new Response('Not available right now. Try again later.\n', {
+    status: 503,
+    headers: { ...BASE_HEADERS, 'cache-control': PRIVATE_CACHE, 'content-type': 'text/plain; charset=utf-8', 'content-security-policy': JSON_CSP, 'retry-after': '60' },
+  });
+}
+
+export type LimitVerdict = 'ok' | 'limited' | 'unavailable';
+
+// One rate limit check (D-095). The binding decides when it works. Missing, without a limit
+// function, or throwing: 'unavailable' (fail closed). The memory counter is used only when a unit
+// test asked for it (cfg.testMemoryLimits) and passed no binding.
+export async function checkLimit(binding: RateLimit | undefined, key: string, mem: MemoryLimiter | null): Promise<LimitVerdict> {
+  if (binding !== undefined && binding !== null) {
+    if (typeof binding.limit !== 'function') return 'unavailable';
+    try { return (await binding.limit({ key })).success === true ? 'ok' : 'limited'; } catch { return 'unavailable'; }
+  }
+  if (mem) return mem.allow(key) ? 'ok' : 'limited';
+  return 'unavailable';
+}
+
 // Copies a response so its headers can be changed (asset responses have immutable headers).
 function withHeaders(r: Response, set: Record<string, string>): Response {
   const out = new Response(r.body, r);
@@ -145,8 +174,8 @@ export const QF_FONT_ORIGIN = 'https://verses.quran.foundation';
 
 export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDeps = {}) {
   const ix = openIndex(indexBuf);
-  const mem = new MemoryLimiter(cfg.serverLimit ?? SERVER_LIMIT, WINDOW_MS);
-  const tfMem = new MemoryLimiter(cfg.tafseerLimit ?? TAFSEER_LIMIT_PER_MINUTE, WINDOW_MS);
+  const mem = cfg.testMemoryLimits === true ? new MemoryLimiter(cfg.serverLimit ?? SERVER_LIMIT, WINDOW_MS) : null;
+  const tfMem = cfg.testMemoryLimits === true ? new MemoryLimiter(cfg.tafseerLimit ?? TAFSEER_LIMIT_PER_MINUTE, WINDOW_MS) : null;
   const tafseer = cfg.tafseer ? makeTafseer(cfg, deps) : null;
   const catalogueOn = !!(tafseer && cfg.dev && cfg.gate);
   // D-081: development builds behind the password gate only.
@@ -163,13 +192,20 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
     // D-076 helper: development builds behind the password gate only.
     if (catalogueOn && tafseer && (pathname === CATALOGUE_PATH || pathname === CATALOGUE_PATH.slice(0, -1))) {
       if (req.method !== 'GET') return json(405, { error: 'method' }, { allow: 'GET' });
-      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
+      // D-096, S-2: another site cannot make a tester's browser spend API calls here.
+      if (crossSite(req)) return json(403, { error: 'cross_site' });
+      const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
+      if (v === 'unavailable') return unavailable();
+      if (v === 'limited') return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
       const c = await tafseer.catalogue(url.origin, env);
       return html(c.status, c.html);
     }
     if (catalogueOn && tafseer && (pathname === SHAPE_PATH || pathname === SHAPE_PATH.slice(0, -1))) {
       if (req.method !== 'GET') return json(405, { error: 'method' }, { allow: 'GET' });
-      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
+      if (crossSite(req)) return json(403, { error: 'cross_site' });
+      const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
+      if (v === 'unavailable') return unavailable();
+      if (v === 'limited') return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
       const c = await tafseer.shape(env, url.searchParams);
       return html(c.status, c.html);
     }
@@ -191,7 +227,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
       if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
       if (crossSite(req)) return json(403, { status: 'cross_site' });
-      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
+      if (v === 'unavailable') return unavailable();
+      if (v === 'limited') return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
       const raw = await readCapped(req, MAX_TAFSEER_BODY);
       let s = 0;
       try { s = typeof raw === 'string' ? Number((JSON.parse(raw) as { s?: unknown }).s) : 0; } catch { s = 0; }
@@ -202,7 +240,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
       if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
       if (crossSite(req)) return json(403, { status: 'cross_site' });
-      if (!(env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: netKey(req) })).success : tfMem.allow(netKey(req)))) return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
+      if (v === 'unavailable') return unavailable();
+      if (v === 'limited') return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
       const raw = await readCapped(req, MAX_TAFSEER_BODY);
       let s = 0;
       try { s = typeof raw === 'string' ? Number((JSON.parse(raw) as { s?: unknown }).s) : 0; } catch { s = 0; }
@@ -213,9 +253,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
       if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
       if (crossSite(req)) return json(403, { status: 'cross_site' });
-      const k = netKey(req);
-      const ok = env.TAFSEER_LIMIT ? (await env.TAFSEER_LIMIT.limit({ key: k })).success : tfMem.allow(k);
-      if (!ok) return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
+      if (v === 'unavailable') return json(503, { status: 'unavailable' }, { 'retry-after': '60' });
+      if (v === 'limited') return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
       const raw = await readCapped(req, MAX_TAFSEER_BODY);
       if (raw === 'bad_length') return json(400, { status: 'bad_length' });
       if (raw === null) return json(413, { status: 'too_long' });
@@ -230,8 +270,10 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
     // D-071, L-4: the JSON path takes JSON only, and no path answers another site's request.
     if (!form && !/^application\/json\s*(;|$)/.test(type)) return json(415, { error: 'unsupported_type' });
     if (crossSite(req)) return json(403, { error: 'cross_site' });
-    const key = netKey(req);
-    const allowed = env.SEARCH_LIMIT ? (await env.SEARCH_LIMIT.limit({ key })).success : mem.allow(key);
+    // D-095: SEARCH_LIMIT fails closed too. Searching never calls an upstream API.
+    const verdict = await checkLimit(env.SEARCH_LIMIT, netKey(req), mem);
+    if (verdict === 'unavailable' && !form) return json(503, { error: 'unavailable' }, { 'retry-after': '60' });
+    const allowed = verdict === 'ok';
 
     const read = await readCapped(req, form ? MAX_FORM : MAX_BODY * 4);
     if (read === 'bad_length') return json(400, { error: 'bad_length' });
@@ -240,6 +282,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       const p = new URLSearchParams(raw ?? '');
       const lang: Lang = p.get('lang') === 'en' ? 'en' : 'ar';
       const q = raw === null ? '' : (p.get('q') ?? '');
+      if (verdict === 'unavailable') {
+        return html(503, renderPage(lang, q, { status: 503, data: { error: 'unavailable' } }, cfg), { 'retry-after': '60' });
+      }
       if (!allowed) {
         return html(429, renderPage(lang, q, { status: 429, data: { error: 'rate_limited' } }, cfg), { 'retry-after': RETRY });
       }
@@ -253,13 +298,18 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   }
 
   return {
+    // D-095: any thrown error becomes the fixed 503 with the full header set.
     async fetch(req: Request, env: Env): Promise<Response> {
-      if (!cfg.gate) return handle(req, env);
-      const v = await guard.check(req, env, netKey(req), authorised);
-      if (v.kind === 'unavailable') return gateUnavailable();
-      if (v.kind === 'locked') return lockedOut(v.retry);
-      if (v.kind === 'denied') return unauthorised();
-      return withHeaders(await handle(req, env), { 'cache-control': PRIVATE_CACHE });
+      try {
+        if (!cfg.gate) return await handle(req, env);
+        const v = await guard.check(req, env, netKey(req), authorised);
+        if (v.kind === 'unavailable') return gateUnavailable();
+        if (v.kind === 'locked') return lockedOut(v.retry);
+        if (v.kind === 'denied') return unauthorised();
+        return withHeaders(await handle(req, env), { 'cache-control': PRIVATE_CACHE });
+      } catch {
+        return unavailable();
+      }
     },
   };
 }

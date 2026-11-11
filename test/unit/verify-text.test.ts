@@ -16,7 +16,7 @@ const auth = { authorization: 'Basic ' + Buffer.from('u:p').toString('base64'), 
 
 function setup(gate = true, dev = true) {
   const mock = createMockQf({ quran: src });
-  const w = makeWorker(ab, { dev, gate, record: { name: 'S', edition: 'e', status: 's' }, verifyHashes: hashes, tafseerLimit: 1000 }, { fetch: mock.fetch, pauseMs: 0 } as never);
+  const w = makeWorker(ab, { testMemoryLimits: true, dev, gate, record: { name: 'S', edition: 'e', status: 's' }, verifyHashes: hashes, tafseerLimit: 1000 }, { fetch: mock.fetch, pauseMs: 0 } as never);
   return { w, mock };
 }
 const run = (w: ReturnType<typeof makeWorker>, s: number, h: Record<string, string> = auth) => w.fetch(new Request('http://127.0.0.1/api/dev/verify-text', { method: 'POST', headers: h, body: JSON.stringify({ s }) }), ENV as never);
@@ -59,7 +59,7 @@ test('D-081: development builds behind the gate only; bad input refused', async 
 test('font check page gets the documented font address in font-src, and no other page does', async () => {
   const mock = createMockQf();
   const csp = "default-src 'none'; font-src 'self'; style-src 'self'";
-  const w = makeWorker(ab, { dev: true, gate: true, record: { name: 'S', edition: 'e', status: 's' }, assetHeaders: { 'Content-Security-Policy': csp } }, { fetch: mock.fetch });
+  const w = makeWorker(ab, { testMemoryLimits: true, dev: true, gate: true, record: { name: 'S', edition: 'e', status: 's' }, assetHeaders: { 'Content-Security-Policy': csp } }, { fetch: mock.fetch });
   const env = { ...ENV, ASSETS: { fetch: async () => new Response('page') } };
   const f = await w.fetch(new Request('http://127.0.0.1/dev/font-check/', { headers: auth }), env as never);
   assert.equal(f.headers.get('content-security-policy'), "default-src 'none'; font-src 'self' https://verses.quran.foundation; style-src 'self'");
