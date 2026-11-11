@@ -89,6 +89,17 @@ export function clearBookmarks(st: StorageLike | null): boolean {
   return write(st, saves);
 }
 
+// RQ-003 v1.3 AC14 to AC23 (D-101, D-103): removes the last reading position only. Bookmarks
+// stay in the same order and reading settings (a separate entry) are not touched (AC16). Storage
+// is re-read first, so a bookmark added in another tab is kept.
+export function clearLast(st: StorageLike | null): RemoveResult {
+  const { ok, saves } = load(st);
+  if (!ok) return 'failed';
+  if (!saves.l) return 'missing';
+  saves.l = null;
+  return write(st, saves) ? 'removed' : 'failed';
+}
+
 export function setLast(st: StorageLike | null, r: Ref): boolean {
   if (!isRef(r)) return false;
   const { ok, saves } = load(st);

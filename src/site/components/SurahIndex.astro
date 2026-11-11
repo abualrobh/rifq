@@ -1,0 +1,25 @@
+---
+// RQ-004 surah index page (DRAFT v0.1). D-089 B: its own page, linked from the home page and every
+// reader page. Open choices use option A until Hamzeh decides: D-090 (no juz), D-091 (Arabic names
+// and numbers only; Latin letters get the D-050 message), D-092 (D-064 start of the full name),
+// D-094 (English interface shows the English name only). AC13, AC22 and AC23 are not built.
+import Layout from '../layouts/Layout.astro';
+import SurahList from './SurahList.astro';
+import IndexFilter from '../islands/IndexFilter.tsx';
+import Continue from '../islands/Continue.tsx';
+import { surahs, counts, names } from '../lib/data';
+import { foldName } from '../../core/surah-match.ts';
+import { t, indexPath, type Lang } from '../../core/strings.ts';
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const other: Lang = lang === 'ar' ? 'en' : 'ar';
+// The search form of each Arabic name, built from the source at build time, as the Worker builds it
+// for search offers (index 0 unused). Used for matching only, never displayed.
+const folded = ['', ...surahs.map((s) => foldName(s.ar))];
+---
+<Layout lang={lang} title={`${t(lang, 'surahIndex')} - ${t(lang, 'siteName')}`} alt={indexPath(other)} wide>
+  <h1 class="home-title">{t(lang, 'surahIndex')}</h1>
+  <Continue lang={lang} counts={counts} names={names} client:idle />
+  <IndexFilter lang={lang} folded={folded} counts={counts} names={names} client:idle />
+  <SurahList lang={lang} id="surah-list" label={t(lang, 'indexListLabel', { n: surahs.length })} />
+</Layout>

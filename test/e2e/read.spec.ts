@@ -28,10 +28,15 @@ for (const lang of ['ar', 'en'] as const) {
   });
 }
 
-test('TP1-04: every surah opens from the home page in one click, desktop, Arabic', async ({ page }) => {
+// D-089 B: the surah list moved from the home page to the surah index page (RQ-004), which the home
+// page links to; these tests now open every surah from the index (home -> index -> surah, two taps).
+test('TP1-04: every surah opens from the surah index in one click, desktop, Arabic', async ({ page }) => {
   await page.setViewportSize(DESKTOP);
+  await page.goto('/');
+  await page.click('a[data-index-link]');
+  await expect(page).toHaveURL(/\/surahs\/$/);
   for (const s of surahs) {
-    await page.goto('/');
+    await page.goto('/surahs/');
     await page.click(`a[data-surah-link="${s.n}"]`);
     await expect(page).toHaveURL(new RegExp(`/${s.n}/$`));
     await expect(page.locator('p.ayah[data-r]')).toHaveCount(s.items.length);
@@ -39,12 +44,12 @@ test('TP1-04: every surah opens from the home page in one click, desktop, Arabic
 });
 
 for (const lang of ['ar', 'en'] as const) {
-  test(`TP1-05: every surah opens in one tap at mobile width, ${lang}, with its source name`, async ({ browser }) => {
+  test(`TP1-05: every surah opens in one tap from the index at mobile width, ${lang}, with its source name`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: MOBILE, hasTouch: true, isMobile: true });
     const page = await ctx.newPage();
     const home = lang === 'ar' ? '/' : '/en/';
     for (const s of surahs) {
-      await page.goto(home);
+      await page.goto(`${home}surahs/`);
       const link = page.locator(`a[data-surah-link="${s.n}"]`);
       await expect(link.locator('span[lang]')).toHaveText(lang === 'ar' ? s.ar : s.en);
       await link.tap();
@@ -219,6 +224,7 @@ test('TP1-26: delivered ayah bytes are identical in both languages and stay righ
 test('TP1-29: reading, settings and language change send no personal data and no settings', async ({ page, seen }) => {
   await page.goto('/');
   await hydrated(page);
+  await page.click('a[data-index-link]');
   await page.click('a[data-surah-link="2"]');
   await hydrated(page);
   await page.click('[data-larger]');
@@ -237,7 +243,7 @@ test('TP1-29: reading, settings and language change send no personal data and no
 
 for (const lang of ['ar', 'en'] as const) {
   test(`TP1-32: every control on home and reader has an accessible name in the interface language, ${lang}`, async ({ page }) => {
-    for (const path of lang === 'ar' ? ['/', '/2/'] : ['/en/', '/en/2/']) {
+    for (const path of lang === 'ar' ? ['/', '/2/', '/surahs/'] : ['/en/', '/en/2/', '/en/surahs/']) {
       await page.goto(path);
       await hydrated(page);
       const names = await page.$$eval('a[href], button, input:not([type=hidden])', (els) => els.filter((e) => !(e as HTMLElement).hidden || e.matches('button.bm')).map((e) => {
@@ -422,7 +428,7 @@ for (const lang of ['ar', 'en'] as const) {
       }
       return { count: document.querySelectorAll(sel).length, bad };
     }, [sel, lang === 'ar'] as const);
-    await page.goto(lang === 'ar' ? '/' : '/en/');
+    await page.goto(lang === 'ar' ? '/surahs/' : '/en/surahs/');
     const list = await check('a[data-surah-link]');
     expect(list.count).toBe(N);
     expect(list.bad).toEqual([]);

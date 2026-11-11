@@ -1,0 +1,21 @@
+---
+// One row per surah, in source order (RQ-004 AC1, AC2, AC3, P-7): number, name in the interface
+// language (D-094 option A: the English interface shows the English name only), and the ayah count
+// built from the source file at build time. No Meccan or Medinan label (D-093 A) and no juz
+// (D-090 option A); the row is built so another column can be added later.
+// Each label is one inline run: the number is isolated in the interface direction, so in Arabic it
+// sits at the right with its dot after it in reading order, and a real space separates it from the
+// name. The name is the source bytes, unchanged. The count is a separate box after the label.
+import { surahs } from '../lib/data';
+import { ayatLabel, surahPath, type Lang } from '../../core/strings.ts';
+interface Props { lang: Lang; id?: string; label: string; current?: number; side?: boolean }
+const { lang, id, label, current, side = false } = Astro.props;
+const dir = lang === 'ar' ? 'rtl' : 'ltr';
+---
+<ol id={id} class={side ? 'surah-list side-list' : 'surah-list'} aria-label={label} data-index-list={side ? undefined : ''}>
+  {surahs.map((s) => (
+    <li data-row={s.n}>
+      <a href={surahPath(lang, s.n)} data-surah-link={side ? undefined : s.n} data-side-link={side ? s.n : undefined} aria-current={current === s.n ? 'page' : undefined}><span class="surah-label"><bdi dir={dir} data-sn>{s.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{lang === 'ar' ? s.ar : s.en}</span></span>{' '}<span class="surah-count" data-ayat={s.items.length}>{ayatLabel(lang, s.items.length)}</span></a>
+    </li>
+  ))}
+</ol>

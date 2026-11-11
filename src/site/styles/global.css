@@ -8,19 +8,42 @@
 @font-face { font-family: "Noto Naskh Arabic"; src: url("/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: "Scheherazade New"; src: url("/fonts/scheherazade-new/ScheherazadeNew-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 
-/* Colours are checked for WCAG 2.2 AA in test/e2e/read.spec.ts (TP1-23). */
+/* D-102 interface font: Tajawal 1.700 (Boutros International, SIL Open Font License 1.1), self-hosted
+   from the npm package @fontsource/tajawal 5.3.0, unmodified, with its licence in /fonts/tajawal/.
+   Arabic and Latin subsets, weights 400, 500 and 700. Nothing is fetched from another site (the
+   CSP allows fonts from this site only). The Quran text keeps its own font (D-069), below. */
+@font-face { font-family: "Tajawal"; src: url("/fonts/tajawal/tajawal-arabic-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: "Tajawal"; src: url("/fonts/tajawal/tajawal-arabic-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: "Tajawal"; src: url("/fonts/tajawal/tajawal-arabic-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: "Tajawal"; src: url("/fonts/tajawal/tajawal-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Tajawal"; src: url("/fonts/tajawal/tajawal-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Tajawal"; src: url("/fonts/tajawal/tajawal-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+/* D-102 colours. Light (cream) is the default; the night reading setting (the .dark class, set by
+   the Settings island and the early script in the layout) switches to the dark palette. The mode
+   is chosen only by that setting, as before; prefers-color-scheme is not used.
+   Gold is decoration only, never text. Links are never placed on --surface2 in light mode
+   (#2E7D62 on #EFEADD is 4.14:1). Colours are checked for WCAG 2.2 AA in test/e2e/read.spec.ts
+   (TP1-23) and test/e2e/design.spec.ts. --control-border is the 3:1 border of buttons and inputs;
+   --line is the decorative separator colour. */
 :root {
-  --bg: #ffffff; --fg: #1a1a1a; --muted: #4a4a4a; --link: #1d4ed8; --border: #6b7280;
-  --btn-bg: #f3f4f6; --mark-bg: #fde68a; --mark-fg: #1a1a1a; --banner-bg: #fef3c7; --banner-fg: #78350f;
-  --focus: #1d4ed8; --alert: #9f1239; --target: #eff6ff;
+  --bg: #F7F4EC; --surface: #FFFFFF; --surface2: #EFEADD; --primary: #174D3C; --on-primary: #FFFFFF;
+  --link: #2E7D62; --gold: #C9A64B; --fg: #17372F; --muted: #4E6159; --line: #E2DCCB;
+  --control-border: #7A8C84; --border: var(--control-border);
+  --btn-bg: var(--surface); --mark-bg: #F3E3B5; --mark-fg: var(--fg); --banner-bg: #F6ECD2; --banner-fg: #6B4E0F;
+  --focus: var(--link); --alert: #9f1239; --target: #E9EFE6; --selected: #E9EFE6;
+  --page-w: 48rem;
   color-scheme: light;
 }
 :root.dark {
-  --bg: #0b0b0c; --fg: #ececec; --muted: #c4c4c4; --link: #93c5fd; --border: #9ca3af;
-  --btn-bg: #1f2937; --mark-bg: #7c2d12; --mark-fg: #fff7ed; --banner-bg: #422006; --banner-fg: #fde68a;
-  --focus: #93c5fd; --alert: #fda4af; --target: #172033;
+  --bg: #0E1714; --surface: #15221D; --surface2: #1B2B25; --primary: #3E9C7B; --on-primary: #06110D;
+  --link: #7CC9AC; --gold: #D4B45C; --fg: #E9F0EC; --muted: #A9BAB2; --line: #26372F;
+  --control-border: #5E716A;
+  --mark-bg: #5A4A1A; --mark-fg: var(--fg); --banner-bg: #3A3016; --banner-fg: #EBD39A;
+  --alert: #fda4af; --target: #1D3029; --selected: #1D3029;
   color-scheme: dark;
 }
+body.wide { --page-w: 76rem; }
 
 /* The header is sticky, so reading controls stay reachable mid-surah. --header-h is measured by
    the Settings island; the fallback covers the time before it loads. The offset sits on the ayah
@@ -30,19 +53,26 @@ html { background: var(--bg); color: var(--fg); }
 /* Browser scroll anchoring is off: the Settings island keeps the reading place itself, the same
    way in every browser (Safari has no scroll anchoring), and two corrections would add up. */
 html, body { overflow-anchor: none; }
-body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif; line-height: 1.6; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: "Tajawal", system-ui, sans-serif; line-height: 1.6; }
 a { color: var(--link); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-main, .site-header, .site-footer { max-width: 48rem; margin-inline: auto; padding-inline: 1rem; }
+/* Content width: 48rem, or 76rem on wide pages (home, index, reader) at tablet and desktop. The
+   header is a full-width bar whose content lines up with the page column. */
+main, .site-footer { max-width: var(--page-w); margin-inline: auto; padding-inline: 1rem; }
 main:focus { outline: none; }
 
 .banner { margin: 0; padding: .5rem 1rem; background: var(--banner-bg); color: var(--banner-fg); font-weight: 600; text-align: center; }
 .skip { position: absolute; inset-inline-start: -999px; }
 .skip:focus { inset-inline-start: 1rem; top: .5rem; background: var(--bg); padding: .25rem .5rem; z-index: 10; }
-.site-header { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; flex-wrap: nowrap; gap: .5rem 1rem; align-items: center; padding-block: .375rem; border-bottom: 1px solid var(--border); }
-.site-header #lang-switch { display: inline-flex; align-items: center; min-height: 2.75rem; }
-.brand { font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--fg); }
-.site-footer { margin-top: 2rem; padding-block: 1rem; color: var(--muted); font-size: .875rem; border-top: 1px solid var(--border); }
+.site-header { position: sticky; top: 0; z-index: 5; background: var(--surface); display: flex; flex-wrap: nowrap; gap: .5rem 1rem; align-items: center; padding-block: .375rem; padding-inline: max(1rem, calc((100% - var(--page-w)) / 2 + 1rem)); border-bottom: 1px solid var(--line); }
+.site-header #lang-switch { display: inline-flex; align-items: center; min-height: 2.75rem; padding-inline: .25rem; text-decoration: none; font-size: .95rem; }
+.brand { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.75rem; font-weight: 700; font-size: 1.35rem; text-decoration: none; color: var(--primary); }
+:root.dark .brand { color: var(--fg); }
+.brand-mark { flex: none; }
+.brand-arch-outer { stroke: var(--gold); }
+.brand-arch-inner { stroke: var(--primary); }
+.site-footer { margin-top: 2rem; padding-block: 1rem; color: var(--muted); font-size: .875rem; border-top: 1px solid var(--line); }
 .site-footer summary { padding-block: .75rem; cursor: pointer; }
 .site-footer dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; }
 .site-footer dd { margin: 0; }
@@ -54,10 +84,12 @@ main:focus { outline: none; }
 .pv-list { padding-inline-start: 1.25rem; }
 .pv-list > li { margin-block: .5rem; overflow-wrap: anywhere; }
 .pv-updated { font-size: .875rem; color: var(--muted); }
+.privacy { max-width: 48rem; }
 
-.btn { border: 1px solid var(--border); background: var(--btn-bg); color: var(--fg); border-radius: .375rem; padding: .25rem .75rem; font: inherit; font-size: .9rem; cursor: pointer; min-height: 2.75rem; min-width: 2.75rem; }
+.btn { border: 1px solid var(--control-border); background: var(--btn-bg); color: var(--fg); border-radius: .75rem; padding: .25rem .9rem; font: inherit; font-size: .95rem; font-weight: 500; cursor: pointer; min-height: 2.75rem; min-width: 2.75rem; box-sizing: border-box; }
+.btn:hover:not(:disabled) { background: var(--selected); }
 .btn:disabled { opacity: .6; cursor: default; }
-.btn[aria-pressed="true"] { font-weight: 700; }
+.btn[aria-pressed="true"] { font-weight: 700; background: var(--selected); }
 .btn.danger { border-color: var(--alert); }
 .settings { display: flex; gap: .5rem; align-items: center; margin-inline-start: auto; position: static; }
 .display-panel { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
@@ -67,7 +99,7 @@ main:focus { outline: none; }
    the sticky header is a single row. The panel opens over the text and does not move it. */
 @media (max-width: 40rem) {
   .display-toggle { display: inline-flex; align-items: center; }
-  .display-panel { display: none; position: absolute; top: 100%; inset-inline-end: .5rem; z-index: 6; background: var(--bg); border: 1px solid var(--border); border-radius: .5rem; padding: .5rem; box-shadow: 0 4px 12px rgb(0 0 0 / .15); }
+  .display-panel { display: none; position: absolute; top: 100%; inset-inline-end: .5rem; z-index: 6; background: var(--surface); border: 1px solid var(--line); border-radius: .75rem; padding: .5rem; box-shadow: 0 4px 12px rgb(0 0 0 / .15); }
   .display-panel.open { display: flex; }
 }
 
@@ -75,37 +107,95 @@ main:focus { outline: none; }
 .hint.over, .msg.alert { color: var(--alert); font-weight: 600; }
 .msg { margin: .5rem 0; }
 .search { margin-block: 1rem; }
-.search-label { display: block; font-weight: 600; margin-bottom: .25rem; }
+.index-filter { margin-block: 1rem; }
+.filter-reserve { min-height: 10rem; }
+.search-label { display: block; font-weight: 700; margin-bottom: .35rem; }
 .search-row { display: flex; gap: .5rem; }
-.search-row input { flex: 1; min-width: 0; font: inherit; font-size: 1.1rem; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: .375rem; background: var(--bg); color: var(--fg); }
+.search-row input { flex: 1; min-width: 0; min-height: 3rem; box-sizing: border-box; font: inherit; font-size: 1.1rem; padding: .35rem .9rem; border: 1px solid var(--control-border); border-radius: .875rem; background: var(--surface); color: var(--fg); }
 .results, .offers, .bookmarks { list-style: none; padding: 0; margin: .5rem 0; }
-.results > li { padding-block: .5rem; border-bottom: 1px solid var(--border); }
+.results > li { padding-block: .5rem; border-bottom: 1px solid var(--line); }
 /* Links that mix numbers and Arabic names stay one inline text run (no flex), so bidi ordering
    and spaces are kept in every browser; padding gives the 44 px target. */
 .offers a, .results a { font-size: .9rem; display: inline-block; min-height: 2.75rem; padding-block: .65rem; box-sizing: border-box; }
 .pager { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
 mark { background: var(--mark-bg); color: var(--mark-fg); }
 
-.home-title { font-size: 1.75rem; margin-block: 1rem; }
-h2 { font-size: 1.25rem; font-weight: 600; margin-block: 1.5rem .5rem; }
-.surah-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0 1rem; }
-.surah-list a { display: block; min-height: 2.75rem; padding-block: .6rem; box-sizing: border-box; }
-.continue a { display: inline-block; min-height: 2.75rem; padding-block: .6rem; box-sizing: border-box; }
+.home-title { font-size: 1.75rem; font-weight: 700; margin-block: 1rem; }
+h2 { font-size: 1.15rem; font-weight: 700; margin-block: 1.5rem .5rem; }
+h2:focus { outline: none; }
+h2:focus-visible { outline: 3px solid var(--focus); }
+
+/* Home (D-089 B): search and the index link, then continue reading and bookmarks. One column on a
+   phone; two columns from tablet width. */
+.home-grid { display: grid; gap: 0 2rem; }
+@media (min-width: 52rem) {
+  .home-grid { grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem); align-items: start; }
+}
+.index-card-wrap { margin-block: 1rem; }
+.index-card { display: flex; flex-direction: column; gap: .15rem; min-height: 3.5rem; box-sizing: border-box; padding: .9rem 1.1rem; border: 1px solid var(--line); border-inline-start: 4px solid var(--gold); border-radius: 1rem; background: var(--surface); color: var(--fg); text-decoration: none; }
+.index-card:hover { background: var(--selected); }
+.index-card-title { font-size: 1.15rem; font-weight: 700; color: var(--link); }
+.index-card-sub { font-size: .9rem; color: var(--muted); }
+
+/* Surah index (RQ-004) and the reader side list. Each row is at least 48 px (P-3: 44 px minimum).
+   The label stays one inline text run (no flex inside it), so bidi ordering and the space between
+   number and name are kept in every browser; the count is a separate box at the row end. */
+.surah-list { list-style: none; padding: 0; margin: .5rem 0 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 0 1.5rem; }
+.surah-list > li { border-bottom: 1px solid var(--line); }
+.surah-list > li[hidden] { display: none; }
+.surah-list a { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 3rem; padding: .5rem .25rem; box-sizing: border-box; color: var(--fg); text-decoration: none; border-radius: .625rem; }
+.surah-list a:hover { background: var(--selected); }
+.surah-list a[aria-current="page"] { background: var(--selected); font-weight: 700; }
+.surah-label { flex: 1; min-width: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
+.surah-label [data-sn] { display: inline-block; min-width: 2.25rem; padding: .05rem .3rem; margin-inline-end: .25rem; box-sizing: border-box; border: 1.5px solid var(--gold); border-radius: .5rem; text-align: center; font-size: .85rem; font-weight: 700; }
+.surah-count { flex: none; font-size: .85rem; color: var(--muted); }
+
+/* Continue reading (RQ-003 AC4, RQ-004 AC18): a filled card, at least 48 px (P-3). The gold ring is
+   decoration only. The link text is one run, so the name and ayah number keep their order. */
+.continue { margin-block: 1rem; }
+.continue a { position: relative; overflow: hidden; display: block; min-height: 3rem; box-sizing: border-box; padding: 1rem 1.1rem; border-radius: 1rem; background: var(--primary); color: var(--on-primary); font-size: 1.1rem; font-weight: 700; text-decoration: none; }
+.continue a::after { content: ""; position: absolute; inset-inline-end: -1.5rem; top: -1.5rem; width: 5rem; height: 5rem; border: 3px solid var(--gold); border-radius: 50%; opacity: .35; pointer-events: none; }
+.continue a:hover { text-decoration: underline; }
+.continue-ref { display: block; font-size: .9rem; font-weight: 400; opacity: .95; }
 .saved { margin-block: 1rem; }
-.bookmarks li { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; padding-block: .25rem; }
+.bookmarks { border: 1px solid var(--line); border-radius: .875rem; background: var(--surface); padding-inline: .75rem; }
+.bookmarks li { display: flex; gap: .75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-block: .25rem; border-bottom: 1px solid var(--line); }
+.bookmarks li:last-child { border-bottom: 0; }
+.bookmarks a { display: inline-block; min-height: 2.75rem; padding-block: .6rem; box-sizing: border-box; }
 .confirm { display: flex; gap: .5rem; flex-wrap: wrap; }
+.confirm-step { margin-block: .5rem; }
+.saved > .btn, .confirm-step { margin-block-end: .5rem; }
 .reserve { visibility: hidden; }
 
-.surah-nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-block: .25rem; }
+.surah-nav { display: flex; gap: .25rem 1rem; flex-wrap: wrap; margin-block: .25rem; }
 .surah-nav a { display: inline-flex; align-items: center; min-height: 2.75rem; }
-.surah-title { font-size: 1.5rem; margin-block: .25rem; }
+.surah-title { font-size: 1.5rem; font-weight: 700; margin-block: .25rem; }
+/* Gold ornament line under the reader title: decoration only. */
+.reader-main > .surah-title::after { content: ""; display: block; height: 1px; margin-block: .75rem .25rem; background: linear-gradient(to right, transparent, var(--gold), transparent); }
+.surah-nav-end { justify-content: flex-end; padding-top: .75rem; border-top: 1px solid var(--line); }
+.surah-nav .next-btn { padding-inline: 1.1rem; border-radius: .75rem; background: var(--primary); color: var(--on-primary); text-decoration: none; font-weight: 500; }
+.surah-nav .next-btn:hover { text-decoration: underline; }
+
+/* Reader layout. Phone: one column. Tablet and desktop: the surah index beside the text, at the
+   inline start (right in Arabic), sticky under the header and scrolled on its own. */
+.reader-side { display: none; }
+@media (min-width: 52rem) {
+  .reader-grid { display: grid; grid-template-columns: 17rem minmax(0, 1fr); gap: 0 2rem; align-items: start; }
+  .reader-main { grid-column: 2; grid-row: 1; min-width: 0; max-width: 46rem; }
+  .reader-side { display: block; grid-column: 1; grid-row: 1; position: sticky; top: calc(var(--header-h, 3.75rem) + .5rem); max-height: calc(100vh - var(--header-h, 3.75rem) - 1rem); overflow-y: auto; padding-inline-end: .75rem; border-inline-end: 1px solid var(--line); }
+  .side-list { grid-template-columns: 1fr; margin: 0; }
+  .side-list .surah-label { font-size: .95rem; }
+}
+@media (min-width: 80rem) {
+  .reader-grid { grid-template-columns: 19rem minmax(0, 1fr); gap: 0 3rem; }
+}
 /* Design review H-2: on reader pages the search form sits behind one button. */
 .reader-search > summary { display: inline-flex; align-items: center; list-style: none; }
 .reader-search > summary::-webkit-details-marker { display: none; }
 .reader-search > .search { margin-block: .5rem 1rem; }
 .ayat { list-style: none; padding: 0; margin: 1rem 0; }
-.ayah-row { display: flex; gap: .5rem; align-items: flex-start; padding-block: .5rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); scroll-margin-top: calc(var(--header-h, 3.75rem) + .5rem); }
-.ayah-row:target { background: var(--target); outline: 2px solid var(--focus); }
+.ayah-row { display: flex; gap: .5rem; align-items: flex-start; padding-block: .5rem; border-bottom: 1px solid var(--line); scroll-margin-top: calc(var(--header-h, 3.75rem) + .5rem); }
+.ayah-row:target { background: var(--target); outline: 2px solid var(--focus); border-radius: .75rem; }
 /* D-069 font (self-hosted above), then the fallback. Mushaf accuracy still needs the D-012 reviewer. */
 .ayah { flex: 1; margin: 0; font-family: "Noto Naskh Arabic", "Scheherazade New", serif; font-size: var(--ayah-size, 1.5rem); line-height: 2.2; overflow-wrap: anywhere; }
 /* Design review M-3 and M-6: a borderless 44 px bookmark control; the border shows on focus only. */
@@ -124,7 +214,7 @@ h2 { font-size: 1.25rem; font-weight: 600; margin-block: 1.5rem .5rem; }
    question), so Tafseer text uses the system font, which also keeps it visibly apart from the
    Quran text. */
 .tf-link { flex: none; display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; min-width: 2.75rem; padding-inline: .25rem; font-size: .85rem; box-sizing: border-box; }
-.tf-section { border: 1px solid var(--border); border-radius: .5rem; padding: .25rem 1rem .75rem; margin-block: 1rem; }
+.tf-section { border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); padding: .25rem 1rem .75rem; margin-block: 1rem; }
 .tf-section > h2 { margin-block: .5rem; }
 .tf-ayat { list-style: none; padding: 0; margin: 0; }
 .tf-ref { font-size: .9rem; color: var(--muted); margin: .25rem 0; }

@@ -1,24 +1,24 @@
 ---
+// Home page. D-089 B: the surah list moved to its own index page (RQ-004); home keeps search and
+// continue reading (RQ-003), with a clear link to the index.
 import Layout from '../layouts/Layout.astro';
 import Search from '../islands/Search.tsx';
 import Saved from '../islands/Saved.tsx';
 import { surahs, counts, names } from '../lib/data';
-import { t, homePath, surahPath, type Lang } from '../../core/strings.ts';
+import { t, homePath, indexPath, type Lang } from '../../core/strings.ts';
 interface Props { lang: Lang }
 const { lang } = Astro.props;
 const other: Lang = lang === 'ar' ? 'en' : 'ar';
 ---
-<Layout lang={lang} title={t(lang, 'siteName')} alt={homePath(other)}>
+<Layout lang={lang} title={t(lang, 'siteName')} alt={homePath(other)} wide>
   <h1 class="home-title">{t(lang, 'siteName')}</h1>
-  <Search lang={lang} client:idle />
-  <Saved lang={lang} counts={counts} names={names} client:idle />
-  <h2 id="surahs-h">{t(lang, 'surahs')}</h2>
-  <!-- Each label is one inline run: the number is isolated in the interface direction, so in Arabic
-       it sits at the right with its dot after it in reading order, and a real space separates it
-       from the name. The name is the source bytes, unchanged. -->
-  <ol class="surah-list" aria-labelledby="surahs-h">
-    {surahs.map((s) => (
-      <li><a href={surahPath(lang, s.n)} data-surah-link={s.n}><span class="surah-label"><bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{s.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{lang === 'ar' ? s.ar : s.en}</span></span></a></li>
-    ))}
-  </ol>
+  <div class="home-grid">
+    <div class="home-main">
+      <Search lang={lang} client:idle />
+      <p class="index-card-wrap"><a class="index-card" href={indexPath(lang)} data-index-link><span class="index-card-title">{t(lang, 'surahIndex')}</span> <span class="index-card-sub">{t(lang, 'indexListLabel', { n: surahs.length })}</span></a></p>
+    </div>
+    <div class="home-side">
+      <Saved lang={lang} counts={counts} names={names} client:idle />
+    </div>
+  </div>
 </Layout>

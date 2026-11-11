@@ -1,5 +1,5 @@
 {
-  "note": "Reviewed binary files allowed in the public repository (D-071, M-1). scripts/check-no-quran.ts fails on any file that is not plain UTF-8 text unless its path and SHA-256 are listed here. Add an entry only after review, never to make the check pass. Both fonts were checked: their name tables hold no Quran text and no surah name, and they hold no search index header or ayah bytes in UTF-8 or UTF-16.",
+  "note": "Reviewed binary files allowed in the public repository (D-071, M-1). scripts/check-no-quran.ts fails on any file that is not plain UTF-8 text unless its path and SHA-256 are listed here. Add an entry only after review, never to make the check pass. The Quran fonts were checked: their name tables hold no Quran text and no surah name, and they hold no search index header or ayah bytes in UTF-8 or UTF-16.",
   "files": [
     {
       "path": "public/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2",
@@ -10,6 +10,36 @@
       "path": "public/fonts/scheherazade-new/ScheherazadeNew-Regular.woff2",
       "sha256": "fd12c322cd8a0033d5c30b0a9fc0432e1d51288cd065f3f04a85a7974f1de3b7",
       "reason": "D-069 fallback font. Scheherazade New 4.500, the official WOFF2 Regular from ScheherazadeNew-4.500.zip (SHA-256 49c789c21305bed13d90d7500877b50d62db1e8e4d6f7715178e556319ddbda9, https://github.com/silnrsi/font-scheherazade/releases/download/v4.500/ScheherazadeNew-4.500.zip), unmodified. SIL Open Font License 1.1 with Reserved Font Names Scheherazade and SIL, so it is served only unmodified; OFL.txt is next to the file."
+    },
+    {
+      "path": "public/fonts/tajawal/tajawal-arabic-400-normal.woff2",
+      "sha256": "6c9081fd00db08800850fa7d214593aa94992be5159e97557aa60197252cb95a",
+      "reason": "D-102 interface font. Tajawal 1.700 (arabic subset, weight 400) by Boutros International, the file files/tajawal-arabic-400-normal.woff2 from the npm package @fontsource/tajawal 5.3.0 (tarball SHA-256 15a43b410d54ca2bdd767b5a3bebcc039634025fda7d181929e5c5f35a6e820a), unmodified. SIL Open Font License 1.1; OFL.txt (the package's LICENSE) is next to the file. Name table checked: family Tajawal, Version 1.700, copyright Boutros International; no Quran text, no surah name; checked by scripts/check-no-quran.ts layers 0-2."
+    },
+    {
+      "path": "public/fonts/tajawal/tajawal-arabic-500-normal.woff2",
+      "sha256": "4255019c1cd986f7cda7869df69baf72730d61304ae14baba4acfeb13085da54",
+      "reason": "D-102 interface font. Tajawal 1.700 (arabic subset, weight 500) by Boutros International, the file files/tajawal-arabic-500-normal.woff2 from the npm package @fontsource/tajawal 5.3.0 (tarball SHA-256 15a43b410d54ca2bdd767b5a3bebcc039634025fda7d181929e5c5f35a6e820a), unmodified. SIL Open Font License 1.1; OFL.txt (the package's LICENSE) is next to the file. Name table checked: family Tajawal, Version 1.700, copyright Boutros International; no Quran text, no surah name; checked by scripts/check-no-quran.ts layers 0-2."
+    },
+    {
+      "path": "public/fonts/tajawal/tajawal-arabic-700-normal.woff2",
+      "sha256": "fa5e72326681abee3a4952be582e1c2c2abb27932ef262610c078ce89541f919",
+      "reason": "D-102 interface font. Tajawal 1.700 (arabic subset, weight 700) by Boutros International, the file files/tajawal-arabic-700-normal.woff2 from the npm package @fontsource/tajawal 5.3.0 (tarball SHA-256 15a43b410d54ca2bdd767b5a3bebcc039634025fda7d181929e5c5f35a6e820a), unmodified. SIL Open Font License 1.1; OFL.txt (the package's LICENSE) is next to the file. Name table checked: family Tajawal, Version 1.700, copyright Boutros International; no Quran text, no surah name; checked by scripts/check-no-quran.ts layers 0-2."
+    },
+    {
+      "path": "public/fonts/tajawal/tajawal-latin-400-normal.woff2",
+      "sha256": "b081f7bf790678b56a2c0502651d6873cbabc09e78fe40655df15f918b1e369b",
+      "reason": "D-102 interface font. Tajawal 1.700 (latin subset, weight 400) by Boutros International, the file files/tajawal-latin-400-normal.woff2 from the npm package @fontsource/tajawal 5.3.0 (tarball SHA-256 15a43b410d54ca2bdd767b5a3bebcc039634025fda7d181929e5c5f35a6e820a), unmodified. SIL Open Font License 1.1; OFL.txt (the package's LICENSE) is next to the file. Name table checked: family Tajawal, Version 1.700, copyright Boutros International; no Quran text, no surah name; checked by scripts/check-no-quran.ts layers 0-2."
+    },
+    {
+      "path": "public/fonts/tajawal/tajawal-latin-500-normal.woff2",
+      "sha256": "9986de5db80ec050300f1cea25d651a5779ae62b91a39b5667ac23d0c7668cbb",
+      "reason": "D-102 interface font. Tajawal 1.700 (latin subset, weight 500) by Boutros International, the file files/tajawal-latin-500-normal.woff2 from the npm package @fontsource/tajawal 5.3.0 (tarball SHA-256 15a43b410d54ca2bdd767b5a3bebcc039634025fda7d181929e5c5f35a6e820a), unmodified. SIL Open Font License 1.1; OFL.txt (the package's LICENSE) is next to the file. Name table checked: family Tajawal, Version 1.700, copyright Boutros International; no Quran text, no surah name; checked by scripts/check-no-quran.ts layers 0-2."
+    },
+    {
+      "path": "public/fonts/tajawal/tajawal-latin-700-normal.woff2",
+      "sha256": "de8f431c146ab1feb612cb7ced0842ae5c4e2f12067d13db0badeca73977200b",
+      "reason": "D-102 interface font. Tajawal 1.700 (latin subset, weight 700) by Boutros International, the file files/tajawal-latin-700-normal.woff2 from the npm package @fontsource/tajawal 5.3.0 (tarball SHA-256 15a43b410d54ca2bdd767b5a3bebcc039634025fda7d181929e5c5f35a6e820a), unmodified. SIL Open Font License 1.1; OFL.txt (the package's LICENSE) is next to the file. Name table checked: family Tajawal, Version 1.700, copyright Boutros International; no Quran text, no surah name; checked by scripts/check-no-quran.ts layers 0-2."
     }
   ]
 }

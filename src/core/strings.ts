@@ -68,6 +68,15 @@ const ar = {
   clearConfirm: 'تأكيد إزالة كل العلامات',
   cancel: 'إلغاء',
   cleared: 'أُزيلت كل العلامات من هذا الجهاز.',
+  // RQ-003 v1.3 AC14 to AC23 (D-103): clear the last reading position. P-6 wording. New strings,
+  // added after the B-09 review (D-104); they await Hamzeh's follow-up review. "Cancel" reuses the
+  // cancel string.
+  clearLast: 'إزالة موضع القراءة الأخير',
+  clearLastName: 'إزالة موضع القراءة الأخير: {name}، الآية {a}',
+  clearLastConfirm: 'تأكيد إزالة موضع القراءة',
+  clearLastNote: 'يُزال موضع القراءة من هذا الجهاز فقط، وتبقى علاماتك المحفوظة كما هي.',
+  clearLastDone: 'أُزيل موضع القراءة من هذا الجهاز. لم تتغير علاماتك المحفوظة.',
+  clearLastFailed: 'تعذرت إزالة موضع القراءة من هذا الجهاز لأن التخزين محظور أو ممتلئ. القراءة متاحة كالمعتاد.',
   continueReading: 'متابعة القراءة: {name}، الآية {a}',
   badRef: 'هذا المرجع المحفوظ غير موجود في المصدر الحالي ({s}:{a}).',
   storageBlocked: 'تخزين الجهاز غير متاح، لذلك لا يمكن عرض العلامات أو حفظها. القراءة متاحة كالمعتاد.',
@@ -105,6 +114,20 @@ const ar = {
   backToReading: 'العودة إلى القراءة',
   tafseerNoScript: 'يحتاج عرض التفسير إلى تفعيل جافاسكربت. نص الآية معروض أعلاه.',
   tafseerDevNote: 'نسخة تطوير: ميزة التفسير غير معتمدة للإصدار بعد (D-076، D-012، D-008).',
+  // RQ-004 surah index page (draft v0.1; D-089 B, D-093 A; D-090, D-091, D-092 and D-094 use
+  // option A pending Hamzeh). New strings, added after the B-09 review (D-104); provisional until
+  // Hamzeh's follow-up review.
+  surahIndex: 'فهرس السور',
+  surahIndexOpen: 'افتح فهرس السور',
+  indexListLabel: 'قائمة السور: {n} سورة',
+  filterLabel: 'ابحث عن سورة بالاسم أو الرقم',
+  filterHint: 'بالعربية أو بالرقم، مثل 18 أو 2:255. بحد أقصى 100 حرف.',
+  filterCount: 'عدد السور المطابقة: {n}',
+  filterAll: 'تُعرض كل السور: {n}',
+  filterNone: 'لا توجد سورة مطابقة.',
+  filterClear: 'مسح التصفية',
+  ayatFew: '{n} آيات',
+  ayatMany: '{n} آية',
   // Privacy page (/privacy/, /en/privacy/). Text approved by Hamzeh "for now" (D-099), word for
   // word; do not reword here. The Arabic text still needs the B-09 Arabic review. Each item is a
   // bold label and its text; the hosting item is split around its one link.
@@ -199,6 +222,13 @@ const en: typeof ar = {
   clearConfirm: 'Confirm: remove all bookmarks',
   cancel: 'Cancel',
   cleared: 'All bookmarks were removed from this device.',
+  // RQ-003 v1.3 P-6 wording (see the Arabic block).
+  clearLast: 'Remove last reading position',
+  clearLastName: 'Remove last reading position: {name}, ayah {a}',
+  clearLastConfirm: 'Confirm: remove reading position',
+  clearLastNote: 'This removes your reading position from this device only. Your bookmarks stay.',
+  clearLastDone: 'Your reading position was removed from this device. Your bookmarks are unchanged.',
+  clearLastFailed: 'Could not remove your reading position from this device, because storage is blocked or full. Reading still works.',
   continueReading: 'Continue reading: {name}, ayah {a}',
   badRef: 'This saved reference does not exist in the current source ({s}:{a}).',
   storageBlocked: 'Device storage is not available, so bookmarks cannot be shown or saved. Reading still works.',
@@ -236,6 +266,18 @@ const en: typeof ar = {
   backToReading: 'Back to reading',
   tafseerNoScript: 'Showing the Tafseer needs JavaScript. The ayah text is shown above.',
   tafseerDevNote: 'Development build: Tafseer is not approved for release yet (D-076, D-012, D-008).',
+  // RQ-004 surah index (see the Arabic block).
+  surahIndex: 'Surah index',
+  surahIndexOpen: 'Open the surah index',
+  indexListLabel: 'List of surahs: {n}',
+  filterLabel: 'Find a surah by name or number',
+  filterHint: 'Arabic name or a number, such as 18 or 2:255. Up to 100 characters.',
+  filterCount: 'Matching surahs: {n}',
+  filterAll: 'Showing all surahs: {n}',
+  filterNone: 'No surah matches.',
+  filterClear: 'Clear filter',
+  ayatFew: '{n} ayat',
+  ayatMany: '{n} ayat',
   // Privacy page, D-099 approved text (see the Arabic block above).
   privacyLink: 'Privacy',
   pvTitle: 'Privacy at RIFQ',
@@ -270,7 +312,17 @@ export function t(lang: Lang, key: Key, vars: Record<string, string | number> = 
   return STRINGS[lang][key].replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
 }
 
+// Ayah count label for the surah index (RQ-004 P-6): a Latin number and a word in the interface
+// language. Arabic uses the plural form for 3 to 10 (also after hundreds, as in 103 to 110) and the
+// singular form otherwise. Provisional until Hamzeh's follow-up review of the new strings.
+export function ayatLabel(lang: Lang, n: number): string {
+  const r = n % 100;
+  return t(lang, r >= 3 && r <= 10 ? 'ayatFew' : 'ayatMany', { n });
+}
+
 export const homePath = (lang: Lang) => (lang === 'ar' ? '/' : '/en/');
+// RQ-004 (D-089 B): the surah index has its own page, linked from home and every reader page.
+export const indexPath = (lang: Lang) => `${homePath(lang)}surahs/`;
 export const surahPath = (lang: Lang, s: number) => `${homePath(lang)}${s}/`;
 export const ayahPath = (lang: Lang, s: number, a: number) => `${surahPath(lang, s)}#a${a}`;
 // RQ-005: the Tafseer screen for one surah; the ayah is in the hash, which is not sent to the server.
