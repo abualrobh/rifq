@@ -27,7 +27,7 @@ async function setup(extra: { fingerprints?: { ref: string; tafsirId: number; sh
   const mock = createMockQf({ quran: src, now, slowMs: 200 });
   const cache = new FakeCache();
   const fetchFn = (u: string, i: RequestInit) => { assert.ok(u.startsWith(BASE), 'only the configured API base is called'); return mock.fetch(u, i); };
-  const w = makeWorker(ab, {
+  const w = makeWorker(ab, { testMemoryLimits: true,
     dev: extra.dev ?? true, gate: extra.gate ?? false, tafseer: true, record: { name: 'Synthetic', edition: 'seed', status: 'UNVERIFIED' },
     counts: [0, ...SYN_COUNTS.slice(1)], fingerprints: { format: 'rifq-tafseer-fingerprints/1', entries: extra.fingerprints ?? [] }, tafseerLimit: 1000,
   }, { fetch: fetchFn, now, cache: () => cache, timeoutMs: extra.timeoutMs ?? 2000 });
@@ -178,11 +178,11 @@ test('route rules: POST JSON only, same site only, valid references only, rate l
     assert.equal((await base({ method: 'POST', body: b, headers: { 'content-type': 'application/json' } })).status, 400, b);
   }
   assert.equal((await base({ method: 'POST', body: 'x'.repeat(300), headers: { 'content-type': 'application/json' } })).status, 413);
-  const limited = makeWorker(ab, { dev: true, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, counts: [0, ...SYN_COUNTS.slice(1)], tafseerLimit: 2 }, { fetch: createMockQf().fetch, cache: () => null });
+  const limited = makeWorker(ab, { testMemoryLimits: true, dev: true, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, counts: [0, ...SYN_COUNTS.slice(1)], tafseerLimit: 2 }, { fetch: createMockQf().fetch, cache: () => null });
   const codes = [];
   for (let i = 0; i < 3; i++) codes.push((await limited.fetch(new Request('http://127.0.0.1/api/tafseer', { method: 'POST', body: '{"s":1,"a":1}', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '10.3.3.3' } }), {} as never)).status);
   assert.deepEqual(codes, [503, 503, 429]);
-  const off = makeWorker(ab, { dev: true, record: { name: 'S', edition: 'e', status: 's' } });
+  const off = makeWorker(ab, { testMemoryLimits: true, dev: true, record: { name: 'S', edition: 'e', status: 's' } });
   assert.equal((await off.fetch(new Request('http://127.0.0.1/api/tafseer', { method: 'POST', body: '{"s":1,"a":1}', headers: { 'content-type': 'application/json' } }), {})).status, 404, 'no route without the build flag');
 });
 

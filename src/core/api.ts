@@ -13,7 +13,7 @@ export type Offer =
   | { kind: 'surah'; s: number; name: string; en: string }
   | { kind: 'ayah'; s: number; a: number; name: string; en: string };
 export type SearchOk = SearchOut & { offers: Offer[]; ref: 'none' | 'found' | 'missing' };
-export type SearchErr = { error: 'empty' | 'too_long' | 'latin' | 'bad_json' | 'rate_limited' | 'method' | 'not_found' | 'bad_length' | 'unsupported_type' | 'cross_site' };
+export type SearchErr = { error: 'empty' | 'too_long' | 'latin' | 'bad_json' | 'rate_limited' | 'method' | 'not_found' | 'bad_length' | 'unsupported_type' | 'cross_site' | 'unavailable' };
 export type ApiOut = { status: number; data: SearchOk | SearchErr };
 
 type Lazy = { counts: number[]; folded: string[] };
