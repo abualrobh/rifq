@@ -25,6 +25,10 @@ const ar = {
   larger: 'تكبير الخط',
   smaller: 'تصغير الخط',
   night: 'الوضع الليلي',
+  // Night toggle icon button: names the action it takes. New strings, added after the B-09 review
+  // (D-104); they await Hamzeh's review. The reviewed `night` string above is kept unchanged.
+  toDark: 'التبديل إلى الوضع الداكن',
+  toLight: 'التبديل إلى الوضع الفاتح',
   display: 'العرض',
   searchOpen: 'البحث',
   fontSize: 'حجم الخط: {n} من {m}',
@@ -179,6 +183,8 @@ const en: typeof ar = {
   larger: 'Larger text',
   smaller: 'Smaller text',
   night: 'Night mode',
+  toDark: 'Switch to dark mode',
+  toLight: 'Switch to light mode',
   display: 'Display',
   searchOpen: 'Search',
   fontSize: 'Text size: {n} of {m}',

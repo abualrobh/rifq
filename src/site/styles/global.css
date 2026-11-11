@@ -94,6 +94,13 @@ main:focus { outline: none; }
 .settings { display: flex; gap: .5rem; align-items: center; margin-inline-start: auto; position: static; }
 .display-panel { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .display-toggle { display: none; }
+/* Night toggle: a 44 px icon button that stays in the header at every width. The moon shows in
+   light mode (action: switch to dark), the sun in dark mode (action: switch to light). */
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; padding: 0; flex: none; }
+.icon-btn svg { display: block; }
+.night-btn .icon-sun, :root.dark .night-btn .icon-moon { display: none; }
+:root.dark .night-btn .icon-sun { display: block; }
+.night-btn.pending { visibility: hidden; }
 .size-label { font-size: .85rem; color: var(--muted); }
 /* Design review H-2: at phone width the size and night controls fold into one Display button, so
    the sticky header is a single row. The panel opens over the text and does not move it. */
