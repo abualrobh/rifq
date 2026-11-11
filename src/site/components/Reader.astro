@@ -2,8 +2,9 @@
 import Layout from '../layouts/Layout.astro';
 import Search from '../islands/Search.tsx';
 import ReaderTools from '../islands/ReaderTools.tsx';
+import SurahList from './SurahList.astro';
 import { surahs, tafseerOn } from '../lib/data';
-import { t, homePath, surahPath, tafseerPath, type Lang } from '../../core/strings.ts';
+import { t, homePath, indexPath, surahPath, tafseerPath, type Lang } from '../../core/strings.ts';
 import type { Surah } from '../../core/source-adapter.ts';
 interface Props { surah: Surah; lang: Lang }
 const { surah, lang } = Astro.props;
@@ -13,9 +14,12 @@ const prev = surah.n > 1 ? surahPath(lang, surah.n - 1) : null;
 const next = surah.n < last ? surahPath(lang, surah.n + 1) : null;
 const name = lang === 'ar' ? surah.ar : surah.en;
 ---
-<Layout lang={lang} title={`${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={surahPath(other, surah.n)}>
+<Layout lang={lang} title={`${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={surahPath(other, surah.n)} wide>
+  <div class="reader-grid">
+  <div class="reader-main">
   <nav class="surah-nav" aria-label={t(lang, 'navLabel')}>
     <a href={homePath(lang)}>{t(lang, 'home')}</a>
+    <a href={indexPath(lang)} data-index-link>{t(lang, 'surahIndex')}</a>
     {prev && <a rel="prev" data-prev href={prev}>{t(lang, 'prevSurah')}</a>}
     {next && <a rel="next" data-next href={next}>{t(lang, 'nextSurah')}</a>}
   </nav>
@@ -36,8 +40,16 @@ const name = lang === 'ar' ? surah.ar : surah.en;
       </li>
     ))}
   </ol>
-  <nav class="surah-nav" aria-label={t(lang, 'navLabel')}>
+  <nav class="surah-nav surah-nav-end" aria-label={t(lang, 'navLabel')}>
     {prev && <a rel="prev" href={prev}>{t(lang, 'prevSurah')}</a>}
-    {next && <a rel="next" href={next}>{t(lang, 'nextSurah')}</a>}
+    {next && <a rel="next" class="next-btn" href={next}>{t(lang, 'nextSurah')}</a>}
   </nav>
+  </div>
+  {/* Tablet and desktop widths (mockups): the surah index beside the text, current surah marked.
+      Hidden at phone width, where the index link above is used. It comes after the text in reading
+      and tab order. */}
+  <aside class="reader-side" aria-label={t(lang, 'surahIndex')} data-reader-side>
+    <SurahList lang={lang} label={t(lang, 'indexListLabel', { n: last })} current={surah.n} side />
+  </aside>
+  </div>
 </Layout>

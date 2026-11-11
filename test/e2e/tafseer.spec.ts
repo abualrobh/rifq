@@ -160,7 +160,8 @@ test('AC20: text size and night mode change both sections', async ({ page }) => 
   await page.locator('[data-night]').click();
   await expect(page.locator('html')).toHaveClass(/dark/);
   const colors = await page.evaluate(() => [getComputedStyle(document.querySelector('[data-tf-text]')!).color, getComputedStyle(document.body).backgroundColor]);
-  expect(colors).toEqual(['rgb(236, 236, 236)', 'rgb(11, 11, 12)']);
+  // D-102 dark palette: text #E9F0EC on background #0E1714.
+  expect(colors).toEqual(['rgb(233, 240, 236)', 'rgb(14, 23, 20)']);
   await expect(page.locator('[data-tf-ayah]')).toHaveAttribute('data-tf-ayah', '2:23');
 });
 

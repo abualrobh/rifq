@@ -4,6 +4,7 @@
 import { foldQuery } from './variants.ts';
 import { search, surahName, surahNameEn, type Index, type SearchOut } from './search-core.ts';
 import { parseRef, validate } from './query.ts';
+import { matchSurahNames } from './surah-match.ts';
 export { parseRef, validate, asciiDigits } from './query.ts';
 
 export const MAX_BODY = 2048;
@@ -45,15 +46,8 @@ export function offers(ix: Index, q: string): { offers: Offer[]; ref: SearchOk['
     const name = surahName(ix, r.s), en = surahNameEn(ix, r.s);
     return { offers: [r.a === undefined ? { kind: 'surah', s: r.s, name, en } : { kind: 'ayah', s: r.s, a: r.a, name, en }], ref: 'found' };
   }
-  const fq = foldQuery(q).trim().split(/\s+/).join(' ');
-  const out: Offer[] = [];
-  if (fq) {
-    const { folded } = meta(ix);
-    for (let s = 1; s <= ix.nSurah; s++) {
-      const f = folded[s];
-      if (f === fq || ([...fq].length >= 2 && f.startsWith(fq))) out.push({ kind: 'surah', s, name: surahName(ix, s), en: surahNameEn(ix, s) });
-    }
-  }
+  // Shared with the surah index filter (RQ-004 AC12), so index and search never disagree.
+  const out: Offer[] = matchSurahNames(meta(ix).folded, q).map((s) => ({ kind: 'surah', s, name: surahName(ix, s), en: surahNameEn(ix, s) }));
   return { offers: out, ref: 'none' };
 }
 

@@ -5,8 +5,8 @@ import '../styles/global.css';
 import Settings from '../islands/Settings.tsx';
 import { dev, record } from '../lib/data';
 import { t, homePath, privacyPath, type Lang } from '../../core/strings.ts';
-interface Props { lang: Lang; title: string; alt: string }
-const { lang, title, alt } = Astro.props;
+interface Props { lang: Lang; title: string; alt: string; wide?: boolean }
+const { lang, title, alt, wide = false } = Astro.props;
 const other: Lang = lang === 'ar' ? 'en' : 'ar';
 ---
 <!doctype html>
@@ -23,11 +23,12 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
     <link rel="preload" href="/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
     <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem')}catch(e){}})();</script>
   </head>
-  <body>
+  <!-- wide: home, the surah index and reader pages use the wider tablet and desktop layout. -->
+  <body class={wide ? 'wide' : undefined}>
     {dev && <p class="banner" role="note" data-dev-banner>{t(lang, 'devBanner')}</p>}
     <a class="skip" href="#content">{t(lang, 'skip')}</a>
     <header class="site-header">
-      <a class="brand" href={homePath(lang)}>{t(lang, 'siteName')}</a>
+      <a class="brand" href={homePath(lang)}><svg class="brand-mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path class="brand-arch-outer" d="M6 27V14a10 10 0 0120 0v13" fill="none" stroke-width="2.2" stroke-linecap="round"/><path class="brand-arch-inner" d="M11 27V16a5 5 0 0110 0v11" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg>{t(lang, 'siteName')}</a>
       <a id="lang-switch" href={alt} lang={other} hreflang={other} aria-label={t(lang, 'otherLangLabel')}>{t(lang, 'otherLang')}</a>
       <Settings lang={lang} client:idle />
     </header>
