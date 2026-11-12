@@ -126,10 +126,13 @@ export function fileShape(f: Record<string, unknown>, s: number): FileShape {
   if (typeof f.audio_url === 'string') {
     try {
       const p = new URL(f.audio_url, AUDIO_ORIGIN + '/');
-      // The surah number in a segment, plain or zero-padded to 3 digits, is written as {s}.
+      // The surah number in the file name only (the last segment), plain or zero-padded to 3
+      // digits, is written as {s}. Other segments are kept as they are: a folder named like the
+      // surah number may be the reciter's (reciter 2, surah 2), not the surah.
       const n = String(s), n3 = n.padStart(3, '0');
-      const seg = (x: string) => x.replace(new RegExp(`^(?:${n3}|${n})(?=\\.|$)`), '{s}');
-      urlPath = `${p.protocol}//${p.host}${p.pathname.split('/').map(seg).join('/')}`;
+      const parts = p.pathname.split('/');
+      parts[parts.length - 1] = parts[parts.length - 1].replace(new RegExp(`^(?:${n3}|${n})(?=\\.|$)`), '{s}');
+      urlPath = `${p.protocol}//${p.host}${parts.join('/')}`;
       urlHasQuery = p.search.length > 1;
     } catch { urlPath = 'not a URL'; }
   }

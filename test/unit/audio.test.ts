@@ -418,3 +418,11 @@ test('AC24 stall: paused or stopped never gives up; movement seen only when the 
   const k = watchCase(); k.p.live = false; k.w.watch();
   assert.equal(k.w.running, false);
 });
+
+test('/dev/reciters/ record shape: only the file name is templated; a folder named like the surah stays (reciter 2, surah 2)', () => {
+  const shape = (u: string, s: number) => checkSurahFile({ audio_file: { format: 'mp3', file_size: 1, duration: 1000, audio_url: u } }, s, 1).shape!.urlPath;
+  assert.equal(shape(mockAudioUrl(2, 2), 2), 'https://download.quranicaudio.com/mock-rifq-test/2/{s}.mp3');
+  assert.equal(shape('https://download.quranicaudio.com/qdc/x/murattal/002.mp3', 2), 'https://download.quranicaudio.com/qdc/x/murattal/{s}.mp3');
+  assert.equal(shape('https://download.quranicaudio.com/2/12.mp3?sig=1', 12), 'https://download.quranicaudio.com/2/{s}.mp3');
+  assert.equal(shape('https://download.quranicaudio.com/a/112.mp3', 2), 'https://download.quranicaudio.com/a/112.mp3');
+});
