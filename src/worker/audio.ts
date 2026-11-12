@@ -27,7 +27,9 @@ import { qfConfig, QfClient, QfError, type QfConfig, type QfSecrets } from './qf
 import { MAX_AGE_MS, MAX_AGE_S, type CacheLike } from './tafseer.ts';
 
 export const AUDIO_SCOPE = 'content.audio.read';
-export const AUDIO_CACHE_VERSION = 'v1';
+// v2 (kit v23): v1 kept failed checks for 7 days, including the AC60 failures of kit v22.
+export const AUDIO_CACHE_VERSION = 'v2';
+export const FAIL_AGE_MS = 10 * 60_000;
 // Proposal (RQ-006 security list, value not known): 60 audio metadata requests per minute per
 // network address, in its own AUDIO_LIMIT binding, failing closed like the other limits (D-095).
 export const AUDIO_LIMIT_PER_MINUTE = 60;
@@ -37,7 +39,7 @@ export const AUDIO_LIMIT_PER_MINUTE = 60;
 export type AudioRecord = { format: 'rifq-audio-check/1'; env: 'prelive' | 'production'; checked: string; passed: number[] };
 export type AudioCfg = { dev: boolean; counts?: number[]; audioRecord?: AudioRecord | null };
 type Deps = { fetch?: (u: string, i: RequestInit) => Promise<Response>; now?: () => number; cache?: () => CacheLike | null; timeoutMs?: number };
-type Stored<T> = { v: 1; fetchedAt: number; data: T };
+type Stored<T> = { v: 1; fetchedAt: number; data: T; maxAge?: number };
 
 export type OfferedReciter = { id: number; name: string; style: string | null; qirat: string | null };
 
@@ -82,15 +84,15 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     try {
       const s = (await r.json()) as Stored<T>;
       const age = now() - s.fetchedAt;
-      if (s.v !== 1 || !Number.isFinite(s.fetchedAt) || age < 0 || age >= MAX_AGE_MS) return null;
+      if (s.v !== 1 || !Number.isFinite(s.fetchedAt) || age < 0 || age >= Math.min(MAX_AGE_MS, s.maxAge ?? MAX_AGE_MS)) return null;
       return s.data;
     } catch { return null; }
   }
-  async function writeStored<T>(k: string, data: T): Promise<void> {
+  async function writeStored<T>(k: string, data: T, maxAge = MAX_AGE_MS): Promise<void> {
     const c = getCache();
     if (!c) return;
     try {
-      await c.put(k, new Response(JSON.stringify({ v: 1, fetchedAt: now(), data } satisfies Stored<T>), { headers: { 'content-type': 'application/json', 'cache-control': `max-age=${MAX_AGE_S}` } }));
+      await c.put(k, new Response(JSON.stringify({ v: 1, fetchedAt: now(), data, maxAge } satisfies Stored<T>), { headers: { 'content-type': 'application/json', 'cache-control': `max-age=${Math.ceil(maxAge / 1000)}` } }));
     } catch { /* fetched again next time */ }
   }
 
@@ -117,7 +119,9 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
       else if (e instanceof QfError && e.kind === 'auth') return { ok: false, problems: ['refused'], negatives: 0, play: null };
       else throw e;
     }
-    await writeStored(k, c);
+    // A passing check is kept up to 7 days; a failing one only 10 minutes, so a fix to the data or
+    // to the rules takes effect soon, without asking QF again on every request.
+    await writeStored(k, c, c.ok ? MAX_AGE_MS : FAIL_AGE_MS);
     return c;
   }
 

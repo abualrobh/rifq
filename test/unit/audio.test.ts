@@ -283,3 +283,25 @@ test('/dev/reciters/ player check (temporary): same checks as the player, per re
   // Host names only (the page's own design), never a full address, secret or token.
   assert.ok(!over.includes('.mp3') && !over.includes(MOCK_CLIENT_SECRET) && !over.includes('mock-token-'));
 });
+
+test('kit v23: a whole-second duration may be passed by the last ayah by under 1000 ms (deviation for approval)', () => {
+  const last = (to: number) => { const x = ts(1, 7); x[6].timestamp_to = to; return x; };
+  assert.equal(checkTimestamps(last(46400), 1, 7, 46000).ok, true, 'rounded to whole seconds: 400 ms over is rounding');
+  assert.equal(checkTimestamps(last(46999), 1, 7, 46000).ok, true);
+  assert.match(checkTimestamps(last(47000), 1, 7, 46000).problems.join(), /by 1000 ms/);
+  assert.match(checkTimestamps(last(46400), 1, 7, 46001).problems.join(), /by 399 ms/, 'a duration in ms is taken as exact');
+});
+
+test('kit v23: failed surah checks are kept 10 minutes only, then asked again', async () => {
+  let bad = true;
+  const { w, mock, tick } = setup({ override: (id: number, s: number, f: Record<string, unknown>) => (bad && id === 7 && s === 1 ? { ...f, duration: 1000 } : f) });
+  const first = await (await call(w, '/api/audio/reciters', { lang: 'en' })).json();
+  assert.deepEqual(first.reciters.map((x: { id: number }) => x.id), [97]);
+  bad = false;
+  assert.deepEqual((await (await call(w, '/api/audio/reciters', { lang: 'en' })).json()).reciters.map((x: { id: number }) => x.id), [97], 'within 10 minutes the failure copy is used');
+  tick(10 * 60_000);
+  const n = mock.state.audioRequests;
+  const again = await (await call(w, '/api/audio/reciters', { lang: 'en' })).json();
+  assert.deepEqual(again.reciters.map((x: { id: number }) => x.id), [7, 97]);
+  assert.ok(mock.state.audioRequests > n);
+});

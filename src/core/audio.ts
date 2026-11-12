@@ -43,6 +43,7 @@ export function catalogueProblems(id: number, entry: CatalogueEntry | undefined)
   return out;
 }
 
+export const DURATION_ROUNDING_MS = 1000;
 const isWholeMs = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 
 // AC12 and AC60: every ayah has exactly one entry, in order, each from < to, no overlap (a gap is
@@ -67,7 +68,15 @@ export function checkTimestamps(ts: unknown, s: number, ayat: number, fileDurati
     prevTo = to;
     t.push([from, to]);
   });
-  if (fileDuration !== null && t.length && t[t.length - 1][1] > fileDuration) problems.push(`last entry ends after the file (by ${t[t.length - 1][1] - fileDuration} ms; duration ${fileDuration} ms)`);
+  if (fileDuration !== null && t.length) {
+    const over = t[t.length - 1][1] - fileDuration;
+    // Deviation from the AC60 wording, for Hamzeh's approval (kit v23): Quran Foundation's pre-live
+    // durations are whole seconds (46000, 7264000 ms), so the last ayah's end can pass them by less
+    // than a second. When the duration is a whole number of seconds, an overrun under 1000 ms is
+    // taken as that rounding; any other overrun fails as AC60 says.
+    const rounded = fileDuration % DURATION_ROUNDING_MS === 0;
+    if (over > 0 && !(rounded && over < DURATION_ROUNDING_MS)) problems.push(`last entry ends after the file (by ${over} ms; duration ${fileDuration} ms)`);
+  }
   return { ok: problems.length === 0, problems: problems.slice(0, 10), negatives, t };
 }
 
