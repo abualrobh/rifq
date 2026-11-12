@@ -111,7 +111,7 @@ test('AU-03 (AC1, AC2, AC10, AC43, AC53): a single ayah plays from its start and
   await expect(b).toHaveAttribute('aria-label', t('ar', 'audioPlayAyah', { a: 3 }));
   await b.click();
   await expect.poll(async () => (await audioState(page)).paused).toBe(false);
-  await expect(b).toHaveAttribute('aria-pressed', 'true');
+  await expect(b).toHaveAttribute('data-state', 'playing');
   await expect(b).toHaveAttribute('aria-label', t('ar', 'audioPauseAyah', { a: 3 }));
   const st = await audioState(page);
   expect(st.t).toBeGreaterThanOrEqual(2 * STEP - 50);
@@ -137,7 +137,7 @@ test('AU-03 (AC1, AC2, AC10, AC43, AC53): a single ayah plays from its start and
   await page.click('button.ap[data-ap="7"]');
   await expect.poll(() => marked(page)).toEqual([7]);
   expect((await audioState(page)).t).toBeGreaterThanOrEqual(6 * STEP - 50);
-  await expect(page.locator('button.ap[aria-pressed="true"]')).toHaveCount(1);
+  await expect(page.locator('button.ap[data-state="playing"]')).toHaveCount(1);
 });
 
 test('AU-04 (AC14, AC15, AC19, AC30): reciter list from the data; changing reciter restarts the current ayah; the choice is kept', async ({ page }) => {
@@ -190,8 +190,11 @@ test('AU-05 (AC16, AC18, AC22, AC23): reciter no longer offered, storage blocked
   await page.goto('/en/3/');
   await hydrated(page);
   await page.click('[data-play-surah]');
-  await expect(page.locator('[data-audio-status]')).toHaveText(`${t('en', 'audioNoSurah')} [surah-not-covered]`);
+  // The first interaction or the tap finds it (whichever answers first); either way the disabled
+  // button says why, next to it and as its description (QA FIND-8).
+  await expect(page.locator('[data-audio-dead]')).toHaveText(`${t('en', 'audioNoSurah')} [surah-not-covered]`);
   await expect(page.locator('[data-play-surah]')).toBeDisabled();
+  await expect(page.locator('[data-play-surah]')).toHaveAttribute('aria-describedby', 'ap-dead');
   expect(hits.filter((h) => /\/3\.mp3/.test(h.url))).toEqual([]);
   // AC22: offline.
   await page.goto('/en/1/');
@@ -278,15 +281,23 @@ test('AU-09 (AC39, AC41, AC42, AC45): policy on reader pages only; 44 px targets
   await serveAudio(page);
   await page.goto('/2/');
   await hydrated(page);
-  const row = await page.$eval('#a3', (r) => {
-    const box = (s: string) => r.querySelector(s)!.getBoundingClientRect();
-    const ap = box('button.ap'), bm = box('button.bm'), tx = box('p.ayah');
-    return { ap: [ap.width, ap.height], gap: Math.abs(ap.left - bm.right) < Math.abs(bm.left - ap.right) ? ap.left - bm.right : bm.left - ap.right, overlapText: !(ap.right <= tx.left || ap.left >= tx.right) };
-  });
-  expect(row.ap[0]).toBeGreaterThanOrEqual(44);
-  expect(row.ap[1]).toBeGreaterThanOrEqual(44);
-  expect(Math.abs(row.gap)).toBeGreaterThanOrEqual(8);
-  expect(row.overlapText).toBe(false);
+  // The four per-ayah controls (play, play from here, bookmark, Tafseer): 44 px each, at least
+  // 8 px apart on one axis, none over the Quran text.
+  for (const id of ['#a3', `#a${n(2)}`]) {
+    const row = await page.$eval(id, (r) => {
+      const tx = r.querySelector('p.ayah')!.getBoundingClientRect();
+      const bs = ['button.ap', 'button.apf', 'button.bm', 'a.tf-link'].map((s) => r.querySelector(s)!.getBoundingClientRect());
+      let gap = Infinity;
+      for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+        const a = bs[i], b = bs[j];
+        gap = Math.min(gap, Math.max(b.left - a.right, a.left - b.right, b.top - a.bottom, a.top - b.bottom));
+      }
+      return { sizes: bs.map((b) => [b.width, b.height]), gap, overText: bs.some((b) => !(b.right <= tx.left || b.left >= tx.right)) };
+    });
+    for (const [w, h] of row.sizes) { expect(w, id).toBeGreaterThanOrEqual(44); expect(h, id).toBeGreaterThanOrEqual(44); }
+    expect(row.gap, id).toBeGreaterThanOrEqual(8);
+    expect(row.overText, id).toBe(false);
+  }
   for (const sel of ['[data-play-surah]', '[data-prev-ayah]', '[data-next-ayah]', '[data-audio-more] summary']) {
     const b = (await page.locator(sel).boundingBox())!;
     expect(b.height, sel).toBeGreaterThanOrEqual(44);
@@ -343,8 +354,10 @@ test('AU-11 (kit v22 report): the Arabic interface lists the reciters and plays 
   await p2.route('**/api/audio/reciters', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok","reciters":[],"default":null}' }));
   await p2.goto('/2/');
   await hydrated(p2);
-  await p2.click('[data-play-surah]');
-  await expect(p2.locator('[data-audio-status]')).toHaveText(`${t('ar', 'audioNoReciter')} [reciters-empty]`);
+  // QA FIND-8: opening the details first (no play tap) still says why play is disabled.
+  await p2.locator('[data-audio-more] summary').click();
+  await expect(p2.locator('[data-audio-dead]')).toHaveText(`${t('ar', 'audioNoReciter')} [reciters-empty]`);
+  await expect(p2.locator('[data-play-surah]')).toBeDisabled();
   await expect(p2.locator('[data-audio-status]')).toHaveAttribute('data-reason', 'reciters-empty');
   // An outage keeps the generic message, with its reason for diagnosis.
   const p3 = await page.context().newPage();
@@ -365,4 +378,130 @@ test('AU-12 (diagnosis): a file that redirects to another host is blocked by the
   await expect(page.locator('[data-audio-status]')).toHaveAttribute('data-reason', 'csp-media-redirect');
   // The violation is the point of this test; clear it so the shared CSP guard does not fail.
   await page.evaluate(() => { (window as unknown as { __csp: string[] }).__csp = []; });
+});
+
+test('AU-13 (P-1, D-121): "play from here" beside each ayah plays the surah from that ayah, in both languages', async ({ page }) => {
+  await serveAudio(page);
+  for (const lang of ['en', 'ar'] as const) {
+    await page.goto(lang === 'en' ? '/en/2/' : '/2/');
+    await hydrated(page);
+    await expect(page.locator('button.apf')).toHaveCount(n(2));
+    await expect(page.locator('[data-play-from]')).toHaveCount(0); // the bar no longer has its own
+    const f = page.locator('button.apf[data-apf="5"]');
+    await expect(f).toHaveAttribute('aria-label', t(lang, 'audioPlayFrom', { a: 5 }));
+    await f.click();
+    await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'surah');
+    await expect.poll(async () => { const a = await audioState(page); return !a.paused && a.ready >= 3; }).toBe(true);
+    expect(await marked(page)).toEqual([5]);
+    const at = (await audioState(page)).t;
+    expect(at).toBeGreaterThanOrEqual(4 * STEP - 50);
+    expect(at).toBeLessThan(4 * STEP + 1500);
+    // Surah mode carries on into the next ayah (not a single-ayah stop).
+    await seekTo(page, 5 * STEP + 1000);
+    await expect.poll(() => marked(page)).toEqual([6]);
+    expect((await audioState(page)).paused).toBe(false);
+    await page.click('[data-pause]');
+  }
+});
+
+test('AU-14 (TOG-1, QA FIND-5, FIND-6): the per-ayah icon and name swap between play and pause in English and Arabic; no aria-pressed', async ({ page }) => {
+  await serveAudio(page);
+  for (const lang of ['en', 'ar'] as const) {
+    await page.goto(lang === 'en' ? '/en/2/' : '/2/');
+    await hydrated(page);
+    const b = page.locator('button.ap[data-ap="4"]');
+    // Shown or not (a flex item's display is blockified, so only 'none' matters).
+    const icon = () => b.evaluate((x) => ({ play: getComputedStyle(x.querySelector('.ap-play')!).display !== 'none', pause: getComputedStyle(x.querySelector('.ap-pause')!).display !== 'none' }));
+    await expect(b).toHaveAttribute('aria-label', t(lang, 'audioPlayAyah', { a: 4 }));
+    expect(await icon()).toEqual({ play: true, pause: false });
+    await b.click();
+    await expect.poll(async () => (await audioState(page)).paused).toBe(false);
+    await expect(b).toHaveAttribute('aria-label', t(lang, 'audioPauseAyah', { a: 4 }));
+    await expect.poll(icon).toEqual({ play: false, pause: true });
+    // The main control: its visible label is its name and changes; neither control has aria-pressed.
+    await expect(page.locator('[data-pause]')).toHaveText(t(lang, 'audioPause'));
+    expect(await page.$$eval('button.ap[aria-pressed], button.apf[aria-pressed], [data-pause][aria-pressed]', (x) => x.length)).toBe(0);
+    await b.click();
+    await expect.poll(async () => (await audioState(page)).paused).toBe(true);
+    await expect(b).toHaveAttribute('aria-label', t(lang, 'audioPlayAyah', { a: 4 }));
+    await expect.poll(icon).toEqual({ play: true, pause: false });
+    await expect(page.locator('[data-pause]')).toHaveText(t(lang, 'audioResume'));
+  }
+});
+
+test('AU-15 (QA FIND-1, FIND-4): the reciter and source disclosure is named and marked; the credit is always visible; Latin text is isolated', async ({ page }) => {
+  await serveAudio(page);
+  for (const lang of ['ar', 'en'] as const) {
+    await page.goto(lang === 'en' ? '/en/2/' : '/2/');
+    await hydrated(page);
+    const sum = page.locator('[data-audio-more] summary');
+    await expect(sum).toHaveAttribute('aria-label', t(lang, 'audioMoreLabel'));
+    await expect(sum).toContainText(t(lang, 'audioMoreLabel'));
+    const marker = () => sum.evaluate((x) => { const m = getComputedStyle(x, '::before'); return { w: parseFloat(m.width), t: m.transform }; });
+    const closed = await marker();
+    expect(closed.w).toBeGreaterThan(0);
+    // The credit is outside the disclosure, visible while it is closed (AC38).
+    await expect(page.locator('[data-audio-credit]')).toBeVisible();
+    await expect(page.locator('[data-audio-credit]')).toHaveText(t(lang, 'audioCredit'));
+    await sum.click();
+    await expect(page.locator('[data-reciter]')).toHaveCount(2);
+    expect((await marker()).t).not.toBe(closed.t); // the marker turns when open
+    if (lang === 'ar') {
+      const dd = await page.$$eval('[data-audio-source] dd bdi', (b) => b.map((x) => [x.textContent, x.getAttribute('lang')]));
+      expect(dd).toContainEqual(['Murattal', 'en']);
+      expect(dd).toContainEqual(['Hafs', 'en']);
+    }
+  }
+});
+
+test('AU-16 (QA RISK-2): metadata is fetched at the first interaction, never sound; the tap then sets the address and plays inside the tap; no play() without an address', async ({ page, seen }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __plays: { src: string | null; ev: string }[] };
+    w.__plays = [];
+    const orig = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) { w.__plays.push({ src: this.getAttribute('src'), ev: (window.event as Event | undefined)?.type ?? '' }); return orig.call(this); };
+  });
+  const hits: Hit[] = [];
+  await serveAudio(page, hits);
+  await page.goto('/en/2/');
+  await hydrated(page);
+  await page.waitForTimeout(300);
+  expect(seen.filter((x) => x.url.includes('/api/audio'))).toEqual([]);
+  // A first interaction that is not play (a key press): metadata only.
+  await page.keyboard.press('Shift');
+  await expect.poll(() => seen.filter((x) => /\/api\/audio$/.test(new URL(x.url).pathname)).length).toBe(1);
+  expect(seen.filter((x) => x.url.includes('/api/audio/reciters')).length).toBe(1);
+  expect(hits).toEqual([]);
+  expect(await page.$eval('audio[data-audio]', (e) => e.getAttribute('src'))).toBeNull();
+  await page.click('[data-play-surah]');
+  await expect.poll(async () => { const a = await audioState(page); return !a.paused && a.ready >= 3; }).toBe(true);
+  const plays = await page.evaluate(() => (window as unknown as { __plays: { src: string | null; ev: string }[] }).__plays);
+  expect(plays.length).toBeGreaterThan(0);
+  expect(plays.every((p) => !!p.src), 'no play() on an element with no address').toBe(true);
+  expect(plays[0].ev, 'the first play() runs inside the tap').toBe('click');
+  // The tap did not ask again: one reciter list and one address request in all.
+  expect(seen.filter((x) => /\/api\/audio$/.test(new URL(x.url).pathname)).length).toBe(1);
+});
+
+test('AU-17 (QA FIND-9): a reciter refused by /api/audio refreshes the list, says which reciter is used now, and plays', async ({ page }) => {
+  await serveAudio(page);
+  let lists = 0;
+  await page.route('**/api/audio/reciters', async (r) => {
+    lists++;
+    const res = await r.fetch();
+    const j = await res.json();
+    if (lists > 1) { j.reciters = j.reciters.filter((x: { id: number }) => x.id !== 7); j.default = 97; }
+    await r.fulfill({ response: res, json: j });
+  });
+  await page.route('**/api/audio', async (r) => {
+    if (JSON.parse(r.request().postData() ?? '{}').r === 7) return r.fulfill({ status: 404, contentType: 'application/json', body: '{"status":"not_offered"}' });
+    return r.fallback();
+  });
+  await page.goto('/en/2/');
+  await hydrated(page);
+  await page.click('[data-play-surah]');
+  await expect(page.locator('[data-audio-status]')).toHaveText(t('en', 'audioReciterGone', { name: MOCK_RECITER_NAMES[97] }));
+  await expect.poll(async () => (await audioState(page)).src).toContain('/97/2.mp3');
+  await expect(page.locator('[data-play-surah], [data-audio-dead]')).toHaveCount(0);
+  await expect(page.locator('[data-audio-status]')).not.toContainText(t('en', 'audioNoSurah'));
 });
