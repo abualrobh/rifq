@@ -1,7 +1,7 @@
 // Build pipeline. Usage:
 //   node scripts/build.ts --record <source-record.json> --out <dir> --mode <development|release>
 //                         [--gate on|off] [--tafseer on|off] [--fingerprints <file>]
-//                         [--tafseer-record <file>]
+//                         [--tafseer-record <file>] [--audio on|off] [--audio-record <file>]
 // --gate turns on the password gate (HTTP Basic auth on every request, src/worker/gate.ts). It is
 // on by default in development builds and off by default in release builds, so a release build
 // keeps the gate only if it is asked for.
@@ -10,6 +10,10 @@
 // Tafseer on runs the Tafseer release check first (scripts/tafseer-release-check.ts: AC15 records,
 // D-079 fingerprints; the D-084 quote check is reported but never blocks) and stops unless it passes. No Tafseer is fetched by any other
 // build, and none is ever written into a build (AC14).
+// --audio turns on RQ-006 (the reader page player, /api/audio and /api/audio/reciters, and
+// media-src for the approved audio host on reader pages only). On by default in development builds,
+// off by default in release builds (the AC32 release check is not built yet). --audio-record names a
+// recorded production check (scripts/audio-check.ts, AC52); without one, production offers no reciter.
 // --fingerprints names the D-079 store (private data repository); --tafseer-record the AC15 record.
 // Steps: source gate, search index, Astro pages, security headers, byte comparison of every ayah,
 // client JavaScript scan, then a local Worker config. Output goes to --out, which must be outside
@@ -28,6 +32,8 @@ import { TAFSEER_LIMIT_PER_MINUTE } from '../src/worker/tafseer.ts';
 import { readJson, runTafseerCheck, type TafseerRecord } from './tafseer-release-check.ts';
 import type { QfSecrets } from '../src/worker/qf.ts';
 import { AUTH_LIMIT_PER_MINUTE } from '../src/worker/gate.ts';
+import { AUDIO_LIMIT_PER_MINUTE, type AudioRecord } from '../src/worker/audio.ts';
+import { AUDIO_ORIGIN } from '../src/core/audio.ts';
 import { RULES_AWAITING_D012_REVIEWER } from '../src/core/search-config.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,7 +55,7 @@ export function gateFlag(mode: Mode, value?: string): boolean {
 // Local Worker config. No account id; workers.dev and previews off; logs off. With the gate on,
 // the Worker runs before every asset, so nothing can be served without the password, and failed
 // sign-ins are counted by AUTH_LIMIT (D-071, M-2).
-export function localWranglerConfig(name: string, limit: number, gateOn: boolean, authLimit = AUTH_LIMIT_PER_MINUTE, tafseerLimit: number | null = null) {
+export function localWranglerConfig(name: string, limit: number, gateOn: boolean, authLimit = AUTH_LIMIT_PER_MINUTE, tafseerLimit: number | null = null, audioLimit: number | null = null) {
   return {
     name, main: 'entry.ts', compatibility_date: '2026-10-01',
     workers_dev: false, preview_urls: false, send_metrics: false,
@@ -60,13 +66,15 @@ export function localWranglerConfig(name: string, limit: number, gateOn: boolean
       { name: 'SEARCH_LIMIT', namespace_id: '1001', simple: { limit, period: 60 } },
       ...(gateOn ? [{ name: 'AUTH_LIMIT', namespace_id: '1002', simple: { limit: authLimit, period: 60 } }] : []),
       ...(tafseerLimit !== null ? [{ name: 'TAFSEER_LIMIT', namespace_id: '1003', simple: { limit: tafseerLimit, period: 60 } }] : []),
+      ...(audioLimit !== null ? [{ name: 'AUDIO_LIMIT', namespace_id: '1004', simple: { limit: audioLimit, period: 60 } }] : []),
     ],
   };
 }
 
 export type TafseerOpts = { on: boolean; fingerprints?: string; record?: string };
+export type AudioOpts = { on: boolean; record?: string };
 
-export async function build(recordPath: string, outDir: string, mode: Mode, gateOn: boolean = mode !== 'release', tf: TafseerOpts = { on: mode !== 'release' }) {
+export async function build(recordPath: string, outDir: string, mode: Mode, gateOn: boolean = mode !== 'release', tf: TafseerOpts = { on: mode !== 'release' }, au: AudioOpts = { on: mode !== 'release' }) {
   const t0 = performance.now();
   recordPath = resolve(recordPath); outDir = resolve(outDir);
   const log = (o: object) => console.log(JSON.stringify(o));
@@ -99,6 +107,7 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
     }
   }
   log({ step: 'tafseer-flag', tafseer: tf.on });
+  log({ step: 'audio-flag', audio: au.on, record: !!au.record });
 
   // Astro empties its output folder before a build. Rule 2 forbids deleting anything, so each
   // build must go to a new or empty folder.
@@ -119,6 +128,7 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   process.env.RIFQ_MODE = mode;
   process.env.RIFQ_SITE_OUT = join(outDir, 'site');
   process.env.RIFQ_TAFSEER = tf.on ? 'on' : 'off';
+  process.env.RIFQ_AUDIO = au.on ? 'on' : 'off';
   process.env.ASTRO_TELEMETRY_DISABLED = '1';
   const { build: astroBuild } = await import('astro');
   // Astro puts its temporary prerender bundle inside outDir only when outDir "starts with" the
@@ -132,7 +142,7 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   try { await astroBuild({ root: ROOT, logLevel: 'warn' }); } finally { process.chdir(cwd); }
 
   // 4. Security headers with hashes for every inline script and style.
-  const hdr = writeHeaders(join(outDir, 'site'));
+  const hdr = writeHeaders(join(outDir, 'site'), au.on ? { audioOrigin: AUDIO_ORIGIN } : {});
   log({ step: 'headers', inlineScripts: hdr.scripts, inlineStyles: hdr.styles });
 
   // 5. Byte comparison of every ayah in both routes, and the client JavaScript scan.
@@ -159,6 +169,8 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
     record: { name: l.record.name, edition: l.record.edition, status: l.record.status },
     ...(gateOn ? { assetHeaders: hdr.headers } : {}),
     tafseer: tf.on,
+    // RQ-006: ayah counts for the timing check, and the recorded production check if given.
+    ...(au.on ? { audio: true, counts: [0, ...surahCounts(src.list)], audioRecord: au.record ? readJson<AudioRecord>(au.record) : null } : {}),
     // D-081 (development builds only): two SHA-256 hashes per ayah of the approved file's bytes, as
     // stored and with the D-068 ending cut. Hashes only; no text goes to the Worker.
     // D-084 quote check page (development builds with Tafseer on): the approved text in
@@ -187,7 +199,7 @@ export default makeWorker(idx as ArrayBuffer, cfg);
   // The e2e config has high limits so tests that send many refused requests are not locked out;
   // wrangler.jsonc has the real limits (120 searches, 10 failed sign-ins per minute).
   for (const [file, limit, name, auth, tl] of [['wrangler.jsonc', 120, 'rifq-local', AUTH_LIMIT_PER_MINUTE, TAFSEER_LIMIT_PER_MINUTE], ['wrangler.e2e.jsonc', 1000, 'rifq-local-e2e', 1000, 1000]] as const) {
-    writeFileSync(join(outDir, file), JSON.stringify(localWranglerConfig(name, limit, gateOn, auth, tf.on ? tl : null), null, 2));
+    writeFileSync(join(outDir, file), JSON.stringify(localWranglerConfig(name, limit, gateOn, auth, tf.on ? tl : null, au.on ? (name === 'rifq-local' ? AUDIO_LIMIT_PER_MINUTE : 1000) : null), null, 2));
   }
 
   const summary = {
@@ -218,7 +230,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (tv !== 'on' && tv !== 'off') throw new Error('--tafseer must be on or off');
   const fi = process.argv.indexOf('--fingerprints'), ri = process.argv.indexOf('--tafseer-record');
   const tf: TafseerOpts = { on: tv === 'on', fingerprints: fi >= 0 ? process.argv[fi + 1] : undefined, record: ri >= 0 ? process.argv[ri + 1] : undefined };
-  build(arg('record'), arg('out'), mode, gateFlag(mode, i >= 0 ? process.argv[i + 1] : undefined), tf).catch((e) => {
+  const ai = process.argv.indexOf('--audio'), ari = process.argv.indexOf('--audio-record');
+  const av = ai >= 0 ? process.argv[ai + 1] : (mode === 'release' ? 'off' : 'on');
+  if (av !== 'on' && av !== 'off') throw new Error('--audio must be on or off');
+  const au: AudioOpts = { on: av === 'on', record: ari >= 0 ? process.argv[ari + 1] : undefined };
+  build(arg('record'), arg('out'), mode, gateFlag(mode, i >= 0 ? process.argv[i + 1] : undefined), tf, au).catch((e) => {
     console.error(JSON.stringify({ error: (e as Error).message }));
     if (!process.exitCode) process.exitCode = 1;
   });

@@ -15,6 +15,28 @@ function read(): S {
   } catch { return DEFAULT; }
 }
 
+// RQ-006 AC15: the chosen reciter is kept on the device with the other settings, as a chapter-
+// reciter ID only. Writing the size or theme keeps it, and writing it keeps them.
+function rawSettings(): Record<string, unknown> {
+  try { const v = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+}
+function reciterField(): { reciter?: number } {
+  const r = rawSettings().reciter;
+  return Number.isInteger(r) && (r as number) > 0 && (r as number) < 100000 ? { reciter: r as number } : {};
+}
+export function readReciter(): number | null { return reciterField().reciter ?? null; }
+// Returns false when the choice could not be stored (AC16).
+export function writeReciter(id: number): boolean {
+  try {
+    const v = rawSettings();
+    const keep: Record<string, unknown> = {};
+    if (SIZES.includes(v.size as number)) keep.size = v.size;
+    if (v.dark === true || v.dark === false) keep.dark = v.dark;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...keep, reciter: id }));
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}').reciter === id;
+  } catch { return false; }
+}
+
 // Bottom edge of the sticky header: rows above it are hidden behind the header.
 export function headerBottom(): number {
   return document.querySelector('.site-header')?.getBoundingClientRect().bottom ?? 0;
@@ -39,7 +61,7 @@ function apply(s: S) {
   d.style.setProperty('--ayah-size', s.size + 'rem');
   d.classList.toggle('dark', s.dark);
   if (anchor) window.scrollBy({ top: anchor.el.getBoundingClientRect().top - anchor.top, behavior: 'instant' as ScrollBehavior });
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* reading continues without saved settings */ }
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, ...reciterField() })); } catch { /* reading continues without saved settings */ }
 }
 
 export default function Settings({ lang }: { lang: Lang }) {

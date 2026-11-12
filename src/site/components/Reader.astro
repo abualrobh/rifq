@@ -2,8 +2,9 @@
 import Layout from '../layouts/Layout.astro';
 import Search from '../islands/Search.tsx';
 import ReaderTools from '../islands/ReaderTools.tsx';
+import AudioPlayer from '../islands/AudioPlayer.tsx';
 import SurahList from './SurahList.astro';
-import { surahs, tafseerOn } from '../lib/data';
+import { surahs, tafseerOn, audioOn } from '../lib/data';
 import { t, homePath, indexPath, surahPath, tafseerPath, type Lang } from '../../core/strings.ts';
 import type { Surah } from '../../core/source-adapter.ts';
 interface Props { surah: Surah; lang: Lang }
@@ -33,6 +34,9 @@ const name = lang === 'ar' ? surah.ar : surah.en;
     {surah.items.map((a) => (
       <li class="ayah-row" id={`a${a.aya_no}`} data-s={a.sora} data-a={a.aya_no}>
         <p class="ayah" lang="ar" dir="rtl" data-r={`${a.sora}:${a.aya_no}`}>{a.aya_text}</p>
+        {audioOn && <button type="button" class="ap" data-ap={a.aya_no} aria-pressed="false" aria-label={t(lang, 'audioPlayAyah', { a: a.aya_no })} data-pending tabindex="-1">
+          <svg class="ap-play" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></svg><svg class="ap-pause" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" /></svg>
+        </button>}
         <button type="button" class="bm" data-a={a.aya_no} aria-pressed="false" aria-label={t(lang, 'bookmarkOff', { a: a.aya_no })} data-pending tabindex="-1">
           <span aria-hidden="true" class="bm-off">&#9734;</span><span aria-hidden="true" class="bm-on">&#9733;</span>
         </button>
@@ -40,6 +44,12 @@ const name = lang === 'ar' ? surah.ar : surah.en;
       </li>
     ))}
   </ol>
+  {audioOn && <div class="player" data-player>
+    {/* RQ-006: the player keeps its space before it loads (AC49), and without JavaScript only a
+        short note shows (AC48). */}
+    <noscript><p class="msg" data-audio-noscript>{t(lang, 'audioNoScript')}</p></noscript>
+    <AudioPlayer lang={lang} s={surah.n} count={surah.items.length} name={name} client:idle />
+  </div>}
   <nav class="surah-nav surah-nav-end" aria-label={t(lang, 'navLabel')}>
     {prev && <a rel="prev" href={prev}>{t(lang, 'prevSurah')}</a>}
     {next && <a rel="next" class="next-btn" href={next}>{t(lang, 'nextSurah')}</a>}

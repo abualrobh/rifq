@@ -22,12 +22,14 @@ import { renderPage, type PageCfg } from './page.ts';
 import { makeVerify, type VerifyHashes } from './verify.ts';
 import { makeQuoteCheck, type LettersQuran } from './quote-check.ts';
 import { makeReciters, RECITERS_PATH } from './reciters.ts';
+import { AUDIO_LIMIT_PER_MINUTE, makeAudio, type AudioRecord } from './audio.ts';
+import { AUDIO_ORIGIN } from '../core/audio.ts';
 import { CATALOGUE_PATH, SHAPE_PATH, makeTafseer, TAFSEER_LIMIT_PER_MINUTE, type TafseerCfg, type TafseerEnv } from './tafseer.ts';
 
 // testMemoryLimits: unit tests only. It lets tests that pass no binding use per-isolate counters
 // (serverLimit, tafseerLimit). scripts/build.ts never sets it, so deployed builds have no fallback.
-export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; testMemoryLimits?: boolean; verifyHashes?: VerifyHashes | null; lettersQuran?: LettersQuran | null };
-export type Env = GateEnv & TafseerEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit; TAFSEER_LIMIT?: RateLimit };
+export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; testMemoryLimits?: boolean; verifyHashes?: VerifyHashes | null; lettersQuran?: LettersQuran | null; audio?: boolean; audioLimit?: number; audioRecord?: AudioRecord | null };
+export type Env = GateEnv & TafseerEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit; TAFSEER_LIMIT?: RateLimit; AUDIO_LIMIT?: RateLimit };
 export type WorkerDeps = Parameters<typeof makeTafseer>[1];
 
 const BASE_HEADERS: Record<string, string> = {
@@ -172,6 +174,9 @@ const MAX_TAFSEER_BODY = 256;
 export const FONT_CHECK_PATH = '/dev/font-check/';
 // Documented in the Font Rendering guide: https://verses.quran.foundation/fonts/quran/...
 export const QF_FONT_ORIGIN = 'https://verses.quran.foundation';
+// RQ-006 AC39: reader pages (/N/ and /en/N/) are the only pages whose policy lists the audio host.
+export const READER_PAGE = /^\/(?:en\/)?\d{1,3}\/?$/;
+const MAX_AUDIO_BODY = 256;
 
 export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDeps = {}) {
   const ix = openIndex(indexBuf);
@@ -181,6 +186,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   const catalogueOn = !!(tafseer && cfg.dev && cfg.gate);
   // RQ-006 preparation (D-110 to D-118): the reciters and timing check page, on the same terms as
   // the catalogue (development builds behind the gate, with the Tafseer client's credentials).
+  // RQ-006: audio metadata routes when the build flag audio is on (src/worker/audio.ts).
+  const audio = cfg.audio ? makeAudio({ dev: cfg.dev, counts: cfg.counts, audioRecord: cfg.audioRecord ?? null }, deps) : null;
+  const auMem = cfg.testMemoryLimits === true ? new MemoryLimiter(cfg.audioLimit ?? AUDIO_LIMIT_PER_MINUTE, WINDOW_MS) : null;
   const reciters = catalogueOn && tafseer ? makeReciters({ dev: cfg.dev, counts: cfg.counts }, { ...deps, client: tafseer.client }) : null;
   // D-081: development builds behind the password gate only.
   const verify = cfg.dev && cfg.gate && cfg.verifyHashes ? makeVerify(cfg.verifyHashes, cfg.dev, deps) : null;
@@ -232,6 +240,10 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
           const csp = (assetHeaders['Content-Security-Policy'] ?? '').replace("font-src 'self'", `font-src 'self' ${QF_FONT_ORIGIN}`);
           return withHeaders(r, { ...assetHeaders, 'Content-Security-Policy': csp });
         }
+        if (audio && READER_PAGE.test(pathname)) {
+          const csp = `${assetHeaders['Content-Security-Policy'] ?? ''}; media-src ${AUDIO_ORIGIN}`;
+          return withHeaders(r, { ...assetHeaders, 'Content-Security-Policy': csp });
+        }
         return withHeaders(r, assetHeaders);
       }
       return new Response('Not found', { status: 404, headers: BASE_HEADERS });
@@ -260,6 +272,19 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       let s = 0;
       try { s = typeof raw === 'string' ? Number((JSON.parse(raw) as { s?: unknown }).s) : 0; } catch { s = 0; }
       const out = await verify.surah(env, s);
+      return json(out.status, out.data);
+    }
+    if ((pathname === '/api/audio' || pathname === '/api/audio/reciters') && audio) {
+      if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
+      if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
+      if (crossSite(req)) return json(403, { status: 'cross_site' });
+      const v = await checkLimit(env.AUDIO_LIMIT, netKey(req), auMem);
+      if (v === 'unavailable') return json(503, { status: 'unavailable' }, { 'retry-after': '60' });
+      if (v === 'limited') return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const raw = await readCapped(req, MAX_AUDIO_BODY);
+      if (raw === 'bad_length') return json(400, { status: 'bad_length' });
+      if (raw === null) return json(413, { status: 'too_long' });
+      const out = pathname === '/api/audio' ? await audio.file(url.origin, raw, env) : await audio.reciters(url.origin, raw, env);
       return json(out.status, out.data);
     }
     if (pathname === '/api/tafseer' && tafseer) {

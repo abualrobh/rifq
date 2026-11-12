@@ -39,7 +39,7 @@ test('reciters page: lists, chosen IDs, audio host only, timing completeness and
   assert.ok((r.headers.get('content-security-policy') ?? '').includes("default-src 'none'"));
   const h = await r.text();
   // Lists, with names escaped.
-  assert.ok(h.includes('<td>7</td><td>507</td><td>MOCK Reciter 7</td><td>Murattal</td><td>Hafs</td><td>no</td>'));
+  assert.ok(h.includes('<td>7</td><td>507</td><td>MOCK Afasy</td><td>Murattal</td><td>Hafs</td><td>no</td>'));
   assert.ok(h.includes('MOCK Reciter 1 &lt;b&gt;x&lt;/b&gt;') && !h.includes('<b>x</b>'));
   assert.ok(h.includes('<td>2</td><td>MOCK Recitation Two</td><td>Mujawwad</td><td>MOCK Two</td>'));
   // The seven D-111 IDs in order; 161 is not in the mock list.
@@ -48,8 +48,8 @@ test('reciters page: lists, chosen IDs, audio host only, timing completeness and
   const row = (id: number, s: number) => (h.match(new RegExp(`<tr data-audio="${id}:${s}"[^]*?</tr>`)) ?? [''])[0];
   const n1 = counts[1], n2 = counts[2];
   assert.ok(row(AUDIO_CASE.full, 2).includes(`data-timing="complete">Complete: ${n2} of ${n2}`));
-  assert.ok(row(AUDIO_CASE.full, 1).includes('<td data-host>audio.mock.invalid</td>'));
-  assert.ok(row(AUDIO_CASE.full, 1).includes('mp3') && row(AUDIO_CASE.full, 1).includes(`${1000 + n1} bytes`) && row(AUDIO_CASE.full, 1).includes(`${n1 * 5000} ms`));
+  assert.ok(row(AUDIO_CASE.full, 1).includes('<td data-host>download.quranicaudio.com</td>'));
+  assert.ok(row(AUDIO_CASE.full, 1).includes('mp3') && row(AUDIO_CASE.full, 1).includes(`${n1 * 80000} bytes`) && row(AUDIO_CASE.full, 1).includes(`${n1 * 5000} ms`));
   assert.ok(row(AUDIO_CASE.full, 1).includes(`Word segments on ${n1} of ${n1}`));
   assert.ok(row(AUDIO_CASE.incomplete, 2).includes(`data-timing="incomplete">Incomplete: ${n2 - 1} of ${n2}`));
   assert.ok(row(AUDIO_CASE.incomplete, 1).includes('data-timing="complete"'));

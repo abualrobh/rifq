@@ -138,6 +138,37 @@ const ar = {
   juzTitle: 'الأجزاء',
   juzListLabel: 'قائمة الأجزاء: {n} جزءًا',
   filterHintEn: 'بالاسم العربي أو الإنجليزي أو بالرقم، مثل 18 أو 2:255. بحد أقصى 100 حرف.',
+  // RQ-006 v1.1 Listen to the Quran (D-124). New strings, added after the D-109 review; they
+  // await Hamzeh's review. Reciter names are never here: they come from Quran Foundation.
+  audioPlayerLabel: 'مشغل التلاوة',
+  audioPlaySurah: 'تشغيل السورة',
+  audioPlayFrom: 'تشغيل من الآية {a}',
+  audioPlayAyah: 'تشغيل الآية {a}',
+  audioPauseAyah: 'إيقاف الآية {a} مؤقتًا',
+  audioPause: 'إيقاف مؤقت',
+  audioResume: 'متابعة التشغيل',
+  audioReciter: 'القارئ',
+  audioSourceDetails: 'مصدر التلاوة',
+  audioCredit: 'التلاوة مقدَّمة من Quran Foundation.',
+  audioStyle: 'أسلوب التلاوة',
+  audioRiwayah: 'الرواية',
+  audioReciterId: 'رقم القارئ لدى Quran Foundation',
+  audioLicenceL: 'الترخيص',
+  audioLicence: 'شروط المطورين من Quran Foundation، آخر تحديث 2026-10-11',
+  audioLoading: 'جارٍ تحميل التلاوة…',
+  audioUnavailable: 'التلاوة غير متاحة الآن. القراءة متاحة كالمعتاد.',
+  audioNoSurah: 'لا تتوفر تلاوة لهذه السورة الآن.',
+  audioOffline: 'يحتاج الاستماع إلى اتصال بالإنترنت. القراءة متاحة كالمعتاد.',
+  audioNoScript: 'يحتاج الاستماع إلى تفعيل جافاسكربت.',
+  audioGoCurrent: 'الانتقال إلى الآية الحالية',
+  audioReciterGone: 'القارئ الذي اخترته لم يعد متاحًا، لذلك تُستخدم تلاوة {name}.',
+  audioNotRemembered: 'لن يُحفظ اختيار القارئ على هذا الجهاز لأن التخزين محظور أو ممتلئ.',
+  audioNowAyah: 'الآية {a}',
+  audioMediaTitle: '{name}، الآية {a}',
+  // Privacy page "Listening" item (D-112, RQ-006 AC40): the wording proposed in RQ-006 v1.1,
+  // shown only when PRIVACY_LISTENING_ON is true. It stays off until Hamzeh approves it.
+  pvListenL: 'الاستماع',
+  pvListen: 'عند تشغيل تلاوة يطلب خادمنا من Quran Foundation عنوان ملف الصوت وتوقيت الآيات، ولا يُرسل عنوانك أو بيانات جهازك إليهم. ثم يشغّل متصفحك الملف مباشرةً من خادم الصوت الذي تحيل إليه خدمة Quran Foundation \u200f(download.quranicaudio.com)، فيستقبل هذا الخادم عنوان شبكتك وبيانات متصفحك الأساسية، ويعرف التلاوة التي تشغّلها. ولا نحتفظ بسجل لما تستمع إليه، ونحتفظ بعنوان الملف وتوقيت الآيات مدة لا تزيد على 7 أيام.',
   // Privacy page (/privacy/, /en/privacy/). Text approved by Hamzeh "for now" (D-099), word for
   // word; do not reword here. The Arabic text still needs the B-09 Arabic review. Each item is a
   // bold label and its text; the hosting item is split around its one link.
@@ -294,6 +325,34 @@ const en: typeof ar = {
   juzTitle: 'Juz',
   juzListLabel: 'List of juz: {n}',
   filterHintEn: 'Arabic or English name, or a number, such as 18 or 2:255. Up to 100 characters.',
+  // RQ-006 (see the Arabic block).
+  audioPlayerLabel: 'Recitation player',
+  audioPlaySurah: 'Play surah',
+  audioPlayFrom: 'Play from ayah {a}',
+  audioPlayAyah: 'Play ayah {a}',
+  audioPauseAyah: 'Pause ayah {a}',
+  audioPause: 'Pause',
+  audioResume: 'Resume',
+  audioReciter: 'Reciter',
+  audioSourceDetails: 'Recitation source',
+  audioCredit: 'Recitation provided by Quran Foundation.',
+  audioStyle: 'Style',
+  audioRiwayah: 'Riwayah',
+  audioReciterId: 'Quran Foundation chapter-reciter ID',
+  audioLicenceL: 'Licence',
+  audioLicence: 'Quran Foundation Developer Terms, last updated 2026-10-11',
+  audioLoading: 'Loading the recitation…',
+  audioUnavailable: 'The recitation is not available for now. Reading still works.',
+  audioNoSurah: 'No recitation is available for this surah for now.',
+  audioOffline: 'Listening needs an internet connection. Reading still works.',
+  audioNoScript: 'Listening needs JavaScript.',
+  audioGoCurrent: 'Go to the current ayah',
+  audioReciterGone: 'The reciter you chose is no longer available, so {name} is used.',
+  audioNotRemembered: 'Your reciter choice will not be remembered on this device, because storage is blocked or full.',
+  audioNowAyah: 'Ayah {a}',
+  audioMediaTitle: '{name}, ayah {a}',
+  pvListenL: 'Listening',
+  pvListen: "when you play a recitation, our server asks Quran Foundation for the audio file's address and the ayah timings. Your address and device details are not passed to them in that request. Your browser then plays the file directly from the audio server that Quran Foundation's service points to (download.quranicaudio.com), which receives your network address and basic browser details and can see which recitation you play. We don't keep a record of what you listen to. We keep the file address and ayah timings for no more than 7 days.",
   // Privacy page, D-099 approved text (see the Arabic block above).
   privacyLink: 'Privacy',
   pvTitle: 'Privacy at RIFQ',
@@ -348,10 +407,19 @@ export const privacyPath = (lang: Lang) => `${homePath(lang)}privacy/`;
 // The one external address on the privacy page: a plain link, nothing is loaded from it.
 export const CLOUDFLARE_PRIVACY_URL = 'https://www.cloudflare.com/privacypolicy/';
 // Privacy items in page order: [label key, text key]. The hosting item is built separately.
+// RQ-006 AC40: the "Listening" item. OFF: the live privacy text stays exactly as approved (D-099)
+// until Hamzeh approves the new wording; then this turns on and pvUpdated changes with it.
+export const PRIVACY_LISTENING_ON = false;
 export const PRIVACY_ITEMS = [
   ['pvAccountL', 'pvAccount'], ['pvDeviceL', 'pvDevice'], ['pvSearchL', 'pvSearch'], ['pvTafseerL', 'pvTafseer'],
   ['pvAbuseL', 'pvAbuse'], ['pvTrackingL', 'pvTracking'], ['hosting', 'hosting'], ['pvDeleteL', 'pvDelete'], ['pvContactL', 'pvContact'],
 ] as const;
+// The privacy items in page order, with the "Listening" item after Tafseer only when it is on.
+export function privacyItems(listening: boolean = PRIVACY_LISTENING_ON): (readonly [Key | 'hosting', Key | 'hosting'])[] {
+  const out: (readonly [Key | 'hosting', Key | 'hosting'])[] = [...PRIVACY_ITEMS];
+  if (listening) out.splice(out.findIndex(([l]) => l === 'pvTafseerL') + 1, 0, ['pvListenL', 'pvListen']);
+  return out;
+}
 
 // Words that would signal an account or sign-in prompt. RIFQ has none; tests check that no page
 // shows any of them (RQ-001 AC1, RQ-003 AC5 and AC6).

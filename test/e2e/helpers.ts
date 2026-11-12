@@ -28,9 +28,12 @@ export function logRemoval(testId: string, what: string) {
 type Seen = { url: string; method: string; body: string | null; headers: Record<string, string> };
 
 // Every page gets: request capture, CSP violation capture, dialog guard and page error capture.
-export const test = base.extend<{ seen: Seen[]; guard: void }>({
+// allowHosts: extra hosts a spec may reach. Only the RQ-006 audio spec sets it, to the approved audio
+// host, whose requests it answers itself with a made-up silent file (nothing leaves the machine).
+export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[] }>({
+  allowHosts: [[], { option: true }],
   seen: async ({}, use) => { await use([]); },
-  guard: [async ({ page, seen }, use) => {
+  guard: [async ({ page, seen, allowHosts }, use) => {
     const errors: string[] = [];
     page.on('request', (r) => seen.push({ url: r.url(), method: r.method(), body: r.postData(), headers: r.headers() }));
     page.on('dialog', async (d) => { errors.push('dialog:' + d.type()); await d.dismiss(); });
@@ -45,7 +48,7 @@ export const test = base.extend<{ seen: Seen[]; guard: void }>({
       expect(v, 'no CSP violations').toEqual([]);
     }
     expect(errors, 'no dialogs or page errors').toEqual([]);
-    for (const s of seen) expect(new URL(s.url).hostname, 'only local requests').toBe('127.0.0.1');
+    for (const s of seen) expect(['127.0.0.1', ...allowHosts], 'only local requests').toContain(new URL(s.url).hostname);
   }, { auto: true }],
 });
 export { expect };
