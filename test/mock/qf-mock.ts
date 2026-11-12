@@ -148,7 +148,9 @@ export function createMockQf(opts: Opts = {}) {
     if (id === AUDIO_CASE.incomplete && s === 2) ts = ts.slice(0, -1);
     if (id === AUDIO_CASE.negative) ts[0] = { ...ts[0], duration: -1 };
     const url = id === AUDIO_CASE.signed ? `${mockAudioUrl(id, s)}?token=MOCK_SIGNATURE&expires=1` : mockAudioUrl(id, s);
-    const file: Record<string, unknown> = { id: id * 1000 + s, chapter_id: s, file_size: n * 5000 * 16, format: 'mp3', audio_url: url, duration: id === AUDIO_CASE.negative ? null : n * 5000, ...(id === AUDIO_CASE.noTimestamps ? {} : { timestamps: ts }) };
+    // As the real pre-live API does (kit v23 finding): timestamps only with segments=true. Before
+    // kit v24 this mock returned them always, which hid the missing parameter in the Worker.
+    const file: Record<string, unknown> = { id: id * 1000 + s, chapter_id: s, file_size: n * 5000 * 16, format: 'mp3', audio_url: url, duration: id === AUDIO_CASE.negative ? null : n * 5000, ...(id === AUDIO_CASE.noTimestamps || !segments ? {} : { timestamps: ts }) };
     state.audioRequests++;
     return ok({ audio_file: opts.audioOverride ? opts.audioOverride(id, s, file) : file });
   }

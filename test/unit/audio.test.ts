@@ -125,7 +125,7 @@ test('reciters route: offered set comes from the data (listed, named, Murattal, 
   assert.deepEqual(d.reciters[0], { id: 7, name: 'MOCK Afasy', style: 'Murattal', qirat: 'Hafs' });
   // Only audio calls, only with the audio scope; never surah 3 or later in pre-live.
   assert.ok(mock.state.tokenBodies.every((b) => new URLSearchParams(b).get('scope') === AUDIO_SCOPE));
-  assert.ok(mock.state.paths.every((p) => /\/chapter_recitations\/(7|2|6|9|4|97)\/[12]$|\/resources\/chapter_reciters\?language=en$/.test(p)), mock.state.paths.join());
+  assert.ok(mock.state.paths.every((p) => /\/chapter_recitations\/(7|2|6|9|4|97)\/[12]\?segments=true$|\/resources\/chapter_reciters\?language=en$/.test(p)), mock.state.paths.join());
   // AC38: no reader header reaches QF.
   assert.ok(mock.state.contentHeaderNames.every((h) => !h.includes('cookie') && !h.includes('user-agent') && !h.includes('cf-connecting-ip')));
 });
@@ -304,4 +304,19 @@ test('kit v23: failed surah checks are kept 10 minutes only, then asked again', 
   const again = await (await call(w, '/api/audio/reciters', { lang: 'en' })).json();
   assert.deepEqual(again.reciters.map((x: { id: number }) => x.id), [7, 97]);
   assert.ok(mock.state.audioRequests > n);
+});
+
+test('kit v24: the Worker asks for the surah file with segments=true, keeps only [from, to] per ayah', async () => {
+  const { w, mock } = setup();
+  const d = await (await call(w, '/api/audio', { r: 7, s: 1 })).json();
+  assert.equal(d.status, 'ok', 'the mock gives timestamps only with segments=true, as the real API does');
+  const files = mock.state.paths.filter((p) => p.includes('/chapter_recitations/'));
+  assert.ok(files.length > 0);
+  assert.ok(files.every((p) => p.endsWith('?segments=true')), files.join());
+  assert.ok(d.t.every((x: unknown) => Array.isArray(x) && x.length === 2), 'no word segments reach the browser');
+  const run = await import('../../scripts/audio-check.ts');
+  const m2 = createMockQf({ quran: src, counts });
+  const rec = await run.runAudioCheck(ENV, counts, { fetch: m2.fetch, timeoutMs: 2000 }, true, '2026-11-12');
+  assert.deepEqual(rec.record.passed, [7, 97]);
+  assert.ok(m2.state.paths.filter((p) => p.includes('/chapter_recitations/')).every((p) => p.endsWith('?segments=true')));
 });

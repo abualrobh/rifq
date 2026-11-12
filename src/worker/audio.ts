@@ -21,14 +21,20 @@
 //
 // API paths (Content API v4, scope content.audio.read; see src/worker/reciters.ts for the doc URLs):
 //   GET /resources/chapter_reciters?language=<ar|en>
-//   GET /chapter_recitations/{reciter_id}/{chapter_number}
+//   GET /chapter_recitations/{reciter_id}/{chapter_number}?segments=true
+// segments=true is needed: without it Quran Foundation leaves out the per-ayah timestamps (seen on
+// the real pre-live API with kit v23; the doc calls timestamps "present when timing data is
+// available"). The word segments that come with them are dropped at once: only each ayah's
+// [timestamp_from, timestamp_to] is kept or sent to the browser (checkSurahFile).
 import { catalogueProblems, checkSurahFile, coveredSurahs, D111_IDS, DEFAULT_RECITER, type CatalogueEntry, type SurahCheck } from '../core/audio.ts';
 import { qfConfig, QfClient, QfError, type QfConfig, type QfSecrets } from './qf.ts';
 import { MAX_AGE_MS, MAX_AGE_S, type CacheLike } from './tafseer.ts';
 
 export const AUDIO_SCOPE = 'content.audio.read';
 // v2 (kit v23): v1 kept failed checks for 7 days, including the AC60 failures of kit v22.
-export const AUDIO_CACHE_VERSION = 'v2';
+// v3 (kit v24): checks made without segments=true (no timestamps) are never read again.
+export const AUDIO_CACHE_VERSION = 'v3';
+export const SURAH_FILE_QUERY = { segments: 'true' } as const;
 export const FAIL_AGE_MS = 10 * 60_000;
 // Proposal (RQ-006 security list, value not known): 60 audio metadata requests per minute per
 // network address, in its own AUDIO_LIMIT binding, failing closed like the other limits (D-095).
@@ -112,7 +118,7 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     if (hit) return hit;
     let c: SurahCheck;
     try {
-      c = checkSurahFile(await qf.get(q, `/chapter_recitations/${r}/${s}`, {}, AUDIO_SCOPE), s, counts[s] ?? -1);
+      c = checkSurahFile(await qf.get(q, `/chapter_recitations/${r}/${s}`, SURAH_FILE_QUERY, AUDIO_SCOPE), s, counts[s] ?? -1);
     } catch (e) {
       if (e instanceof QfError && e.kind === 'not_found') c = { ok: false, problems: ['not found'], negatives: 0, play: null };
       // Refused for this one file (403): that reciter fails, now; not kept, so it is asked again.
@@ -204,7 +210,7 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
       const surahs = [];
       for (const s of coveredSurahs(q.env)) {
         try {
-          const c = checkSurahFile(await qf.get(q, `/chapter_recitations/${id}/${s}`, {}, AUDIO_SCOPE), s, counts[s] ?? -1);
+          const c = checkSurahFile(await qf.get(q, `/chapter_recitations/${id}/${s}`, SURAH_FILE_QUERY, AUDIO_SCOPE), s, counts[s] ?? -1);
           surahs.push({ s, ok: c.ok, problems: c.problems, negatives: c.negatives });
         } catch (e) { surahs.push({ s, ok: false, problems: ['call failed: ' + (e instanceof QfError ? e.kind : 'error')], negatives: 0 }); }
       }
