@@ -47,7 +47,10 @@ export default function Settings({ lang }: { lang: Lang }) {
   // Phone width: the controls sit behind one Display button (design review H-2). The panel opens
   // over the text, so opening it never moves the reading place. Wider screens show them inline.
   const [open, setOpen] = useState(false);
-  useEffect(() => setS(read()), []);
+  // Until the island has read the saved setting, the night button stays invisible (it keeps its
+  // space so the header does not move). Without JavaScript it never shows, so no dead control.
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setS(read()); setReady(true); }, []);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
@@ -73,8 +76,18 @@ export default function Settings({ lang }: { lang: Lang }) {
       <button type="button" className="btn" data-smaller aria-label={t(lang, 'smaller')} disabled={i <= 0} onClick={() => change({ ...s, size: SIZES[Math.max(0, i - 1)] })}><bdi dir="ltr">A-</bdi></button>
       <span className="size-label" data-size-label>{t(lang, 'fontSize', { n: i + 1, m: SIZES.length })}</span>
       <button type="button" className="btn" data-larger aria-label={t(lang, 'larger')} disabled={i >= SIZES.length - 1} onClick={() => change({ ...s, size: SIZES[Math.min(SIZES.length - 1, i + 1)] })}><bdi dir="ltr">A+</bdi></button>
-      <button type="button" className="btn" data-night aria-pressed={s.dark} onClick={() => change({ ...s, dark: !s.dark })}>{t(lang, 'night')}</button>
       </div>
+      {/* Night toggle (D-102): an icon button outside the Display panel, so it is always one tap
+          away. It names the action it will take, and the label and title change with the state:
+          a moon in light mode (switch to dark), a sun in dark mode (switch to light). The icons
+          follow the html .dark class, which the layout's early script sets, so the right icon
+          shows before this island loads. */}
+      <button type="button" className={ready ? 'btn icon-btn night-btn' : 'btn icon-btn night-btn pending'} data-night data-mode={s.dark ? 'dark' : 'light'}
+        aria-label={t(lang, s.dark ? 'toLight' : 'toDark')} title={t(lang, s.dark ? 'toLight' : 'toDark')}
+        onClick={() => change({ ...s, dark: !s.dark })}>
+        <svg className="icon-moon" data-icon="moon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round"/></svg>
+        <svg className="icon-sun" data-icon="sun" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.9"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round"/></svg>
+      </button>
     </div>
   );
 }

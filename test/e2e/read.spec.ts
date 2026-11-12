@@ -137,7 +137,8 @@ for (const lang of ['ar', 'en'] as const) {
     const before = await topAyah(page);
     await page.locator('[data-night]').dispatchEvent('click');
     await expect(page.locator('html')).toHaveClass(/dark/);
-    await expect(page.locator('[data-night]')).toHaveAttribute('aria-pressed', 'true');
+    // The night button names its next action (it no longer uses aria-pressed).
+    await expect(page.locator('[data-night]')).toHaveAttribute('aria-label', t(lang, 'toLight'));
     expect(await topAyah(page)).toBe(before);
     await page.locator('[data-night]').dispatchEvent('click');
     await expect(page.locator('html')).not.toHaveClass(/dark/);
