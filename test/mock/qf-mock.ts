@@ -30,7 +30,7 @@ export const CASE = {
 export const OPEN = '\ufd3f', CLOSE = '\ufd3e';
 
 type Quran = { list: { sora: number; aya_no: number; aya_text: string }[] };
-type Opts = { quran?: Quran; expiresIn?: number; slowMs?: number; now?: () => number; noAudioScope?: boolean; arCatalogueFails?: boolean; counts?: number[]; audioOverride?: (id: number, s: number, file: Record<string, unknown>) => Record<string, unknown> };
+type Opts = { quran?: Quran; expiresIn?: number; slowMs?: number; now?: () => number; noAudioScope?: boolean; arCatalogueFails?: boolean; audioHang?: (id: number, s: number) => boolean; audioDown?: (id: number, s: number) => boolean; emptyCatalogue?: () => boolean; counts?: number[]; audioOverride?: (id: number, s: number, file: Record<string, unknown>) => Record<string, unknown> };
 
 // The ayah text without the no-break space and number stored at its end (D-068).
 export function bareAyah(t: string): string { return t.replace(/\u00a0[\u0660-\u0669\u06f0-\u06f90-9]+$/u, ''); }
@@ -216,10 +216,13 @@ export function createMockQf(opts: Opts = {}) {
     // list can be tested, and each one shows a different case (see AUDIO_CASE).
     // With language=ar the mock answers as QF may: style, qirat, name and translated name in Arabic
     // (made-up words written as code points; only strings.ts may hold Arabic characters).
+    if (path === '/resources/chapter_reciters' && opts.emptyCatalogue?.()) return ok({ reciters: [] });
     if (path === '/resources/chapter_reciters' && opts.arCatalogueFails && u.searchParams.get('language') === 'ar') return err(503, 'service_unavailable');
     if (path === '/resources/chapter_reciters') return ok({ reciters: u.searchParams.get('language') === 'ar' ? RECITERS.map((r) => ({ ...r, name: AR_WORD(r.id), style: { name: AR_STYLE, language_name: 'arabic' }, qirat: { name: AR_QIRAT, language_name: 'arabic' }, translated_name: { name: AR_WORD(r.id), language_name: 'arabic' } })) : RECITERS });
     if (path === '/resources/recitations') return ok({ recitations: RECITATIONS });
     const am = /^\/chapter_recitations\/(\d+)\/(\d+)$/.exec(path);
+    if (am && opts.audioHang?.(Number(am[1]), Number(am[2]))) return new Promise<Response>(() => undefined);
+    if (am && opts.audioDown?.(Number(am[1]), Number(am[2]))) return err(503, 'service_unavailable');
     if (am) return audioFile(Number(am[1]), Number(am[2]), u.searchParams.get('segments') === 'true');
     let m = /^\/tafsirs\/(\d+)\/by_ayah\/(\d+):(\d+)$/.exec(path);
     if (m) {

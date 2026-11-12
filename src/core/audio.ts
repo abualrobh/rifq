@@ -110,7 +110,41 @@ export function approvedAudioUrl(u: unknown): string | null {
 
 // The whole check for one surah file answer (audio_file), as the Worker and the recorded check use
 // it. `play` is what the browser needs (AC34): the address, the duration and the timings.
-export type SurahCheck = { ok: boolean; problems: string[]; negatives: number; play: { url: string; duration: number; t: [number, number][] } | null };
+export type SurahCheck = { ok: boolean; problems: string[]; negatives: number; play: { url: string; duration: number; t: [number, number][] } | null; shape?: FileShape };
+
+// The shape of one surah-file answer, for the /dev/reciters/ record (D-125 B fixtures): types,
+// counts, the first and last [from, to], and the address path with the surah number written as
+// {s}. Never the query string (it may carry a signature), Quran text, word segments or audio.
+export type FileShape = {
+  keys: string[]; format: unknown; fileSize: unknown; duration: unknown; types: Record<string, string>;
+  urlPath: string | null; urlHasQuery: boolean; entries: number | null; entryKeys: string[];
+  first: [unknown, unknown] | null; last: [unknown, unknown] | null; lastEndMinusDuration: number | null;
+};
+export function fileShape(f: Record<string, unknown>, s: number): FileShape {
+  const ts = Array.isArray(f.timestamps) ? (f.timestamps as Record<string, unknown>[]) : null;
+  let urlPath: string | null = null, urlHasQuery = false;
+  if (typeof f.audio_url === 'string') {
+    try {
+      const p = new URL(f.audio_url, AUDIO_ORIGIN + '/');
+      // The surah number in a segment, plain or zero-padded to 3 digits, is written as {s}.
+      const n = String(s), n3 = n.padStart(3, '0');
+      const seg = (x: string) => x.replace(new RegExp(`^(?:${n3}|${n})(?=\\.|$)`), '{s}');
+      urlPath = `${p.protocol}//${p.host}${p.pathname.split('/').map(seg).join('/')}`;
+      urlHasQuery = p.search.length > 1;
+    } catch { urlPath = 'not a URL'; }
+  }
+  const pair = (e: Record<string, unknown> | undefined): [unknown, unknown] | null => (e ? [e.timestamp_from, e.timestamp_to] : null);
+  const lastTo = ts && ts.length ? ts[ts.length - 1].timestamp_to : null;
+  return {
+    keys: Object.keys(f).sort(), format: f.format, fileSize: f.file_size, duration: f.duration,
+    types: Object.fromEntries(['file_size', 'duration', 'audio_url', 'timestamps'].map((k) => [k, f[k] === null ? 'null' : Array.isArray(f[k]) ? 'array' : typeof f[k]])),
+    urlPath, urlHasQuery, entries: ts ? ts.length : null,
+    entryKeys: ts && ts.length ? Object.keys(ts[0]).sort() : [],
+    first: pair(ts?.[0]), last: pair(ts?.[ts.length - 1]),
+    lastEndMinusDuration: typeof lastTo === 'number' && typeof f.duration === 'number' ? lastTo - f.duration : null,
+  };
+}
+
 export function checkSurahFile(j: unknown, s: number, ayat: number): SurahCheck {
   const f = (j && typeof j === 'object' ? (j as Record<string, unknown>).audio_file : null) as Record<string, unknown> | null;
   if (!f || typeof f !== 'object') return { ok: false, problems: ['no audio_file'], negatives: 0, play: null };
@@ -121,7 +155,7 @@ export function checkSurahFile(j: unknown, s: number, ayat: number): SurahCheck 
   const tm = checkTimestamps(f.timestamps, s, ayat, duration);
   problems.push(...tm.problems);
   const ok = problems.length === 0;
-  return { ok, problems: problems.slice(0, 10), negatives: tm.negatives, play: ok ? { url: url!, duration: duration!, t: tm.t } : null };
+  return { ok, problems: problems.slice(0, 10), negatives: tm.negatives, play: ok ? { url: url!, duration: duration!, t: tm.t } : null, shape: fileShape(f, s) };
 }
 
 // Which surahs the API environment has audio for. Pre-live covers surahs 1 and 2 only (seen on

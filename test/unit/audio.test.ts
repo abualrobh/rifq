@@ -99,10 +99,10 @@ class FakeCache {
   async put(k: string, r: Response) { this.m.set(k, { body: await r.text(), headers: r.headers }); }
 }
 
-function setup(o: { arCatalogueFails?: boolean; override?: (id: number, s: number, f: Record<string, unknown>) => Record<string, unknown>; audioRecord?: unknown; audio?: boolean } = {}) {
+function setup(o: { arCatalogueFails?: boolean; audioHang?: (id: number, s: number) => boolean; audioDown?: (id: number, s: number) => boolean; emptyCatalogue?: () => boolean; override?: (id: number, s: number, f: Record<string, unknown>) => Record<string, unknown>; audioRecord?: unknown; audio?: boolean } = {}) {
   let clock = Date.parse('2026-11-12T00:00:00Z');
   const now = () => clock;
-  const mock = createMockQf({ quran: src, counts, now, audioOverride: o.override, arCatalogueFails: o.arCatalogueFails });
+  const mock = createMockQf({ quran: src, counts, now, audioOverride: o.override, arCatalogueFails: o.arCatalogueFails, audioHang: o.audioHang, audioDown: o.audioDown, emptyCatalogue: o.emptyCatalogue });
   const cache = new FakeCache();
   const seen: string[] = [];
   const w = makeWorker(ab, { testMemoryLimits: true, dev: true, audio: o.audio ?? true, record: { name: 'Synthetic', edition: 'seed', status: 'UNVERIFIED' }, counts, audioLimit: 1000, audioRecord: (o.audioRecord ?? null) as never },
@@ -280,8 +280,12 @@ test('/dev/reciters/ player check (temporary): same checks as the player, per re
   const over = await open(mk((id, s, f) => (id === 7 && s === 1 ? { ...f, duration: 34796 } : f)), env);
   assert.match(over, /data-diag="7:1" data-ok="no">.*?last entry ends after the file \(by 104 ms; duration 34796 ms\)/);
   assert.match(over, /data-offered>97</);
-  // Host names only (the page's own design), never a full address, secret or token.
-  assert.ok(!over.includes('.mp3') && !over.includes(MOCK_CLIENT_SECRET) && !over.includes('mock-token-'));
+  // The address path with the surah as {s}, never a concrete address, query string, secret or token.
+  assert.match(over, /data-url-path>https:\/\/download\.quranicaudio\.com\/mock-rifq-test\/7\/\{s\}\.mp3</);
+  assert.match(over, /data-diag="97:1"[^]*?data-url-path>[^<]*\(has a query string, not shown\)/);
+  assert.match(over, /data-diag="7:1"[^]*?last end minus duration 104 ms/);
+  for (const bad of ['/7/1.mp3', 'MOCK_SIGNATURE', 'token=', MOCK_CLIENT_SECRET, 'mock-token-']) assert.ok(!over.includes(bad), bad);
+  assert.match(over, /data-record-shape>[^<]*&#34;lastEndMinusDuration&#34;: 104/);
 });
 
 test('kit v23: a whole-second duration may be passed by the last ayah by under 1000 ms (deviation for approval)', () => {
@@ -319,4 +323,34 @@ test('kit v24: the Worker asks for the surah file with segments=true, keeps only
   const rec = await run.runAudioCheck(ENV, counts, { fetch: m2.fetch, timeoutMs: 2000 }, true, '2026-11-12');
   assert.deepEqual(rec.record.passed, [7, 97]);
   assert.ok(m2.state.paths.filter((p) => p.includes('/chapter_recitations/')).every((p) => p.endsWith('?segments=true')));
+});
+
+test('QA FIND-2: one slow or failing surah call removes only that reciter; an outage of all is "unavailable"', async () => {
+  // Husary-like 6 is already refused; make 97's surah 2 hang (2 s client time-out in tests).
+  const hang = setup({ audioHang: (id, s) => id === 97 && s === 2 });
+  const r = await call(hang.w, '/api/audio/reciters', { lang: 'en' });
+  assert.equal(r.status, 200);
+  assert.deepEqual((await r.json()).reciters.map((x: { id: number }) => x.id), [7]);
+  // A 5xx on one reciter's file: same.
+  const down = setup({ audioDown: (id) => id === 97 });
+  assert.deepEqual((await (await call(down.w, '/api/audio/reciters', { lang: 'en' })).json()).reciters.map((x: { id: number }) => x.id), [7]);
+  // /api/audio checks only the asked reciter: 7 plays while 97's files are down.
+  const n = down.mock.state.audioRequests;
+  assert.equal((await call(down.w, '/api/audio', { r: 7, s: 1 })).status, 200);
+  assert.ok(down.mock.state.audioRequests - n <= 2, 'no other reciter is checked again');
+  // Every offered candidate in outage: 503 unavailable, not an empty list.
+  const all = setup({ audioDown: () => true });
+  const a = await call(all.w, '/api/audio/reciters', { lang: 'en' });
+  assert.equal(a.status, 503);
+  assert.deepEqual(await a.json(), { status: 'unavailable' });
+});
+
+test('QA FIND-7: an empty catalogue is kept 10 minutes, not 7 days', async () => {
+  let empty = true;
+  const { w, tick } = setup({ emptyCatalogue: () => empty });
+  assert.deepEqual((await (await call(w, '/api/audio/reciters', { lang: 'en' })).json()).reciters, []);
+  empty = false;
+  assert.deepEqual((await (await call(w, '/api/audio/reciters', { lang: 'en' })).json()).reciters, [], 'within 10 minutes the copy is used');
+  tick(10 * 60_000);
+  assert.deepEqual((await (await call(w, '/api/audio/reciters', { lang: 'en' })).json()).reciters.map((x: { id: number }) => x.id), [7, 97]);
 });

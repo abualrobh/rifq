@@ -26,7 +26,7 @@
 // the real pre-live API with kit v23; the doc calls timestamps "present when timing data is
 // available"). The word segments that come with them are dropped at once: only each ayah's
 // [timestamp_from, timestamp_to] is kept or sent to the browser (checkSurahFile).
-import { catalogueProblems, checkSurahFile, coveredSurahs, D111_IDS, DEFAULT_RECITER, type CatalogueEntry, type SurahCheck } from '../core/audio.ts';
+import { catalogueProblems, checkSurahFile, type FileShape, coveredSurahs, D111_IDS, DEFAULT_RECITER, type CatalogueEntry, type SurahCheck } from '../core/audio.ts';
 import { qfConfig, QfClient, QfError, type QfConfig, type QfSecrets } from './qf.ts';
 import { MAX_AGE_MS, MAX_AGE_S, type CacheLike } from './tafseer.ts';
 
@@ -36,6 +36,11 @@ export const AUDIO_SCOPE = 'content.audio.read';
 export const AUDIO_CACHE_VERSION = 'v3';
 export const SURAH_FILE_QUERY = { segments: 'true' } as const;
 export const FAIL_AGE_MS = 10 * 60_000;
+// QA FIND-2: the most one reciter's surah checks may take before it counts as an outage for now.
+export const RECITER_CHECK_MS = 8000;
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((res, rej) => { const id = setTimeout(() => rej(new Error('timeout')), ms); p.then((v) => { clearTimeout(id); res(v); }, (e) => { clearTimeout(id); rej(e); }); });
+}
 // Proposal (RQ-006 security list, value not known): 60 audio metadata requests per minute per
 // network address, in its own AUDIO_LIMIT binding, failing closed like the other limits (D-095).
 export const AUDIO_LIMIT_PER_MINUTE = 60;
@@ -107,7 +112,8 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     const hit = await readStored<CatalogueEntry[]>(k);
     if (hit) return hit;
     const l = parseCatalogue(await qf.get(q, '/resources/chapter_reciters', { language: lang }, AUDIO_SCOPE));
-    await writeStored(k, l);
+    // QA FIND-7: an empty list (for example during a QF incident) is kept 10 minutes, not 7 days.
+    await writeStored(k, l, l.length ? MAX_AGE_MS : FAIL_AGE_MS);
     return l;
   }
 
@@ -135,7 +141,7 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
   // reads the English catalogue (language=en): with language=ar, QF may give the style, qirat and
   // translated name in Arabic, and the check, which compares with Murattal, Hafs and the Latin
   // surname, would then refuse every reciter (seen on the test site with kit v22).
-  async function offered(origin: string, q: QfConfig): Promise<{ list: { id: number; e: CatalogueEntry }[]; checked: 'worker' | 'record' | 'none' }> {
+  async function offered(origin: string, q: QfConfig): Promise<{ list: { id: number; e: CatalogueEntry }[]; checked: 'worker' | 'record' | 'none'; outage: number }> {
     const cat = await catalogue(origin, q, 'en');
     const listed = D111_IDS.flatMap((id) => {
       const e = cat.find((x) => x.id === id);
@@ -143,11 +149,29 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     });
     if (q.env === 'production') {
       const rec = cfg.audioRecord;
-      if (!rec || rec.env !== 'production') return { list: [], checked: 'none' };
-      return { list: listed.filter((x) => rec.passed.includes(x.id)), checked: 'record' };
+      if (!rec || rec.env !== 'production') return { list: [], checked: 'none', outage: 0 };
+      return { list: listed.filter((x) => rec.passed.includes(x.id)), checked: 'record', outage: 0 };
     }
-    const pass = await Promise.all(listed.map(async (x) => (await Promise.all(coveredSurahs(q.env).map((s) => surahFile(origin, q, x.id, s)))).every((c) => c.ok)));
-    return { list: listed.filter((_, i) => pass[i]), checked: 'worker' };
+    // QA FIND-2: each reciter is judged on its own. A failed check removes only that reciter; an
+    // outage (error or no answer within RECITER_CHECK_MS) removes it for now and is reported
+    // separately, so one slow or failing surah call no longer empties the whole list.
+    const res = await Promise.allSettled(listed.map((x) => reciterPasses(origin, q, x.id)));
+    const list = listed.filter((_, i) => res[i].status === 'fulfilled' && (res[i] as PromiseFulfilledResult<boolean>).value);
+    const outage = res.filter((r) => r.status === 'rejected').length;
+    return { list, checked: 'worker', outage };
+  }
+
+  // One reciter in pre-live: every covered surah passes. Rejects on an outage or a time-out.
+  function reciterPasses(origin: string, q: QfConfig, id: number): Promise<boolean> {
+    const work = Promise.all(coveredSurahs(q.env).map((s) => surahFile(origin, q, id, s))).then((cs) => cs.every((c) => c.ok));
+    return withTimeout(work, RECITER_CHECK_MS);
+  }
+
+  async function isOffered(origin: string, q: QfConfig, id: number): Promise<boolean> {
+    const e = (await catalogue(origin, q, 'en')).find((x) => x.id === id);
+    if (!e || catalogueProblems(id, e).length) return false;
+    if (q.env === 'production') return !!cfg.audioRecord && cfg.audioRecord.env === 'production' && cfg.audioRecord.passed.includes(id);
+    return reciterPasses(origin, q, id);
   }
 
   function config(env: QfSecrets): QfConfig | { status: number; data: Record<string, unknown> } {
@@ -163,6 +187,8 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     if ('status' in q) return q;
     try {
       const o = await offered(origin, q);
+      // Nothing offered because of an outage (not a failed check): say "unavailable", not "none".
+      if (!o.list.length && o.outage) return { status: 503, data: { status: 'unavailable' } };
       // Display names only: the Arabic catalogue, if it can be read; otherwise the English name.
       let ar: CatalogueEntry[] = [];
       if (lang === 'ar' && o.list.length) { try { ar = await catalogue(origin, q, 'ar'); } catch { ar = []; } }
@@ -185,8 +211,8 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     if ('status' in q) return q;
     if (!coveredSurahs(q.env).includes(s as number)) return { status: 404, data: { status: 'not_covered' } };
     try {
-      const o = await offered(origin, q);
-      if (!o.list.some((x) => x.id === r)) return { status: 404, data: { status: 'not_offered' } };
+      // Only the asked reciter is checked (QA FIND-2: no need to check every reciter again).
+      if (!(await isOffered(origin, q, r as number))) return { status: 404, data: { status: 'not_offered' } };
       const c = await surahFile(origin, q, r as number, s as number);
       if (!c.ok || !c.play) return { status: 404, data: { status: 'not_covered' } };
       // AC34: only what the player needs.
@@ -197,11 +223,11 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
   // Development diagnosis for /dev/reciters/ (temporary, after the kit v22 report): runs the same
   // offered() and surah checks the player relies on, fresh (no copy), and reports every result.
   // Problems are rule texts and numbers only; no address, timing list or audio.
-  async function diagnose(origin: string, env: QfSecrets): Promise<{ config: string; offered: number[] | string; reciters: { id: number; catalogue: string[] | string; surahs: { s: number; ok: boolean; problems: string[]; negatives: number }[] }[] }> {
+  async function diagnose(origin: string, env: QfSecrets): Promise<{ config: string; offered: number[] | string; reciters: { id: number; catalogue: string[] | string; surahs: { s: number; ok: boolean; problems: string[]; negatives: number; shape?: FileShape }[] }[] }> {
     const q = qfConfig(env, cfg.dev);
     if ('missing' in q) return { config: 'missing ' + q.missing.join(', '), offered: 'not run', reciters: [] };
     let offeredIds: number[] | string;
-    try { offeredIds = (await offered(origin, q)).list.map((x) => x.id); } catch (e) { offeredIds = 'failed: ' + (e instanceof QfError ? e.kind : 'error'); }
+    try { const o = await offered(origin, q); offeredIds = o.list.map((x) => x.id); if (o.outage) offeredIds = `${offeredIds.join(', ') || 'none'} (${o.outage} reciter(s) not checked: outage or time-out)`; } catch (e) { offeredIds = 'failed: ' + (e instanceof QfError ? e.kind : 'error'); }
     let cat: CatalogueEntry[] | null = null, catErr = '';
     try { cat = parseCatalogue(await qf.get(q, '/resources/chapter_reciters', { language: 'en' }, AUDIO_SCOPE)); } catch (e) { catErr = 'catalogue failed: ' + (e instanceof QfError ? e.kind : 'error'); }
     const out = [];
@@ -211,7 +237,7 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
       for (const s of coveredSurahs(q.env)) {
         try {
           const c = checkSurahFile(await qf.get(q, `/chapter_recitations/${id}/${s}`, SURAH_FILE_QUERY, AUDIO_SCOPE), s, counts[s] ?? -1);
-          surahs.push({ s, ok: c.ok, problems: c.problems, negatives: c.negatives });
+          surahs.push({ s, ok: c.ok, problems: c.problems, negatives: c.negatives, shape: c.shape });
         } catch (e) { surahs.push({ s, ok: false, problems: ['call failed: ' + (e instanceof QfError ? e.kind : 'error')], negatives: 0 }); }
       }
       out.push({ id, catalogue, surahs });

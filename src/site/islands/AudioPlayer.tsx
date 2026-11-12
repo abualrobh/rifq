@@ -2,8 +2,15 @@
 //
 // One surah file per reciter with per-ayah timings (D-110 B). The browser plays the file directly
 // from the approved audio host (D-112 B, AC39 media-src); RIFQ's Worker gives only the address and
-// the timings (/api/audio). Nothing is requested before the reader chooses play or opens the
-// reciter list (AC3); the audio element never preloads; nothing plays on its own.
+// the timings (/api/audio). The audio element never preloads and nothing plays on its own.
+//
+// QA RISK-2 (kit v24): iOS allows play() only inside the tap, and only if the element has its
+// address by then. So the reciter list and this surah's address and timings (metadata only, no
+// sound) are fetched at the reader's first interaction with the page (touch, pointer, key or
+// wheel), before play is tapped; the tap then sets the address and calls play() synchronously.
+// This moves AC3's "nothing before play" to "nothing before the first interaction": a deviation
+// for Hamzeh to approve. If the tap still comes first, the player fetches, tries play(), and on
+// NotAllowedError asks for one tap on Resume; play() is never called on an element with no address.
 //
 // The per-ayah play buttons are in the static HTML (Reader.astro), hidden with their space kept
 // until this island loads, so without JavaScript no broken control shows (AC48).
@@ -13,9 +20,7 @@
 // plays to the end of its last ayah and stops (AC9, P-3). During surah playback the playing ayah is
 // saved as the last reading position (AC50, D-117 A).
 //
-// iPhone (AC26 to AC29, D-115 B): the first tap calls play() on the audio element at once, inside
-// the tap, before the address is fetched, so iOS lets the element play when the address arrives.
-// Lock screen and system controls use the Media Session API. Whether sound continues with the
+// iPhone (AC26 to AC29, D-115 B): see RISK-2 above. Lock screen and system controls use the Media Session API. Whether sound continues with the
 // screen locked can only be measured on the reference phone.
 import { useEffect, useRef, useState } from 'react';
 import { approvedAudioUrl, AUDIO_HOST, ayahAt } from '../../core/audio.ts';
@@ -55,7 +60,8 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
   const [alert, setAlert] = useState(false);
   const [loading, setLoading] = useState(false);
   const [follow, setFollow] = useState(true);
-  const [dead, setDead] = useState(false);
+  // QA FIND-8: why play is disabled ('' when it is not), said next to the disabled button.
+  const [dead, setDead] = useState<'' | 'reciters-empty' | 'surah-not-covered'>('');
   const [now, setNow] = useState('');
   // Why the last attempt stopped, for diagnosis only (data-reason on the status line; never shown).
   const [reason, setReason] = useState('');
@@ -100,7 +106,9 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     if (r.top >= top && r.bottom <= Math.min(bar, innerHeight)) return;
     if (r.height > Math.min(bar, innerHeight) - top && Math.abs(r.top - top - 8) <= 4) return;
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    window.scrollBy({ top: r.top - top - 8, behavior: (reduce ? 'instant' : 'smooth') as ScrollBehavior }); // AC46
+    // An 8 px margin above, less when the ayah only just fits, so its end stays above the player.
+    const margin = Math.min(8, Math.max(0, Math.min(bar, innerHeight) - top - r.height));
+    window.scrollBy({ top: r.top - top - margin, behavior: (reduce ? 'instant' : 'smooth') as ScrollBehavior }); // AC46
   }
 
   function syncButtons() {
@@ -109,7 +117,7 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     for (const b of document.querySelectorAll<HTMLButtonElement>('button.ap')) {
       const a = Number(b.dataset.ap);
       const active = on && x.mode === 'ayah' && x.current === a;
-      b.setAttribute('aria-pressed', String(active));
+      b.dataset.state = active ? 'playing' : 'idle'; // QA FIND-5: no aria-pressed; the name changes
       b.setAttribute('aria-label', t(lang, active ? 'audioPauseAyah' : 'audioPlayAyah', { a }));
     }
   }
@@ -142,13 +150,19 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
 
   // null: could not be fetched now (the reason is kept); []: fetched, and no reciter is offered.
   const recFail = useRef('');
-  async function loadReciters(): Promise<Reciter[] | null> {
+  const recJob = useRef<Promise<Reciter[] | null> | null>(null);
+  // One request at a time: the warm-up and a tap share the same request.
+  function loadReciters(): Promise<Reciter[] | null> {
+    if (st.current.reciters) return Promise.resolve(st.current.reciters);
+    if (!recJob.current) recJob.current = fetchReciters().finally(() => { recJob.current = null; });
+    return recJob.current;
+  }
+  async function fetchReciters(): Promise<Reciter[] | null> {
     const x = st.current;
-    if (x.reciters) return x.reciters;
     const r = await post('/api/audio/reciters', { lang });
     const list = r.status === 200 && Array.isArray(r.data?.reciters) ? (r.data!.reciters as Reciter[]) : null;
     if (!list) { recFail.current = `reciters-${r.status}-${String(r.data?.status ?? 'none')}`; return null; }
-    if (!list.length) { setDead(true); return list; }
+    if (!list.length) { setDead('reciters-empty'); why('reciters-empty'); return list; }
     x.reciters = list; setReciters(list);
     // AC15 to AC18: the stored choice, or the default; a stored reciter no longer offered is said.
     const def = typeof r.data!.default === 'number' ? (r.data!.default as number) : list[0].id;
@@ -165,33 +179,50 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
   }
 
   const metaFail = useRef('');
-  async function meta(r: number): Promise<Meta | 'none' | 'error'> {
+  const metaJob = useRef<{ k: string; p: Promise<MetaResult> } | null>(null);
+  type MetaResult = Meta | 'not_covered' | 'not_offered' | 'error';
+  function meta(r: number): Promise<MetaResult> {
     const x = st.current;
     const k = `${r}:${s}`;
-    if (x.meta && x.metaKey === k) return x.meta;
+    if (x.meta && x.metaKey === k) return Promise.resolve(x.meta);
+    if (metaJob.current?.k === k) return metaJob.current.p;
+    const p = fetchMeta(r, k).finally(() => { if (metaJob.current?.k === k) metaJob.current = null; });
+    metaJob.current = { k, p };
+    return p;
+  }
+  async function fetchMeta(r: number, k: string): Promise<MetaResult> {
+    const x = st.current;
     const res = await post('/api/audio', { r, s });
-    if (res.status === 404 && (res.data?.status === 'not_covered' || res.data?.status === 'not_offered')) return 'none';
+    if (res.status === 404 && (res.data?.status === 'not_covered' || res.data?.status === 'not_offered')) return res.data.status as 'not_covered' | 'not_offered';
     const url = approvedAudioUrl(res.data?.url); // AC56, checked again in the browser
     const tm = res.data?.t;
     metaFail.current = res.status !== 200 ? `meta-${res.status}-${String(res.data?.status ?? 'none')}` : !url ? 'meta-address' : !Array.isArray(tm) || tm.length !== count ? 'meta-timings' : '';
     if (metaFail.current) return 'error';
-    x.meta = { url: url as string, duration: Number(res.data!.duration), t: tm as [number, number][] }; x.metaKey = k;
-    return x.meta;
+    const m: Meta = { url: url as string, duration: Number(res.data!.duration), t: tm as [number, number][] };
+    // A slower answer for a reciter no longer chosen is not kept as the current one.
+    if (x.rid === r) { x.meta = m; x.metaKey = k; }
+    return m;
   }
 
-  // Starts playback of one ayah or of the surah from ayah a. Called from a tap: play() is called
-  // straight away so iOS allows the element to play once the address is known (AC26).
+  // QA RISK-2: metadata only (no sound), at the first interaction and after a reciter change, so
+  // the tap on play can run synchronously. Failures here are silent; the tap reports them.
+  function warm() {
+    void (async () => {
+      const list = await loadReciters();
+      const r = st.current.rid;
+      if (list?.length && r !== null && (await meta(r)) === 'not_covered') { setDead('surah-not-covered'); why('surah-not-covered'); }
+    })();
+  }
+
   // Starts playback of one ayah or of the surah from ayah a, from a tap.
   // iOS (AC26): play() must run inside the tap. When the reciter and this surah's address are
-  // already known (any tap after the first), everything below runs synchronously in the tap. On
-  // the first tap the address must be fetched first (AC3: nothing before play), so play() is called
-  // once at once on the empty element to unlock it, and, if iOS still refuses the later play(),
-  // the player stays ready and asks for one tap on Resume.
-  function start(m: 'ayah' | 'surah', a: number) {
+  // already known (fetched at the first interaction, RISK-2), begin() runs synchronously in the tap.
+  // Otherwise they are fetched now; if iOS then refuses play(), the player asks for one tap on Resume.
+  // play() is never called on an element with no address (QA RISK-2).
+  function start(m: 'ayah' | 'surah', a: number, gone: number | null = null) {
     const el = audio.current;
     if (!el) return;
     const x = st.current;
-    if (!x.srcSet) void el.play().catch(() => undefined);
     stop(); // AC10: never two at once
     setFrom(a); setReason('');
     if (!navigator.onLine) { setReason('offline'); say(t(lang, 'audioOffline'), true); return; } // AC22
@@ -204,8 +235,18 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
       if (!list) return fail(t(lang, 'audioUnavailable'), recFail.current);
       // An empty offered list is not an outage: say so plainly.
       if (!list.length || x.rid === null) return fail(t(lang, 'audioNoReciter'), 'reciters-empty');
+      // FIND-9: after a refused reciter the list moved to another one; say which (AC18 wording).
+      if (gone !== null && x.rid !== gone) say(t(lang, 'audioReciterGone', { name: reciterName() }), true);
       const md = await meta(x.rid);
-      if (md === 'none') { setDead(true); return fail(t(lang, 'audioNoSurah'), 'surah-not-covered'); }
+      if (md === 'not_covered') { setDead('surah-not-covered'); return fail(t(lang, 'audioNoSurah'), 'surah-not-covered'); }
+      // QA FIND-9: the chosen reciter is no longer offered. Fetch the list again (which says so,
+      // AC18, and moves to the default) and try once more; a second refusal is reported.
+      if (md === 'not_offered') {
+        if (gone !== null) return fail(t(lang, 'audioUnavailable'), 'meta-not-offered-again');
+        const was = x.rid;
+        x.reciters = null; setReciters(null); x.meta = null; x.metaKey = '';
+        return start(m, a, was);
+      }
       if (md === 'error') return fail(t(lang, 'audioUnavailable'), metaFail.current);
       begin(m, a, md);
     })();
@@ -263,6 +304,7 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     x.rid = id; setRid(id);
     x.meta = null; x.metaKey = '';
     if (was !== 'idle') start(was, at); // AC19: restart at the current ayah
+    else warm(); // RISK-2: the next tap on play stays synchronous
   }
 
   // Position updates: timeupdate (also in the background) and a frame loop while visible.
@@ -313,8 +355,11 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
 
     // Per-ayah play buttons (static HTML), shown now with their space already kept.
     const list = document.querySelector('ol.ayat');
-    for (const b of document.querySelectorAll<HTMLButtonElement>('button.ap')) { b.removeAttribute('data-pending'); b.removeAttribute('tabindex'); }
+    for (const b of document.querySelectorAll<HTMLButtonElement>('button.ap, button.apf')) { b.removeAttribute('data-pending'); b.removeAttribute('tabindex'); }
     const onClick = (e: Event) => {
+      // P-1 (D-121): "play from here" beside each ayah plays the surah from that ayah.
+      const f = (e.target as Element).closest<HTMLButtonElement>('button.apf');
+      if (f) { start('surah', Number(f.dataset.apf)); return; }
       const b = (e.target as Element).closest<HTMLButtonElement>('button.ap');
       if (!b) return;
       const a = Number(b.dataset.ap);
@@ -333,6 +378,12 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     };
     const userEvents = ['wheel', 'touchmove', 'keydown'] as const;
     for (const ev of userEvents) window.addEventListener(ev, onUser, { passive: true });
+
+    // RISK-2: the first interaction with the page fetches the reciter list and this surah's
+    // metadata (no sound), so a later tap on play can set the address and play() inside the tap.
+    const firstEvents = ['pointerdown', 'touchstart', 'keydown', 'wheel'] as const;
+    const onFirst = () => { for (const ev of firstEvents) window.removeEventListener(ev, onFirst, true); warm(); };
+    for (const ev of firstEvents) window.addEventListener(ev, onFirst, { capture: true, passive: true });
 
     // AC54: after the screen was locked or the tab hidden, catch up at once.
     const onVis = () => { if (document.visibilityState === 'visible') { onTime(); if (x.follow && x.current && x.mode === 'surah') scrollTo(x.current); } };
@@ -355,6 +406,7 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
       for (const ev of ['timeupdate', 'playing', 'pause', 'waiting', 'stalled', 'error', 'ended']) el.removeEventListener(ev, ev === 'timeupdate' ? onTime : ev === 'playing' ? onPlaying : ev === 'pause' ? onPause : ev === 'error' ? onError : ev === 'ended' ? onEnded : onWaiting);
       list?.removeEventListener('click', onClick);
       for (const ev of userEvents) window.removeEventListener(ev, onUser);
+      for (const ev of firstEvents) window.removeEventListener(ev, onFirst, true);
       document.removeEventListener('visibilitychange', onVis);
       document.removeEventListener('securitypolicyviolation', onCsp);
       clearTimers(); clearTimeout(x.scrollT);
@@ -371,10 +423,9 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
       <div className="ap-row">
         {!active
           ? <>
-              <button type="button" className="btn ap-main" data-play-surah disabled={dead} onClick={() => start('surah', 1)}>{t(lang, 'audioPlaySurah')}</button>
-              {from > 1 && <button type="button" className="btn" data-play-from disabled={dead} onClick={() => start('surah', from)}>{t(lang, 'audioPlayFrom', { a: from })}</button>}
+              <button type="button" className="btn ap-main" data-play-surah disabled={!!dead} aria-describedby={dead ? 'ap-dead' : undefined} onClick={() => start('surah', 1)}>{t(lang, 'audioPlaySurah')}</button>
             </>
-          : <button type="button" className="btn ap-main" data-pause aria-pressed={playing} aria-label={playing ? t(lang, 'audioPause') : t(lang, 'audioResume')} onClick={pauseOrResume}>{playing ? t(lang, 'audioPause') : t(lang, 'audioResume')}</button>}
+          : <button type="button" className="btn ap-main" data-pause onClick={pauseOrResume}>{playing ? t(lang, 'audioPause') : t(lang, 'audioResume')}</button>}
         <button type="button" className="btn icon-btn" data-prev-ayah aria-label={t(lang, 'prevAyah')} title={t(lang, 'prevAyah')} disabled={!active || current <= 1} onClick={() => seekAyah(st.current.current - 1)}>
           <svg className="ap-dir" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5v14M19 5l-9 7 9 7z" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
         </button>
@@ -383,10 +434,14 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
         </button>
         {active && mode === 'surah' && !follow && <button type="button" className="btn" data-go-current onClick={() => { st.current.follow = true; setFollow(true); clearTimeout(st.current.scrollT); if (st.current.current) scrollTo(st.current.current); }}>{t(lang, 'audioGoCurrent')}</button>}
       </div>
-      <details className="ap-more" data-audio-more onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) void loadReciters(); }}>
-        <summary className="ap-summary">
-          <span data-audio-credit><BidiText text={t(lang, 'audioCredit')} lang={lang} /></span>
-          {reciter && <> <span>{t(lang, 'audioReciter')}: <bdi lang={nameLang(reciter.name)} data-reciter-name>{reciter.name}</bdi></span></>}
+      {/* QA FIND-8: a disabled play button says why, next to it and as its description. */}
+      {dead && <p className="msg ap-dead" id="ap-dead" data-audio-dead={dead}>{coded(t(lang, dead === 'reciters-empty' ? 'audioNoReciter' : 'audioNoSurah'), dead)}</p>}
+      {/* QA FIND-1: the credit is its own visible line (AC38); the disclosure is labelled and marked. */}
+      <p className="ap-credit" data-audio-credit><BidiText text={t(lang, 'audioCredit')} lang={lang} /></p>
+      <details className="ap-more" data-audio-more onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) warm(); }}>
+        <summary className="ap-summary" aria-label={t(lang, 'audioMoreLabel')} data-audio-summary>
+          <span>{t(lang, 'audioMoreLabel')}</span>
+          {reciter && <span className="ap-summary-now"><bdi lang={nameLang(reciter.name)} data-reciter-name>{reciter.name}</bdi></span>}
         </summary>
         {reciters && (
           <fieldset className="ap-reciters" data-reciters>
@@ -399,8 +454,9 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
         {reciter && (
           <dl className="ap-source" data-audio-source aria-label={t(lang, 'audioSourceDetails')}>
             <dt>{t(lang, 'audioReciter')}</dt><dd><bdi lang={nameLang(reciter.name)}>{reciter.name}</bdi></dd>
-            <dt>{t(lang, 'audioStyle')}</dt><dd>{reciter.style ?? t(lang, 'notStated')}</dd>
-            <dt>{t(lang, 'audioRiwayah')}</dt><dd>{reciter.qirat ?? t(lang, 'notStated')}</dd>
+            {/* QA FIND-4: Latin text inside the Arabic page is isolated. */}
+            <dt>{t(lang, 'audioStyle')}</dt><dd>{reciter.style ? <bdi lang={nameLang(reciter.style)}>{reciter.style}</bdi> : t(lang, 'notStated')}</dd>
+            <dt>{t(lang, 'audioRiwayah')}</dt><dd>{reciter.qirat ? <bdi lang={nameLang(reciter.qirat)}>{reciter.qirat}</bdi> : t(lang, 'notStated')}</dd>
             <dt><BidiText text={t(lang, 'audioReciterId')} lang={lang} /></dt><dd>{reciter.id}</dd>
             <dt>{t(lang, 'source')}</dt><dd><bdi lang="en" dir="ltr">Quran Foundation</bdi></dd>
             <dt>{t(lang, 'audioLicenceL')}</dt><dd><BidiText text={t(lang, 'audioLicence')} lang={lang} /></dd>
