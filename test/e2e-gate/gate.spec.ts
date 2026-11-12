@@ -101,3 +101,17 @@ test('the Quran font loads under the gate', async ({ page, seen }) => {
   expect(faces).toContainEqual(['Noto Naskh Arabic', 'loaded']);
   expect(seen.some((x) => x.url.endsWith('/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2'))).toBe(true);
 });
+
+test('/dev/reciters/ is behind the gate, and without Quran Foundation settings it says so plainly', async ({ page, baseURL }) => {
+  const no = await fetch(baseURL + '/dev/reciters/', { redirect: 'manual' });
+  expect(no.status).toBe(401);
+  await no.arrayBuffer();
+  // This local Worker has no QF credentials, so the page answers 503 with a plain message, no script.
+  const r = await page.goto('/dev/reciters/');
+  expect(r!.status()).toBe(503);
+  expect(r!.headers()['x-robots-tag']).toBe('noindex, nofollow');
+  expect(r!.headers()['cache-control']).toBe('private, no-store');
+  await expect(page.locator('[role=alert]')).toContainText('Not configured. Missing Worker settings:');
+  await expect(page.locator('.banner')).toContainText('DEVELOPMENT PAGE');
+  expect(await page.locator('script').count()).toBe(0);
+});

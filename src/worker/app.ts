@@ -21,6 +21,7 @@ import { authorised, REALM, SignInGuard, type GateEnv, type RateLimit } from './
 import { renderPage, type PageCfg } from './page.ts';
 import { makeVerify, type VerifyHashes } from './verify.ts';
 import { makeQuoteCheck, type LettersQuran } from './quote-check.ts';
+import { makeReciters, RECITERS_PATH } from './reciters.ts';
 import { CATALOGUE_PATH, SHAPE_PATH, makeTafseer, TAFSEER_LIMIT_PER_MINUTE, type TafseerCfg, type TafseerEnv } from './tafseer.ts';
 
 // testMemoryLimits: unit tests only. It lets tests that pass no binding use per-isolate counters
@@ -178,6 +179,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   const tfMem = cfg.testMemoryLimits === true ? new MemoryLimiter(cfg.tafseerLimit ?? TAFSEER_LIMIT_PER_MINUTE, WINDOW_MS) : null;
   const tafseer = cfg.tafseer ? makeTafseer(cfg, deps) : null;
   const catalogueOn = !!(tafseer && cfg.dev && cfg.gate);
+  // RQ-006 preparation (D-110 to D-118): the reciters and timing check page, on the same terms as
+  // the catalogue (development builds behind the gate, with the Tafseer client's credentials).
+  const reciters = catalogueOn && tafseer ? makeReciters({ dev: cfg.dev, counts: cfg.counts }, { ...deps, client: tafseer.client }) : null;
   // D-081: development builds behind the password gate only.
   const verify = cfg.dev && cfg.gate && cfg.verifyHashes ? makeVerify(cfg.verifyHashes, cfg.dev, deps) : null;
   // D-084 quote check page: development builds behind the gate, with Tafseer on.
@@ -198,6 +202,15 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       if (v === 'unavailable') return unavailable();
       if (v === 'limited') return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
       const c = await tafseer.catalogue(url.origin, env);
+      return html(c.status, c.html);
+    }
+    if (reciters && (pathname === RECITERS_PATH || pathname === RECITERS_PATH.slice(0, -1))) {
+      if (req.method !== 'GET') return json(405, { error: 'method' }, { allow: 'GET' });
+      if (crossSite(req)) return json(403, { error: 'cross_site' });
+      const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
+      if (v === 'unavailable') return unavailable();
+      if (v === 'limited') return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
+      const c = await reciters.page(env);
       return html(c.status, c.html);
     }
     if (catalogueOn && tafseer && (pathname === SHAPE_PATH || pathname === SHAPE_PATH.slice(0, -1))) {

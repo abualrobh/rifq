@@ -48,6 +48,7 @@ const TAFSEER_ROUTES: Route[] = [
   { name: '/api/dev/verify-text', req: post('/api/dev/verify-text', '{"s":1}') },
   { name: '/api/dev/quote-check', req: post('/api/dev/quote-check', '{"s":1}') },
   { name: '/dev/tafseer-catalogue/', req: get('/dev/tafseer-catalogue/') },
+  { name: '/dev/reciters/', req: get('/dev/reciters/') },
   { name: '/dev/tafseer-shape/', req: get(`/dev/tafseer-shape/?kind=chapter&s=1&page=1&id=${MOCK_TAFSIR_ID}`) },
 ];
 const DEV_GET = TAFSEER_ROUTES.slice(3);

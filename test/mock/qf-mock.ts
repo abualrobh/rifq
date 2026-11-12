@@ -30,7 +30,7 @@ export const CASE = {
 export const OPEN = '\ufd3f', CLOSE = '\ufd3e';
 
 type Quran = { list: { sora: number; aya_no: number; aya_text: string }[] };
-type Opts = { quran?: Quran; expiresIn?: number; slowMs?: number; now?: () => number };
+type Opts = { quran?: Quran; expiresIn?: number; slowMs?: number; now?: () => number; noAudioScope?: boolean; counts?: number[] };
 
 // The ayah text without the no-break space and number stored at its end (D-068).
 export function bareAyah(t: string): string { return t.replace(/\u00a0[\u0660-\u0669\u06f0-\u06f90-9]+$/u, ''); }
@@ -102,6 +102,10 @@ const LIST = [
 ];
 
 const err = (status: number, type: string) => new Response(JSON.stringify({ message: `mock ${type}`, type, success: false }), { status, headers: { 'content-type': 'application/json' } });
+// RQ-006 mock data. The IDs match D-111 so the page's chosen rows can be tested; names are made up.
+export const AUDIO_CASE = { full: 7, incomplete: 2, noTimestamps: 6, forbidden: 9, notInPrelive: 4, signed: 97, negative: 161, notListed: 161 } as const;
+export const RECITERS = [7, 2, 6, 9, 4, 97, 1].map((id) => ({ id, reciter_id: 500 + id, name: `MOCK Reciter ${id}${id === 1 ? ' <b>x</b>' : ''}`, beta: false, style: { name: 'Murattal', language_name: 'english' }, qirat: { name: 'Hafs', language_name: 'english' }, translated_name: { name: `MOCK Reciter ${id}`, language_name: 'english' } }));
+export const RECITATIONS = [{ id: 1, reciter_name: 'MOCK Recitation One', style: 'Murattal', translated_name: { name: 'MOCK One', language_name: 'english' } }, { id: 2, reciter_name: 'MOCK Recitation Two', style: 'Mujawwad', translated_name: { name: 'MOCK Two', language_name: 'english' } }];
 const ok = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
 
 export function createMockQf(opts: Opts = {}) {
@@ -116,6 +120,24 @@ export function createMockQf(opts: Opts = {}) {
     paths: [] as string[],
   };
   let n = 0;
+  const ayahCount = (s: number) => opts.counts?.[s] ?? opts.quran?.list.filter((x) => x.sora === s).length ?? 0;
+
+  // One surah audio file, per AUDIO_CASE. Timestamps are made-up times; segments are made-up
+  // word triplets. MOCK_SIGNATURE stands for a token in a signed URL and must never reach a page.
+  function audioFile(id: number, s: number, segments: boolean): Response {
+    if (!RECITERS.some((x) => x.id === id) && id !== AUDIO_CASE.notListed) return err(404, 'not_found');
+    if (id === AUDIO_CASE.forbidden) return err(403, 'forbidden');
+    if (id === AUDIO_CASE.notInPrelive && s === 2) return err(404, 'not_found');
+    if (!PRELIVE_SURAHS.has(s)) return err(404, 'not_found');
+    const n = ayahCount(s);
+    let ts: { verse_key: string; timestamp_from: number; timestamp_to: number; duration: number; segments?: number[][] }[] = Array.from({ length: n }, (_, i) => ({
+      verse_key: `${s}:${i + 1}`, timestamp_from: i * 5000, timestamp_to: i * 5000 + 4900, duration: 4900, ...(segments ? { segments: [[1, i * 5000, i * 5000 + 900]] } : {}),
+    }));
+    if (id === AUDIO_CASE.incomplete && s === 2) ts = ts.slice(0, -1);
+    if (id === AUDIO_CASE.negative) ts[0] = { ...ts[0], duration: -1 };
+    const url = id === AUDIO_CASE.signed ? `https://audio.mock.invalid/${id}/${s}.mp3?token=MOCK_SIGNATURE&expires=1` : `https://audio.mock.invalid/${id}/${s}.mp3`;
+    return ok({ audio_file: { id: id * 1000 + s, chapter_id: s, file_size: 1000 + n, format: 'mp3', audio_url: url, duration: id === AUDIO_CASE.negative ? null : n * 5000, ...(id === AUDIO_CASE.noTimestamps ? {} : { timestamps: ts }) } });
+  }
 
   async function handle(req: Request): Promise<Response> {
     const u = new URL(req.url);
@@ -133,7 +155,7 @@ export function createMockQf(opts: Opts = {}) {
       const p = new URLSearchParams(body);
       if (p.get('grant_type') !== 'client_credentials') return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 });
       const scope = p.get('scope') ?? '';
-      if (scope !== 'content.tafsirs.read' && scope !== 'content.quran.read') return new Response(JSON.stringify({ error: 'invalid_scope' }), { status: 400 });
+      if (scope !== 'content.tafsirs.read' && scope !== 'content.quran.read' && !(scope === 'content.audio.read' && !opts.noAudioScope)) return new Response(JSON.stringify({ error: 'invalid_scope' }), { status: 400 });
       const tok = `mock-token-${++n}`;
       const exp = opts.expiresIn ?? 3600;
       tokens.set(tok, now() + exp * 1000);
@@ -150,7 +172,8 @@ export function createMockQf(opts: Opts = {}) {
     if (state.mode === 'down') return err(503, 'service_unavailable');
     if (state.mode === 'rate') return err(429, 'rate_limit_exceeded');
     const path = u.pathname.slice('/content/api/v4'.length);
-    const needs = path.startsWith('/verses/') ? 'content.quran.read' : 'content.tafsirs.read';
+    const audio = path.startsWith('/chapter_recitations/') || path === '/resources/chapter_reciters' || path === '/resources/recitations';
+    const needs = path.startsWith('/verses/') ? 'content.quran.read' : audio ? 'content.audio.read' : 'content.tafsirs.read';
     if (tokenScope.get(tok) !== needs) return err(403, 'insufficient_scope');
     // D-081: /verses/by_chapter/{n}?fields=text_qpc_hafs. Text is cut by program from the Quran
     // source given at run time, with fixed changes on surah 1 to test every category:
@@ -173,6 +196,12 @@ export function createMockQf(opts: Opts = {}) {
       return ok({ verses, pagination: { per_page: per, current_page: page, next_page: page < total ? page + 1 : null, total_pages: total, total_records: all.length } });
     }
     if (path === '/resources/tafsirs') { state.listRequests++; return ok({ tafsirs: LIST }); }
+    // RQ-006 /dev/reciters/ checks. Made-up names; the IDs are the D-111 IDs so the page's chosen
+    // list can be tested, and each one shows a different case (see AUDIO_CASE).
+    if (path === '/resources/chapter_reciters') return ok({ reciters: RECITERS });
+    if (path === '/resources/recitations') return ok({ recitations: RECITATIONS });
+    const am = /^\/chapter_recitations\/(\d+)\/(\d+)$/.exec(path);
+    if (am) return audioFile(Number(am[1]), Number(am[2]), u.searchParams.get('segments') === 'true');
     let m = /^\/tafsirs\/(\d+)\/by_ayah\/(\d+):(\d+)$/.exec(path);
     if (m) {
       const [id, s, a] = [Number(m[1]), Number(m[2]), Number(m[3])];
