@@ -257,3 +257,29 @@ test('AC52 recorded check: per reciter, every covered surah; production needs al
   assert.deepEqual(prod.record.passed, []);
   assert.ok(prod.report.reciters.find((r) => r.id === 7)!.failed.some((f) => f.s === 3));
 });
+
+test('/dev/reciters/ player check (temporary): same checks as the player, per reciter and surah, and the AUDIO_LIMIT state', async () => {
+  const mk = (override?: (id: number, s: number, f: Record<string, unknown>) => Record<string, unknown>) => {
+    const mock = createMockQf({ quran: src, counts, audioOverride: override });
+    return makeWorker(ab, { testMemoryLimits: true, dev: true, gate: true, tafseer: true, audio: true, record: { name: 'S', edition: 'e', status: 's' }, counts, fingerprints: { format: 'rifq-tafseer-fingerprints/1', entries: [] }, tafseerLimit: 1000, audioLimit: 1000 },
+      { fetch: (u, i) => mock.fetch(u, i), timeoutMs: 2000 });
+  };
+  const env = { ...ENV, SITE_USER: 'u', SITE_PASSWORD: 'p', AUTH_LIMIT: { limit: async () => ({ success: true }) } };
+  const open = (w: ReturnType<typeof makeWorker>, e: Record<string, unknown>) => w.fetch(new Request('http://127.0.0.1/dev/reciters/', { headers: { authorization: 'Basic ' + Buffer.from('u:p').toString('base64') } }), e as never).then((r) => r.text());
+  const h = await open(mk(), env);
+  assert.match(h, /Player check \(RQ-006, temporary\)/);
+  assert.match(h, /data-offered>7, 97</);
+  assert.match(h, /data-audio-limit>missing \(the audio routes answer 503\)/);
+  assert.match(h, /data-diag="7:1" data-ok="yes"/);
+  assert.match(h, /data-diag="2:2" data-ok="no">.*?entry 1: verse key|data-diag="2:2" data-ok="no">.*?entries for/);
+  // Unlisted IDs are still checked file by file, so the page shows both reasons.
+  assert.match(h, /data-diag="161:1" data-ok="[a-z]+"><td>161<\/td><td>not in this account&#39;s chapter-reciter list/);
+  const ok = await open(mk(), { ...env, AUDIO_LIMIT: { limit: async () => ({ success: true }) } });
+  assert.match(ok, /data-audio-limit>present; one check now: ok/);
+  // A last ayah that ends after the file's duration (by 104 ms) fails AC60 and says by how much.
+  const over = await open(mk((id, s, f) => (id === 7 && s === 1 ? { ...f, duration: 34796 } : f)), env);
+  assert.match(over, /data-diag="7:1" data-ok="no">.*?last entry ends after the file \(by 104 ms; duration 34796 ms\)/);
+  assert.match(over, /data-offered>97</);
+  // Host names only (the page's own design), never a full address, secret or token.
+  assert.ok(!over.includes('.mp3') && !over.includes(MOCK_CLIENT_SECRET) && !over.includes('mock-token-'));
+});

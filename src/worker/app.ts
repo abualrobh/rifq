@@ -218,7 +218,21 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
       if (v === 'unavailable') return unavailable();
       if (v === 'limited') return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
-      const c = await reciters.page(env);
+      // Temporary (after the kit v22 report): the checks the player uses, and the AUDIO_LIMIT state.
+      let extra = '';
+      if (audio) {
+        const h = (x: string) => x.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+        const b = env.AUDIO_LIMIT as unknown as { limit?: unknown } | undefined;
+        const binding = b === undefined || b === null ? 'missing (the audio routes answer 503)' : typeof b.limit !== 'function' ? 'present, but it has no limit() (the audio routes answer 503)' : `present; one check now: ${await checkLimit(env.AUDIO_LIMIT, netKey(req), auMem)}`;
+        const d = await audio.diagnose(url.origin, env);
+        const rows = d.reciters.flatMap((r) => r.surahs.length ? r.surahs.map((x) => `<tr data-diag="${r.id}:${x.s}" data-ok="${x.ok ? 'yes' : 'no'}"><td>${r.id}</td><td>${h(Array.isArray(r.catalogue) ? (r.catalogue.join('; ') || 'passes') : r.catalogue)}</td><td>${x.s}</td><td>${x.ok ? 'passes' : '<strong>fails</strong>'}</td><td>${h(x.problems.join('; '))}</td><td>${x.negatives}</td></tr>`) : [`<tr data-diag="${r.id}"><td>${r.id}</td><td>${h(Array.isArray(r.catalogue) ? r.catalogue.join('; ') : r.catalogue)}</td><td colspan="4"></td></tr>`]).join('');
+        extra = `<section aria-labelledby="pc"><h2 id="pc">Player check (RQ-006, temporary)</h2>
+<p>The same checks the reader page player uses (AC59 catalogue, AC12/AC60 timings, AC61 file, approved host), run fresh on this page load.</p>
+<p>AUDIO_LIMIT binding: <strong data-audio-limit>${h(binding)}</strong>.</p>
+<p>Settings: ${h(d.config)}. Offered to the player now: <strong data-offered>${h(Array.isArray(d.offered) ? (d.offered.join(', ') || 'none') : d.offered)}</strong>.</p>
+<table data-diag-table><thead><tr><th scope="col">ID</th><th scope="col">Catalogue (AC59)</th><th scope="col">Surah</th><th scope="col">Result</th><th scope="col">Problems</th><th scope="col">Negative durations</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+      }
+      const c = await reciters.page(env, extra);
       return html(c.status, c.html);
     }
     if (catalogueOn && tafseer && (pathname === SHAPE_PATH || pathname === SHAPE_PATH.slice(0, -1))) {

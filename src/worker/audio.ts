@@ -184,5 +184,30 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     } catch { return { status: 503, data: { status: 'unavailable' } }; }
   }
 
-  return { reciters, file, offered, surahFile, client: qf };
+  // Development diagnosis for /dev/reciters/ (temporary, after the kit v22 report): runs the same
+  // offered() and surah checks the player relies on, fresh (no copy), and reports every result.
+  // Problems are rule texts and numbers only; no address, timing list or audio.
+  async function diagnose(origin: string, env: QfSecrets): Promise<{ config: string; offered: number[] | string; reciters: { id: number; catalogue: string[] | string; surahs: { s: number; ok: boolean; problems: string[]; negatives: number }[] }[] }> {
+    const q = qfConfig(env, cfg.dev);
+    if ('missing' in q) return { config: 'missing ' + q.missing.join(', '), offered: 'not run', reciters: [] };
+    let offeredIds: number[] | string;
+    try { offeredIds = (await offered(origin, q)).list.map((x) => x.id); } catch (e) { offeredIds = 'failed: ' + (e instanceof QfError ? e.kind : 'error'); }
+    let cat: CatalogueEntry[] | null = null, catErr = '';
+    try { cat = parseCatalogue(await qf.get(q, '/resources/chapter_reciters', { language: 'en' }, AUDIO_SCOPE)); } catch (e) { catErr = 'catalogue failed: ' + (e instanceof QfError ? e.kind : 'error'); }
+    const out = [];
+    for (const id of D111_IDS) {
+      const catalogue = cat ? catalogueProblems(id, cat.find((x) => x.id === id)) : catErr;
+      const surahs = [];
+      for (const s of coveredSurahs(q.env)) {
+        try {
+          const c = checkSurahFile(await qf.get(q, `/chapter_recitations/${id}/${s}`, {}, AUDIO_SCOPE), s, counts[s] ?? -1);
+          surahs.push({ s, ok: c.ok, problems: c.problems, negatives: c.negatives });
+        } catch (e) { surahs.push({ s, ok: false, problems: ['call failed: ' + (e instanceof QfError ? e.kind : 'error')], negatives: 0 }); }
+      }
+      out.push({ id, catalogue, surahs });
+    }
+    return { config: `${q.env}, ayah counts for ${counts.length - 1} surahs`, offered: offeredIds, reciters: out };
+  }
+
+  return { reciters, file, offered, surahFile, diagnose, client: qf };
 }

@@ -61,13 +61,13 @@ export function checkTimestamps(ts: unknown, s: number, ayat: number, fileDurati
     if (o.verse_key !== `${s}:${i + 1}`) problems.push(`entry ${i + 1}: verse key is not ${s}:${i + 1}`);
     const from = o.timestamp_from, to = o.timestamp_to;
     if (typeof o.duration === 'number' && o.duration < 0) negatives++;
-    if (!isWholeMs(from) || !isWholeMs(to)) { problems.push(`entry ${i + 1}: start or end is not a whole number of ms`); return; }
+    if (!isWholeMs(from) || !isWholeMs(to)) { problems.push(`entry ${i + 1}: start or end is not a whole number of ms (${typeof from} ${String(from).slice(0, 12)}, ${typeof to} ${String(to).slice(0, 12)})`); return; }
     if (from >= to) problems.push(`entry ${i + 1}: start is not before end`);
     if (from < prevTo) problems.push(`entry ${i + 1}: starts before the previous one ends`);
     prevTo = to;
     t.push([from, to]);
   });
-  if (fileDuration !== null && t.length && t[t.length - 1][1] > fileDuration) problems.push('last entry ends after the file');
+  if (fileDuration !== null && t.length && t[t.length - 1][1] > fileDuration) problems.push(`last entry ends after the file (by ${t[t.length - 1][1] - fileDuration} ms; duration ${fileDuration} ms)`);
   return { ok: problems.length === 0, problems: problems.slice(0, 10), negatives, t };
 }
 
