@@ -165,6 +165,9 @@ const ar = {
   audioNotRemembered: 'لن يُحفظ اختيار القارئ على هذا الجهاز لأن التخزين محظور أو ممتلئ.',
   audioNowAyah: 'الآية {a}',
   audioMediaTitle: '{name}، الآية {a}',
+  // Added after kit v22 (diagnosis of the test-site report); they await Hamzeh's review.
+  audioNoReciter: 'لا يتوفر قارئ للتلاوة الآن. القراءة متاحة كالمعتاد.',
+  audioTapToPlay: 'اضغط «متابعة التشغيل» لبدء الصوت.',
   // Privacy page "Listening" item (D-112, RQ-006 AC40): the wording proposed in RQ-006 v1.1,
   // shown only when PRIVACY_LISTENING_ON is true. It stays off until Hamzeh approves it.
   pvListenL: 'الاستماع',
@@ -351,6 +354,8 @@ const en: typeof ar = {
   audioNotRemembered: 'Your reciter choice will not be remembered on this device, because storage is blocked or full.',
   audioNowAyah: 'Ayah {a}',
   audioMediaTitle: '{name}, ayah {a}',
+  audioNoReciter: 'No reciter is available for now. Reading still works.',
+  audioTapToPlay: 'Tap Resume to start the sound.',
   pvListenL: 'Listening',
   pvListen: "when you play a recitation, our server asks Quran Foundation for the audio file's address and the ayah timings. Your address and device details are not passed to them in that request. Your browser then plays the file directly from the audio server that Quran Foundation's service points to (download.quranicaudio.com), which receives your network address and basic browser details and can see which recitation you play. We don't keep a record of what you listen to. We keep the file address and ayah timings for no more than 7 days.",
   // Privacy page, D-099 approved text (see the Arabic block above).

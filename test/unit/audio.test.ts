@@ -7,7 +7,7 @@ import { synthetic } from '../fixtures/load.ts';
 import { makeWorker } from '../../src/worker/app.ts';
 import { approvedAudioUrl, ayahAt, catalogueProblems, checkSurahFile, checkTimestamps, coveredSurahs, D111_IDS, fileProblems, foldLatin } from '../../src/core/audio.ts';
 import { AUDIO_SCOPE } from '../../src/worker/audio.ts';
-import { createMockQf, MOCK_CLIENT_ID, MOCK_CLIENT_SECRET, mockAudioUrl } from '../mock/qf-mock.ts';
+import { AR_WORD, createMockQf, MOCK_CLIENT_ID, MOCK_CLIENT_SECRET, mockAudioUrl } from '../mock/qf-mock.ts';
 import { SYN_COUNTS } from '../fixtures/synthetic.ts';
 import { privacyItems, PRIVACY_ITEMS, PRIVACY_LISTENING_ON, STRINGS } from '../../src/core/strings.ts';
 
@@ -99,10 +99,10 @@ class FakeCache {
   async put(k: string, r: Response) { this.m.set(k, { body: await r.text(), headers: r.headers }); }
 }
 
-function setup(o: { override?: (id: number, s: number, f: Record<string, unknown>) => Record<string, unknown>; audioRecord?: unknown; audio?: boolean } = {}) {
+function setup(o: { arCatalogueFails?: boolean; override?: (id: number, s: number, f: Record<string, unknown>) => Record<string, unknown>; audioRecord?: unknown; audio?: boolean } = {}) {
   let clock = Date.parse('2026-11-12T00:00:00Z');
   const now = () => clock;
-  const mock = createMockQf({ quran: src, counts, now, audioOverride: o.override });
+  const mock = createMockQf({ quran: src, counts, now, audioOverride: o.override, arCatalogueFails: o.arCatalogueFails });
   const cache = new FakeCache();
   const seen: string[] = [];
   const w = makeWorker(ab, { testMemoryLimits: true, dev: true, audio: o.audio ?? true, record: { name: 'Synthetic', edition: 'seed', status: 'UNVERIFIED' }, counts, audioLimit: 1000, audioRecord: (o.audioRecord ?? null) as never },
@@ -128,8 +128,26 @@ test('reciters route: offered set comes from the data (listed, named, Murattal, 
   assert.ok(mock.state.paths.every((p) => /\/chapter_recitations\/(7|2|6|9|4|97)\/[12]$|\/resources\/chapter_reciters\?language=en$/.test(p)), mock.state.paths.join());
   // AC38: no reader header reaches QF.
   assert.ok(mock.state.contentHeaderNames.every((h) => !h.includes('cookie') && !h.includes('user-agent') && !h.includes('cf-connecting-ip')));
+});
+
+test('kit v22 fix: the Arabic interface offers the same reciters; the check reads the English catalogue only', async () => {
+  // The mock's language=ar catalogue gives style, qirat and names in Arabic, as QF may. Before the
+  // fix the Arabic interface ran the AC59 check on it and offered no reciter.
+  const { w, mock } = setup();
   const ar = await (await call(w, '/api/audio/reciters', { lang: 'ar' })).json();
-  assert.equal(ar.reciters[0].name, 'MOCK Afasy (ar)', 'AC14: the name QF gives for the language');
+  assert.deepEqual(ar.reciters.map((x: { id: number }) => x.id), [7, 97]);
+  assert.equal(ar.default, 7);
+  assert.equal(ar.reciters[0].name, AR_WORD(7), 'AC14: the name QF gives for the language');
+  assert.equal(ar.reciters[0].style, 'Murattal', 'style and riwayah from the English check');
+  const en = await (await call(w, '/api/audio/reciters', { lang: 'en' })).json();
+  assert.deepEqual(en.reciters.map((x: { id: number; name: string }) => [x.id, x.name]), [[7, 'MOCK Afasy'], [97, 'MOCK Dossari']]);
+  assert.ok(mock.state.paths.includes('/content/api/v4/resources/chapter_reciters?language=en'));
+  // The file route works the same in both interfaces.
+  assert.equal((await call(w, '/api/audio', { r: 7, s: 2 })).status, 200);
+  // If the Arabic catalogue cannot be read, the English names are used; nothing else changes.
+  const down = setup({ arCatalogueFails: true });
+  const d = await (await call(down.w, '/api/audio/reciters', { lang: 'ar' })).json();
+  assert.deepEqual(d.reciters.map((x: { id: number; name: string }) => [x.id, x.name]), [[7, 'MOCK Afasy'], [97, 'MOCK Dossari']]);
 });
 
 test('AC61 and D-122 A: a reciter whose file metadata is implausible is not offered', async () => {

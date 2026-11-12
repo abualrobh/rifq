@@ -30,7 +30,7 @@ export const CASE = {
 export const OPEN = '\ufd3f', CLOSE = '\ufd3e';
 
 type Quran = { list: { sora: number; aya_no: number; aya_text: string }[] };
-type Opts = { quran?: Quran; expiresIn?: number; slowMs?: number; now?: () => number; noAudioScope?: boolean; counts?: number[]; audioOverride?: (id: number, s: number, file: Record<string, unknown>) => Record<string, unknown> };
+type Opts = { quran?: Quran; expiresIn?: number; slowMs?: number; now?: () => number; noAudioScope?: boolean; arCatalogueFails?: boolean; counts?: number[]; audioOverride?: (id: number, s: number, file: Record<string, unknown>) => Record<string, unknown> };
 
 // The ayah text without the no-break space and number stored at its end (D-068).
 export function bareAyah(t: string): string { return t.replace(/\u00a0[\u0660-\u0669\u06f0-\u06f90-9]+$/u, ''); }
@@ -108,6 +108,11 @@ export const AUDIO_CASE = { full: 7, incomplete: 2, noTimestamps: 6, forbidden: 
 // rules can be tested; everything else about them is made up.
 export const MOCK_RECITER_NAMES: Record<number, string> = { 7: 'MOCK Afasy', 2: 'MOCK Abdul Basit', 6: 'MOCK Husary', 9: 'MOCK Minshawi', 4: 'MOCK Shatri', 97: 'MOCK Dossari', 1: 'MOCK Reciter 1 <b>x</b>' };
 export const RECITERS = [7, 2, 6, 9, 4, 97, 1].map((id) => ({ id, reciter_id: 500 + id, name: MOCK_RECITER_NAMES[id], beta: false, style: { name: 'Murattal', language_name: 'english' }, qirat: { name: 'Hafs', language_name: 'english' }, translated_name: { name: MOCK_RECITER_NAMES[id], language_name: 'english' } }));
+// Arabic-language catalogue values: a made-up name per ID (letters plus the ID digits), and Arabic
+// words for the style and riwayah, as code points.
+export const AR_WORD = (id: number) => String.fromCodePoint(0x645, 0x642, 0x631, 0x626) + ' ' + id;
+export const AR_STYLE = String.fromCodePoint(0x645, 0x631, 0x62a, 0x644);
+export const AR_QIRAT = String.fromCodePoint(0x62d, 0x641, 0x635);
 // Mock audio files: 128 kbit/s, on the approved host. The e2e tests answer these addresses with a
 // made-up silent file through Playwright, so no request leaves the machine.
 export const MOCK_AUDIO_PATH = '/mock-rifq-test';
@@ -207,7 +212,10 @@ export function createMockQf(opts: Opts = {}) {
     if (path === '/resources/tafsirs') { state.listRequests++; return ok({ tafsirs: LIST }); }
     // RQ-006 /dev/reciters/ checks. Made-up names; the IDs are the D-111 IDs so the page's chosen
     // list can be tested, and each one shows a different case (see AUDIO_CASE).
-    if (path === '/resources/chapter_reciters') return ok({ reciters: u.searchParams.get('language') === 'ar' ? RECITERS.map((r) => ({ ...r, translated_name: { name: `${r.name} (ar)`, language_name: 'arabic' } })) : RECITERS });
+    // With language=ar the mock answers as QF may: style, qirat, name and translated name in Arabic
+    // (made-up words written as code points; only strings.ts may hold Arabic characters).
+    if (path === '/resources/chapter_reciters' && opts.arCatalogueFails && u.searchParams.get('language') === 'ar') return err(503, 'service_unavailable');
+    if (path === '/resources/chapter_reciters') return ok({ reciters: u.searchParams.get('language') === 'ar' ? RECITERS.map((r) => ({ ...r, name: AR_WORD(r.id), style: { name: AR_STYLE, language_name: 'arabic' }, qirat: { name: AR_QIRAT, language_name: 'arabic' }, translated_name: { name: AR_WORD(r.id), language_name: 'arabic' } })) : RECITERS });
     if (path === '/resources/recitations') return ok({ recitations: RECITATIONS });
     const am = /^\/chapter_recitations\/(\d+)\/(\d+)$/.exec(path);
     if (am) return audioFile(Number(am[1]), Number(am[2]), u.searchParams.get('segments') === 'true');

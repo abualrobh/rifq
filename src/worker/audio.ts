@@ -121,9 +121,12 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     return c;
   }
 
-  // The offered D-111 reciters, in D-111 order, with their catalogue entries.
-  async function offered(origin: string, q: QfConfig, lang: 'ar' | 'en'): Promise<{ list: { id: number; e: CatalogueEntry }[]; checked: 'worker' | 'record' | 'none' }> {
-    const cat = await catalogue(origin, q, lang);
+  // The offered D-111 reciters, in D-111 order, with their catalogue entries. The AC59 check always
+  // reads the English catalogue (language=en): with language=ar, QF may give the style, qirat and
+  // translated name in Arabic, and the check, which compares with Murattal, Hafs and the Latin
+  // surname, would then refuse every reciter (seen on the test site with kit v22).
+  async function offered(origin: string, q: QfConfig): Promise<{ list: { id: number; e: CatalogueEntry }[]; checked: 'worker' | 'record' | 'none' }> {
+    const cat = await catalogue(origin, q, 'en');
     const listed = D111_IDS.flatMap((id) => {
       const e = cat.find((x) => x.id === id);
       return e && catalogueProblems(id, e).length === 0 ? [{ id, e }] : [];
@@ -149,8 +152,14 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     const q = config(env);
     if ('status' in q) return q;
     try {
-      const o = await offered(origin, q, lang);
-      const list: OfferedReciter[] = o.list.map(({ id, e }) => ({ id, name: displayName(e, lang), style: e.style, qirat: e.qirat }));
+      const o = await offered(origin, q);
+      // Display names only: the Arabic catalogue, if it can be read; otherwise the English name.
+      let ar: CatalogueEntry[] = [];
+      if (lang === 'ar' && o.list.length) { try { ar = await catalogue(origin, q, 'ar'); } catch { ar = []; } }
+      const list: OfferedReciter[] = o.list.map(({ id, e }) => {
+        const local = ar.find((x) => x.id === id);
+        return { id, name: (local && displayName(local, 'ar')) || displayName(e, 'en'), style: e.style, qirat: e.qirat };
+      });
       const def = list.some((x) => x.id === DEFAULT_RECITER) ? DEFAULT_RECITER : (list[0]?.id ?? null);
       return { status: 200, data: { status: 'ok', reciters: list, default: def } };
     } catch { return { status: 503, data: { status: 'unavailable' } }; }
@@ -166,7 +175,7 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     if ('status' in q) return q;
     if (!coveredSurahs(q.env).includes(s as number)) return { status: 404, data: { status: 'not_covered' } };
     try {
-      const o = await offered(origin, q, 'en');
+      const o = await offered(origin, q);
       if (!o.list.some((x) => x.id === r)) return { status: 404, data: { status: 'not_offered' } };
       const c = await surahFile(origin, q, r as number, s as number);
       if (!c.ok || !c.play) return { status: 404, data: { status: 'not_covered' } };

@@ -8,11 +8,13 @@ import type { Page, Route } from '@playwright/test';
 import { test, expect, src, surahs, MOBILE, hydrated, noOverflow } from './helpers.ts';
 import { t } from '../../src/core/strings.ts';
 import { AUDIO_HOST } from '../../src/core/audio.ts';
-import { MOCK_RECITER_NAMES } from '../mock/qf-mock.ts';
+import { AR_WORD, MOCK_RECITER_NAMES } from '../mock/qf-mock.ts';
 
-test.use({ allowHosts: [AUDIO_HOST] });
+test.use({ allowHosts: [AUDIO_HOST, 'redirect-target.invalid'] });
 test.describe.configure({ mode: 'serial' });
 
+// Development builds add a short reason code to failure messages (diagnosis); tests expect it.
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const STEP = 5000; // the mock's timing: ayah i runs from (i-1)*5000 to (i-1)*5000+4900 ms
 const n = (s: number) => surahs[s - 1].items.length;
 const wavs = new Map<number, Buffer>();
@@ -81,7 +83,7 @@ test('AU-02 (AC5, AC6, AC9, AC14, AC17, AC31, AC44, AC50): surah 1 plays, every 
   await hydrated(page);
   await playSurah(page);
   // Default reciter (AC17) named, with the credit (AC31), before or as playback starts.
-  await expect(page.locator('[data-reciter-name]')).toHaveText(`${MOCK_RECITER_NAMES[7]} (ar)`);
+  await expect(page.locator('[data-reciter-name]')).toHaveText(AR_WORD(7));
   await expect(page.locator('[data-audio-credit]')).toHaveText(t('ar', 'audioCredit'));
   expect((await audioState(page)).src).toBe(`https://${AUDIO_HOST}/mock-rifq-test/7/1.mp3`);
   for (let a = 1; a <= n(1); a++) {
@@ -186,7 +188,7 @@ test('AU-05 (AC16, AC18, AC22, AC23): reciter no longer offered, storage blocked
   await page.goto('/en/3/');
   await hydrated(page);
   await page.click('[data-play-surah]');
-  await expect(page.locator('[data-audio-status]')).toHaveText(t('en', 'audioNoSurah'));
+  await expect(page.locator('[data-audio-status]')).toHaveText(`${t('en', 'audioNoSurah')} [surah-not-covered]`);
   await expect(page.locator('[data-play-surah]')).toBeDisabled();
   expect(hits.filter((h) => /\/3\.mp3/.test(h.url))).toEqual([]);
   // AC22: offline.
@@ -205,7 +207,7 @@ test('AU-06 (AC16, AC24): storage blocked keeps the choice for the visit only; a
   await page.goto('/1/');
   await hydrated(page);
   await page.click('button.ap[data-ap="2"]');
-  await expect(page.locator('[data-audio-status]')).toHaveText(t('ar', 'audioUnavailable'), { timeout: 10000 });
+  await expect(page.locator('[data-audio-status]')).toHaveText(new RegExp(`^${esc(t('ar', 'audioUnavailable'))} \\[(file-error-\\d|play-\\w+)\\]$`), { timeout: 10000 });
   expect(await marked(page)).toEqual([2]);
   await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
   await page.locator('[data-audio-more] summary').click();
@@ -323,4 +325,42 @@ test('AU-10 (AC47, AC51, AC49): text size changes keep playing; bookmark and pla
   await page.waitForTimeout(300);
   expect((await audioState(page)).paused).toBe(false);
   expect(src.list.length).toBeGreaterThan(0);
+});
+
+test('AU-11 (kit v22 report): the Arabic interface lists the reciters and plays surah 2; an empty list says no reciter is available', async ({ page }) => {
+  await serveAudio(page);
+  await page.goto('/2/');
+  await hydrated(page);
+  await playSurah(page);
+  await expect(page.locator('[data-audio-status]')).toHaveAttribute('data-reason', '');
+  await page.locator('[data-audio-more] summary').click();
+  expect(await page.$$eval('[data-reciter]', (r) => r.map((x) => (x as HTMLInputElement).value))).toEqual(['7', '97']);
+  await expect(page.locator('[data-audio-source]')).toContainText('Murattal');
+  // When the Worker offers no reciter, the player says so (not the generic outage message).
+  const p2 = await page.context().newPage();
+  await p2.route('**/api/audio/reciters', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"status":"ok","reciters":[],"default":null}' }));
+  await p2.goto('/2/');
+  await hydrated(p2);
+  await p2.click('[data-play-surah]');
+  await expect(p2.locator('[data-audio-status]')).toHaveText(`${t('ar', 'audioNoReciter')} [reciters-empty]`);
+  await expect(p2.locator('[data-audio-status]')).toHaveAttribute('data-reason', 'reciters-empty');
+  // An outage keeps the generic message, with its reason for diagnosis.
+  const p3 = await page.context().newPage();
+  await p3.route('**/api/audio/reciters', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"status":"unavailable"}' }));
+  await p3.goto('/en/2/');
+  await hydrated(p3);
+  await p3.click('[data-play-surah]');
+  await expect(p3.locator('[data-audio-status]')).toHaveText(`${t('en', 'audioUnavailable')} [reciters-503-unavailable]`);
+  await expect(p3.locator('[data-audio-status]')).toHaveAttribute('data-reason', 'reciters-503-unavailable');
+});
+
+test('AU-12 (diagnosis): a file that redirects to another host is blocked by the reader policy, and the code says so', async ({ page }) => {
+  await page.context().route(`https://${AUDIO_HOST}/**`, (r) => r.fulfill({ status: 302, headers: { location: 'https://redirect-target.invalid/x.mp3' } }));
+  await page.goto('/en/1/');
+  await hydrated(page);
+  await page.click('button.ap[data-ap="1"]');
+  await expect(page.locator('[data-audio-status]')).toHaveText(`${t('en', 'audioUnavailable')} [csp-media-redirect]`, { timeout: 10000 });
+  await expect(page.locator('[data-audio-status]')).toHaveAttribute('data-reason', 'csp-media-redirect');
+  // The violation is the point of this test; clear it so the shared CSP guard does not fail.
+  await page.evaluate(() => { (window as unknown as { __csp: string[] }).__csp = []; });
 });

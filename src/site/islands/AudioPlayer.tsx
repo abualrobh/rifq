@@ -18,7 +18,7 @@
 // Lock screen and system controls use the Media Session API. Whether sound continues with the
 // screen locked can only be measured on the reference phone.
 import { useEffect, useRef, useState } from 'react';
-import { approvedAudioUrl, ayahAt } from '../../core/audio.ts';
+import { approvedAudioUrl, AUDIO_HOST, ayahAt } from '../../core/audio.ts';
 import { getStorage, setLast } from '../../core/store.ts';
 import { t, type Lang } from '../../core/strings.ts';
 import { readReciter, writeReciter } from './Settings.tsx';
@@ -27,7 +27,7 @@ import BidiText from './BidiText.tsx';
 type Reciter = { id: number; name: string; style: string | null; qirat: string | null };
 type Meta = { url: string; duration: number; t: [number, number][] };
 type Mode = 'idle' | 'ayah' | 'surah';
-type Props = { lang: Lang; s: number; count: number; name: string };
+type Props = { lang: Lang; s: number; count: number; name: string; dev?: boolean };
 
 export const LOADING_MS = 1000; // AC20: loading state after 1 s
 export const GIVE_UP_MS = 15000; // P-5: give up after 15 s
@@ -42,7 +42,7 @@ async function post(path: string, body: unknown): Promise<{ status: number; data
   } catch { return { status: 0, data: null }; }
 }
 
-export default function AudioPlayer({ lang, s, count, name }: Props) {
+export default function AudioPlayer({ lang, s, count, name, dev = false }: Props) {
   const audio = useRef<HTMLAudioElement>(null);
   const [ready, setReady] = useState(false);
   const [reciters, setReciters] = useState<Reciter[] | null>(null);
@@ -57,8 +57,10 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
   const [follow, setFollow] = useState(true);
   const [dead, setDead] = useState(false);
   const [now, setNow] = useState('');
+  // Why the last attempt stopped, for diagnosis only (data-reason on the status line; never shown).
+  const [reason, setReason] = useState('');
   // Mutable state read by event handlers.
-  const st = useRef({ mode: 'idle' as Mode, meta: null as Meta | null, metaKey: '', current: 0, stopAt: -1, follow: true, lastUser: 0, reciters: null as Reciter[] | null, rid: null as number | null, target: 0, storage: null as ReturnType<typeof getStorage>, loadT: 0, giveT: 0, scrollT: 0 });
+  const st = useRef({ mode: 'idle' as Mode, meta: null as Meta | null, metaKey: '', current: 0, stopAt: -1, follow: true, lastUser: 0, reciters: null as Reciter[] | null, rid: null as number | null, target: 0, srcSet: '', storage: null as ReturnType<typeof getStorage>, loadT: 0, giveT: 0, scrollT: 0 });
   const seq = useRef(0);
 
   const say = (text: string, isAlert = false) => {
@@ -125,18 +127,27 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
     if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'paused'; } catch { /* none */ }
   }
 
-  function fail(text: string) {
+  // Development builds only: the reason code is added to the message and written to the console,
+  // so a tester can say which path failed. It holds no address, ID or secret.
+  function why(code: string) {
+    setReason(code);
+    if (dev && code) console.warn('[RIFQ audio]', code);
+  }
+  const coded = (text: string, code: string) => (dev && code ? `${text} [${code}]` : text);
+  function fail(text: string, code: string) {
     stop(true); // AC24: the mark stays on the ayah being played
-    say(text, true);
+    why(code);
+    say(coded(text, code), true);
   }
 
-  // null: could not be fetched now; []: fetched, and no reciter is offered.
+  // null: could not be fetched now (the reason is kept); []: fetched, and no reciter is offered.
+  const recFail = useRef('');
   async function loadReciters(): Promise<Reciter[] | null> {
     const x = st.current;
     if (x.reciters) return x.reciters;
     const r = await post('/api/audio/reciters', { lang });
     const list = r.status === 200 && Array.isArray(r.data?.reciters) ? (r.data!.reciters as Reciter[]) : null;
-    if (!list) return null;
+    if (!list) { recFail.current = `reciters-${r.status}-${String(r.data?.status ?? 'none')}`; return null; }
     if (!list.length) { setDead(true); return list; }
     x.reciters = list; setReciters(list);
     // AC15 to AC18: the stored choice, or the default; a stored reciter no longer offered is said.
@@ -153,6 +164,7 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
     return list;
   }
 
+  const metaFail = useRef('');
   async function meta(r: number): Promise<Meta | 'none' | 'error'> {
     const x = st.current;
     const k = `${r}:${s}`;
@@ -161,42 +173,68 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
     if (res.status === 404 && (res.data?.status === 'not_covered' || res.data?.status === 'not_offered')) return 'none';
     const url = approvedAudioUrl(res.data?.url); // AC56, checked again in the browser
     const tm = res.data?.t;
-    if (res.status !== 200 || !url || !Array.isArray(tm) || tm.length !== count) return 'error';
-    x.meta = { url, duration: Number(res.data!.duration), t: tm as [number, number][] }; x.metaKey = k;
+    metaFail.current = res.status !== 200 ? `meta-${res.status}-${String(res.data?.status ?? 'none')}` : !url ? 'meta-address' : !Array.isArray(tm) || tm.length !== count ? 'meta-timings' : '';
+    if (metaFail.current) return 'error';
+    x.meta = { url: url as string, duration: Number(res.data!.duration), t: tm as [number, number][] }; x.metaKey = k;
     return x.meta;
   }
 
   // Starts playback of one ayah or of the surah from ayah a. Called from a tap: play() is called
   // straight away so iOS allows the element to play once the address is known (AC26).
-  async function start(m: 'ayah' | 'surah', a: number) {
+  // Starts playback of one ayah or of the surah from ayah a, from a tap.
+  // iOS (AC26): play() must run inside the tap. When the reciter and this surah's address are
+  // already known (any tap after the first), everything below runs synchronously in the tap. On
+  // the first tap the address must be fetched first (AC3: nothing before play), so play() is called
+  // once at once on the empty element to unlock it, and, if iOS still refuses the later play(),
+  // the player stays ready and asks for one tap on Resume.
+  function start(m: 'ayah' | 'surah', a: number) {
     const el = audio.current;
     if (!el) return;
     const x = st.current;
-    if (!el.src) void el.play().catch(() => undefined);
+    if (!x.srcSet) void el.play().catch(() => undefined);
     stop(); // AC10: never two at once
-    setFrom(a);
-    if (!navigator.onLine) { say(t(lang, 'audioOffline'), true); return; } // AC22
+    setFrom(a); setReason('');
+    if (!navigator.onLine) { setReason('offline'); say(t(lang, 'audioOffline'), true); return; } // AC22
     clearTimers();
     x.loadT = window.setTimeout(() => { setLoading(true); say(t(lang, 'audioLoading')); }, LOADING_MS);
-    x.giveT = window.setTimeout(() => fail(t(lang, 'audioUnavailable')), GIVE_UP_MS);
-    const list = await loadReciters();
-    if (!list || !list.length || x.rid === null) return fail(t(lang, 'audioUnavailable'));
-    const md = await meta(x.rid);
-    if (md === 'none') { setDead(true); return fail(t(lang, 'audioNoSurah')); }
-    if (md === 'error') return fail(t(lang, 'audioUnavailable'));
+    x.giveT = window.setTimeout(() => fail(t(lang, 'audioUnavailable'), 'timeout-loading'), GIVE_UP_MS);
+    if (x.reciters?.length && x.rid !== null && x.meta && x.metaKey === `${x.rid}:${s}`) { begin(m, a, x.meta); return; }
+    void (async () => {
+      const list = await loadReciters();
+      if (!list) return fail(t(lang, 'audioUnavailable'), recFail.current);
+      // An empty offered list is not an outage: say so plainly.
+      if (!list.length || x.rid === null) return fail(t(lang, 'audioNoReciter'), 'reciters-empty');
+      const md = await meta(x.rid);
+      if (md === 'none') { setDead(true); return fail(t(lang, 'audioNoSurah'), 'surah-not-covered'); }
+      if (md === 'error') return fail(t(lang, 'audioUnavailable'), metaFail.current);
+      begin(m, a, md);
+    })();
+  }
+
+  // Sets the file and the position, marks the ayah and calls play(). Synchronous up to play().
+  function begin(m: 'ayah' | 'surah', a: number, md: Meta) {
+    const el = audio.current!;
+    const x = st.current;
     x.mode = m; setMode(m);
     x.stopAt = m === 'ayah' ? md.t[a - 1][1] : md.t[md.t.length - 1][1];
     document.documentElement.dataset.audioFollow = m === 'surah' ? '1' : '';
     x.follow = true; setFollow(true);
-    if (el.src !== md.url) { el.src = md.url; }
+    // Compared with the address set last, not el.src, which the browser may rewrite (normalized).
+    const fresh = x.srcSet !== md.url;
+    if (fresh) { el.src = md.url; x.srcSet = md.url; }
     // The first seek waits for the file's metadata; a later choice (next, previous) updates the target.
     x.target = md.t[a - 1][0];
     const seek = () => { try { el.currentTime = x.target / 1000; } catch { /* set when ready */ } };
-    if (el.readyState >= 1 && el.src === md.url) seek(); else el.addEventListener('loadedmetadata', seek, { once: true });
+    if (!fresh && el.readyState >= 1) seek(); else el.addEventListener('loadedmetadata', seek, { once: true });
     x.current = 0;
     mark(a);
     // A play() cut short by a newer choice (AbortError) is not a failure.
-    try { await el.play(); } catch (e) { if ((x.mode as Mode) !== 'idle' && (e as Error)?.name !== 'AbortError') fail(t(lang, 'audioUnavailable')); }
+    el.play().catch((e) => {
+      const name = (e as Error)?.name ?? 'Error';
+      if ((x.mode as Mode) === 'idle' || name === 'AbortError') return;
+      if (name === 'NotAllowedError') { clearTimers(); setPlaying(false); why('play-NotAllowedError'); say(coded(t(lang, 'audioTapToPlay'), 'play-NotAllowedError'), true); return; }
+      fail(t(lang, 'audioUnavailable'), `play-${name}`);
+    });
   }
 
   function seekAyah(a: number) {
@@ -212,7 +250,7 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
   function pauseOrResume() {
     const el = audio.current;
     if (!el || st.current.mode === 'idle') return;
-    if (el.paused) void el.play().catch(() => fail(t(lang, 'audioUnavailable'))); else el.pause();
+    if (el.paused) { setMsg(''); void el.play().catch((e) => fail(t(lang, 'audioUnavailable'), `resume-${(e as Error)?.name ?? 'Error'}`)); } else el.pause();
   }
 
   async function chooseReciter(id: number) {
@@ -222,7 +260,7 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
     const was = x.mode, at = x.current || from;
     x.rid = id; setRid(id);
     x.meta = null; x.metaKey = '';
-    if (was !== 'idle') await start(was, at); // AC19: restart at the current ayah
+    if (was !== 'idle') start(was, at); // AC19: restart at the current ayah
   }
 
   // Position updates: timeupdate (also in the background) and a frame loop while visible.
@@ -246,9 +284,21 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
     const onWaiting = () => {
       if (x.mode === 'idle') return;
       clearTimeout(x.giveT);
-      x.giveT = window.setTimeout(() => fail(t(lang, 'audioUnavailable')), GIVE_UP_MS); // AC24
+      x.giveT = window.setTimeout(() => fail(t(lang, 'audioUnavailable'), 'timeout-stalled'), GIVE_UP_MS); // AC24
     };
-    const onError = () => { if (x.mode !== 'idle') fail(t(lang, 'audioUnavailable')); };
+    // Only an error of the file now set counts; the empty element used to prime iOS on the first tap,
+    // or a file being replaced, is not a failure of the recitation.
+    const onError = () => { if (x.mode !== 'idle' && x.srcSet && el.currentSrc && el.error) fail(t(lang, 'audioUnavailable'), `file-error-${el.error.code}`); };
+    // A policy that blocks the audio host (for example after a redirect to another host) shows here.
+    const onCsp = (e: SecurityPolicyViolationEvent) => {
+      if (!/^media-src/.test(e.effectiveDirective || e.violatedDirective) || x.mode === 'idle') return;
+      let host = 'unknown';
+      try { host = new URL(e.blockedURI).host || e.blockedURI.slice(0, 20); } catch { /* not a URL */ }
+      // The browser reports the address first asked for. If that is the approved host, the block was
+      // on where it redirected to.
+      fail(t(lang, 'audioUnavailable'), host === AUDIO_HOST ? 'csp-media-redirect' : `csp-media-${host}`);
+    };
+    document.addEventListener('securitypolicyviolation', onCsp);
     const onEnded = () => stop(false);
     el.addEventListener('timeupdate', onTime);
     el.addEventListener('playing', onPlaying);
@@ -266,7 +316,7 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
       if (!b) return;
       const a = Number(b.dataset.ap);
       if (x.mode === 'ayah' && x.current === a && !el.paused) { el.pause(); return; }
-      void start('ayah', a);
+      start('ayah', a);
     };
     list?.addEventListener('click', onClick);
 
@@ -303,6 +353,7 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
       list?.removeEventListener('click', onClick);
       for (const ev of userEvents) window.removeEventListener(ev, onUser);
       document.removeEventListener('visibilitychange', onVis);
+      document.removeEventListener('securitypolicyviolation', onCsp);
       clearTimers(); clearTimeout(x.scrollT);
     };
   }, []);
@@ -317,8 +368,8 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
       <div className="ap-row">
         {!active
           ? <>
-              <button type="button" className="btn ap-main" data-play-surah disabled={dead} onClick={() => void start('surah', 1)}>{t(lang, 'audioPlaySurah')}</button>
-              {from > 1 && <button type="button" className="btn" data-play-from disabled={dead} onClick={() => void start('surah', from)}>{t(lang, 'audioPlayFrom', { a: from })}</button>}
+              <button type="button" className="btn ap-main" data-play-surah disabled={dead} onClick={() => start('surah', 1)}>{t(lang, 'audioPlaySurah')}</button>
+              {from > 1 && <button type="button" className="btn" data-play-from disabled={dead} onClick={() => start('surah', from)}>{t(lang, 'audioPlayFrom', { a: from })}</button>}
             </>
           : <button type="button" className="btn ap-main" data-pause aria-pressed={playing} aria-label={playing ? t(lang, 'audioPause') : t(lang, 'audioResume')} onClick={pauseOrResume}>{playing ? t(lang, 'audioPause') : t(lang, 'audioResume')}</button>}
         <button type="button" className="btn icon-btn" data-prev-ayah aria-label={t(lang, 'prevAyah')} title={t(lang, 'prevAyah')} disabled={!active || current <= 1} onClick={() => seekAyah(st.current.current - 1)}>
@@ -353,7 +404,7 @@ export default function AudioPlayer({ lang, s, count, name }: Props) {
           </dl>
         )}
       </details>
-      <p className={alert ? 'msg alert ap-status' : 'msg ap-status'} role="status" aria-live="polite" data-audio-status data-loading={loading ? '1' : '0'}>{msg}</p>
+      <p className={alert ? 'msg alert ap-status' : 'msg ap-status'} role="status" aria-live="polite" data-audio-status data-loading={loading ? '1' : '0'} data-reason={reason}>{msg}</p>
       <p className="sr-only" aria-live="polite" data-audio-now>{now}</p>
     </div>
   );
