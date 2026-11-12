@@ -60,7 +60,7 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
   // Why the last attempt stopped, for diagnosis only (data-reason on the status line; never shown).
   const [reason, setReason] = useState('');
   // Mutable state read by event handlers.
-  const st = useRef({ mode: 'idle' as Mode, meta: null as Meta | null, metaKey: '', current: 0, stopAt: -1, follow: true, lastUser: 0, reciters: null as Reciter[] | null, rid: null as number | null, target: 0, srcSet: '', storage: null as ReturnType<typeof getStorage>, loadT: 0, giveT: 0, scrollT: 0 });
+  const st = useRef({ mode: 'idle' as Mode, meta: null as Meta | null, metaKey: '', current: 0, stopAt: -1, follow: true, lastUser: 0, reciters: null as Reciter[] | null, rid: null as number | null, target: 0, srcSet: '', seekPending: false, storage: null as ReturnType<typeof getStorage>, loadT: 0, giveT: 0, scrollT: 0 });
   const seq = useRef(0);
 
   const say = (text: string, isAlert = false) => {
@@ -224,8 +224,10 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     if (fresh) { el.src = md.url; x.srcSet = md.url; }
     // The first seek waits for the file's metadata; a later choice (next, previous) updates the target.
     x.target = md.t[a - 1][0];
-    const seek = () => { try { el.currentTime = x.target / 1000; } catch { /* set when ready */ } };
-    if (!fresh && el.readyState >= 1) seek(); else el.addEventListener('loadedmetadata', seek, { once: true });
+    // Until that first seek is done the position is the file's start, which is not the ayah asked
+    // for: no mark or last position is taken from it.
+    const seek = () => { x.seekPending = false; try { el.currentTime = x.target / 1000; } catch { /* set when ready */ } };
+    if (!fresh && el.readyState >= 1) seek(); else { x.seekPending = true; el.addEventListener('loadedmetadata', seek, { once: true }); }
     x.current = 0;
     mark(a);
     // A play() cut short by a newer choice (AbortError) is not a failure.
@@ -266,7 +268,7 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
   // Position updates: timeupdate (also in the background) and a frame loop while visible.
   function onTime() {
     const x = st.current, el = audio.current;
-    if (!el || !x.meta || x.mode === 'idle') return;
+    if (!el || !x.meta || x.mode === 'idle' || x.seekPending) return;
     const ms = el.currentTime * 1000;
     if (x.stopAt >= 0 && ms >= x.stopAt) { stop(false); return; } // AC9, AC53
     const a = ayahAt(x.meta.t, ms);
@@ -279,7 +281,8 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     const el = audio.current!;
     let raf = 0;
     const loop = () => { onTime(); raf = el.paused ? 0 : requestAnimationFrame(loop); };
-    const onPlaying = () => { clearTimers(); setMsg(''); setPlaying(true); syncButtons(); if (!raf) raf = requestAnimationFrame(loop); if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'playing'; } catch { /* none */ } };
+    // Only the loading message goes when sound starts; a notice such as AC18's stays readable.
+    const onPlaying = () => { clearTimers(); setMsg((m) => (m === t(lang, 'audioLoading') || m === coded(t(lang, 'audioTapToPlay'), 'play-NotAllowedError') ? '' : m)); setPlaying(true); syncButtons(); if (!raf) raf = requestAnimationFrame(loop); if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'playing'; } catch { /* none */ } };
     const onPause = () => { setPlaying(false); syncButtons(); };
     const onWaiting = () => {
       if (x.mode === 'idle') return;

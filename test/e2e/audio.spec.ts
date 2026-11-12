@@ -158,7 +158,9 @@ test('AU-04 (AC14, AC15, AC19, AC30): reciter list from the data; changing recit
   await expect(dl).toContainText(t('en', 'audioLicence'));
   await page.check('[data-reciter="97"]');
   await expect.poll(async () => (await audioState(page)).src).toContain('/97/2.mp3?token=MOCK_SIGNATURE&expires=1');
-  await expect.poll(async () => (await audioState(page)).paused).toBe(false);
+  await expect.poll(async () => { const a = await audioState(page); return !a.paused && a.ready >= 1 && a.t > 0; }).toBe(true);
+  // While the new file loads, the mark stays on ayah 4 (no jump to ayah 1 from the file's start).
+  expect(await marked(page)).toEqual([4]);
   const tt = (await audioState(page)).t;
   expect(tt).toBeGreaterThanOrEqual(3 * STEP - 50);
   expect(tt).toBeLessThan(3 * STEP + 1500);
