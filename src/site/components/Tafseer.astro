@@ -6,6 +6,7 @@
 // in this HTML or in any build output (AC14).
 import Layout from '../layouts/Layout.astro';
 import TafseerView from '../islands/TafseerView.tsx';
+import Bidi from './Bidi.astro';
 import { dev, surahs } from '../lib/data';
 import { t, surahPath, tafseerPath, type Lang } from '../../core/strings.ts';
 import type { Surah } from '../../core/source-adapter.ts';
@@ -19,7 +20,7 @@ const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
   <nav class="surah-nav" aria-label={t(lang, 'navLabel')}>
     <a href={surahPath(lang, surah.n)} data-back>{t(lang, 'backToReading')}</a>
   </nav>
-  {dev && <p class="msg" role="note" data-tafseer-dev>{t(lang, 'tafseerDevNote')}</p>}
+  {dev && <p class="msg" role="note" data-tafseer-dev><Bidi text={t(lang, 'tafseerDevNote')} lang={lang} /></p>}
   <h1 class="surah-title">{t(lang, 'tafseerTitle')}: <bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{surah.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{name}</span></h1>
   <section class="tf-section tf-quran" aria-labelledby="tf-quran-h" data-tf-quran>
     <h2 id="tf-quran-h">{t(lang, 'quranSection')}</h2>

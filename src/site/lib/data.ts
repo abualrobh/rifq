@@ -1,7 +1,7 @@
 // Build-time data. It reads the source named by RIFQ_RECORD and runs the source gate again, so a
 // release build cannot skip it. This module runs only at build time; nothing here ships to browsers
 // except what the pages render.
-import { loadSource, surahsOf } from '../../core/source-adapter.ts';
+import { juzStarts, loadSource, surahsOf } from '../../core/source-adapter.ts';
 import { gate, type Mode } from '../../core/source-gate.ts';
 
 const recordPath = process.env.RIFQ_RECORD;
@@ -18,3 +18,5 @@ export const record = { name: src.record.name, edition: src.record.edition, stat
 export const surahs = surahsOf(src.list);
 export const counts: number[] = [0, ...surahs.map((s) => s.items.length)];
 export const names: [string, string][] = surahs.map((s) => [s.ar, s.en]);
+// RQ-004 (D-090 D): the first ayah of each juz in the file, by juz number.
+export const juz = juzStarts(src.list);

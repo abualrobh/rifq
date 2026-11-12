@@ -110,8 +110,10 @@ for (const lang of ['ar', 'en'] as const) {
     await clear.click();
     expect(await visible(page)).toEqual(surahs.map((s) => s.n));
     await expect(page.locator('#sq')).toBeFocused();
-    await filter(page, 'Yusuf');
-    await expect(page.locator('[data-filter-status]')).toHaveText(t(lang, 'latinOnly'));
+    // D-091 B: Latin letters match English names in the English interface; the Arabic interface
+    // keeps the D-050 Arabic-only message.
+    await filter(page, 'qqqq');
+    await expect(page.locator('[data-filter-status]')).toHaveText(lang === 'ar' ? t(lang, 'latinOnly') : t(lang, 'filterNone'));
     await page.fill('#sq', '');
     await page.locator('#sq').pressSequentially(String.fromCodePoint(0x628).repeat(105));
     expect([...(await page.inputValue('#sq'))].length).toBe(100);

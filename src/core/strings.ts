@@ -132,6 +132,12 @@ const ar = {
   filterClear: 'مسح التصفية',
   ayatFew: '{n} آيات',
   ayatMany: '{n} آية',
+  // RQ-004 v1.0 decisions (D-090 D, D-091 B): juz by number only (the file has no juz names), and
+  // the English-interface filter hint. New strings; they await Hamzeh's review (D-104 follow-up).
+  juzOf: 'الجزء {n}',
+  juzTitle: 'الأجزاء',
+  juzListLabel: 'قائمة الأجزاء: {n} جزءًا',
+  filterHintEn: 'بالاسم العربي أو الإنجليزي أو بالرقم، مثل 18 أو 2:255. بحد أقصى 100 حرف.',
   // Privacy page (/privacy/, /en/privacy/). Text approved by Hamzeh "for now" (D-099), word for
   // word; do not reword here. The Arabic text still needs the B-09 Arabic review. Each item is a
   // bold label and its text; the hosting item is split around its one link.
@@ -284,6 +290,10 @@ const en: typeof ar = {
   filterClear: 'Clear filter',
   ayatFew: '{n} ayat',
   ayatMany: '{n} ayat',
+  juzOf: 'Juz {n}',
+  juzTitle: 'Juz',
+  juzListLabel: 'List of juz: {n}',
+  filterHintEn: 'Arabic or English name, or a number, such as 18 or 2:255. Up to 100 characters.',
   // Privacy page, D-099 approved text (see the Arabic block above).
   privacyLink: 'Privacy',
   pvTitle: 'Privacy at RIFQ',

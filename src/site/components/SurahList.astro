@@ -1,13 +1,15 @@
 ---
-// One row per surah, in source order (RQ-004 AC1, AC2, AC3, P-7): number, name in the interface
-// language (D-094 option A: the English interface shows the English name only), and the ayah count
-// built from the source file at build time. No Meccan or Medinan label (D-093 A) and no juz
-// (D-090 option A); the row is built so another column can be added later.
-// Each label is one inline run: the number is isolated in the interface direction, so in Arabic it
+// One row per surah, in source order (RQ-004 AC1, AC2, AC3, AC22, P-7): number, name in the
+// interface language, and in the English interface also the Arabic name (D-094 B); then the ayah
+// count and the juz the surah starts in (D-090 D: the jozz of its first ayah), both built from the
+// source file at build time. No Meccan or Medinan label (D-093 A).
+// The label is one inline run: the number is isolated in the interface direction, so in Arabic it
 // sits at the right with its dot after it in reading order, and a real space separates it from the
-// name. The name is the source bytes, unchanged. The count is a separate box after the label.
+// name. Names are the source bytes, unchanged. The Arabic name in an English row is its own
+// right-to-left box after the English name, so it never reorders the English name, the number,
+// the count or the juz (RQ-004 v1.0 AC33, AC34, P-9).
 import { surahs } from '../lib/data';
-import { ayatLabel, surahPath, type Lang } from '../../core/strings.ts';
+import { ayatLabel, surahPath, t, type Lang } from '../../core/strings.ts';
 interface Props { lang: Lang; id?: string; label: string; current?: number; side?: boolean }
 const { lang, id, label, current, side = false } = Astro.props;
 const dir = lang === 'ar' ? 'rtl' : 'ltr';
@@ -15,7 +17,7 @@ const dir = lang === 'ar' ? 'rtl' : 'ltr';
 <ol id={id} class={side ? 'surah-list side-list' : 'surah-list'} aria-label={label} data-index-list={side ? undefined : ''}>
   {surahs.map((s) => (
     <li data-row={s.n}>
-      <a href={surahPath(lang, s.n)} data-surah-link={side ? undefined : s.n} data-side-link={side ? s.n : undefined} aria-current={current === s.n ? 'page' : undefined}><span class="surah-label"><bdi dir={dir} data-sn>{s.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{lang === 'ar' ? s.ar : s.en}</span></span>{' '}<span class="surah-count" data-ayat={s.items.length}>{ayatLabel(lang, s.items.length)}</span></a>
+      <a href={surahPath(lang, s.n)} data-surah-link={side ? undefined : s.n} data-side-link={side ? s.n : undefined} aria-current={current === s.n ? 'page' : undefined}><span class="surah-label"><bdi dir={dir} data-sn>{s.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'} data-name>{lang === 'ar' ? s.ar : s.en}</span>{lang === 'en' && <>{' '}<bdi class="surah-alt" lang="ar" dir="rtl" data-name-ar>{s.ar}</bdi></>}</span>{' '}<span class="surah-meta"><span class="surah-count" data-ayat={s.items.length}>{ayatLabel(lang, s.items.length)}</span>{!side && <>{' '}<span class="surah-juz" data-juz={s.items[0].jozz}>{t(lang, 'juzOf', { n: s.items[0].jozz ?? '' })}</span></>}</span></a>
     </li>
   ))}
 </ol>

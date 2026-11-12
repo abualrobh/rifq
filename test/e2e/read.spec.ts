@@ -51,7 +51,7 @@ for (const lang of ['ar', 'en'] as const) {
     for (const s of surahs) {
       await page.goto(`${home}surahs/`);
       const link = page.locator(`a[data-surah-link="${s.n}"]`);
-      await expect(link.locator('span[lang]')).toHaveText(lang === 'ar' ? s.ar : s.en);
+      await expect(link.locator('span[data-name]')).toHaveText(lang === 'ar' ? s.ar : s.en);
       await link.tap();
       await expect(page).toHaveURL(new RegExp(`${home}${s.n}/$`));
       await expect(page.locator('p.ayah[data-r]')).toHaveCount(s.items.length);

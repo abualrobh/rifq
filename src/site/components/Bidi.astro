@@ -1,0 +1,9 @@
+---
+// Interface text with each Latin run (decision IDs, names) isolated left to right in Arabic.
+// See src/core/bidi.ts. The text is the strings.ts value, unchanged.
+import { bidiParts } from '../../core/bidi.ts';
+import type { Lang } from '../../core/strings.ts';
+interface Props { text: string; lang: Lang }
+const { text, lang } = Astro.props;
+---
+{bidiParts(text, lang === 'ar').map((p) => (p.ltr ? <bdi dir="ltr" data-ltr-run>{p.text}</bdi> : p.text))}
