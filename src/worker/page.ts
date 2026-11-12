@@ -5,6 +5,7 @@ import type { ApiOut, SearchOk } from '../core/api.ts';
 import { escapeHtml, segment } from '../core/highlight.ts';
 import { PAGE } from '../core/search-core.ts';
 import { ayahPath, homePath, surahPath, t, type Lang } from '../core/strings.ts';
+import { bidiHtml } from '../core/bidi.ts';
 
 export type PageCfg = { dev: boolean; record: { name: string; edition: string; status: string } };
 
@@ -58,13 +59,13 @@ export function renderPage(lang: Lang, q: string, out: ApiOut, cfg: PageCfg, wai
       parts.push('</nav>');
     }
   }
-  const banner = cfg.dev ? `<p class="banner" role="note">${h(t(lang, 'devBanner'))}</p>` : '';
+  const banner = cfg.dev ? `<p class="banner" role="note">${bidiHtml(t(lang, 'devBanner'), lang === 'ar', h)}</p>` : '';
   return `<!doctype html>
 <html lang="${lang}" dir="${dir}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${h(t(lang, 'searchButton'))} - ${h(t(lang, 'siteName'))}</title><link rel="stylesheet" href="/rifq-basic.css"></head>
 <body>${banner}<main>
 <p><a href="${homePath(lang)}">${h(t(lang, 'home'))}</a></p>
 <form method="post" action="/api/search" role="search"><input type="hidden" name="lang" value="${lang}"><label for="q">${h(t(lang, 'searchLabel'))}</label> <input id="q" name="q" type="search" dir="rtl" lang="ar" autocomplete="off" spellcheck="false" value="${h(q)}"> <button type="submit">${h(t(lang, 'searchButton'))}</button></form>
-<p class="hint">${h(t(lang, 'searchPlaceholderForm'))}</p>
+<p class="hint">${bidiHtml(t(lang, 'searchPlaceholderForm'), lang === 'ar', h)}</p>
 ${parts.join('\n')}
 </main>
 <footer><p>${h(t(lang, 'source'))}: <span dir="ltr">${h(cfg.record.name)}; ${h(cfg.record.edition)}; ${h(cfg.record.status)}</span></p></footer>

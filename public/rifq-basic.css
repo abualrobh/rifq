@@ -16,3 +16,4 @@ a { color:var(--link); }
 mark { background:var(--mark-bg); color:var(--fg); }
 form.inline { display:inline; }
 input, button { font:inherit; }
+bdi[dir="ltr"] { white-space:nowrap; }

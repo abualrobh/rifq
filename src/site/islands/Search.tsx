@@ -9,6 +9,7 @@ import { MAX_CHARS, validate } from '../../core/query.ts';
 import { SearchCounter } from '../../core/ratelimit.ts';
 import { PAGE } from '../../core/search-core.ts';
 import { ayahPath, surahPath, t, type Lang } from '../../core/strings.ts';
+import BidiText from './BidiText.tsx';
 
 type State =
   | { kind: 'idle' }
@@ -115,7 +116,7 @@ export default function Search({ lang }: { lang: Lang }) {
           />
           <button type="submit" className="btn">{t(lang, 'searchButton')}</button>
         </div>
-        <p id="q-hint" className="hint">{t(lang, 'searchHint')} {t(lang, 'searchPlaceholderForm')}</p>
+        <p id="q-hint" className="hint">{t(lang, 'searchHint')} <BidiText text={t(lang, 'searchPlaceholderForm')} lang={lang} /></p>
         <p id="q-count" className={over ? 'hint over' : 'hint'} data-count>{over ? t(lang, 'tooLong', { n: len }) : t(lang, 'charCount', { n: len })}</p>
       </form>
       <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" className={state.kind === 'msg' && state.alert ? 'msg alert' : 'msg'} data-search-status data-seq={seq}>{statusText}</p>

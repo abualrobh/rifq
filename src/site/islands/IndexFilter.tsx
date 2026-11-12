@@ -7,7 +7,7 @@ import { filterIndex, visibleRows, type FilterResult } from '../../core/index-fi
 import { MAX_CHARS } from '../../core/query.ts';
 import { ayahPath, t, type Lang } from '../../core/strings.ts';
 
-type Props = { lang: Lang; folded: string[]; counts: number[]; names: [string, string][] };
+type Props = { lang: Lang; folded: string[]; en?: [string, string][]; counts: number[]; names: [string, string][] };
 
 function show(rows: number[] | null) {
   const want = rows ? new Set(rows) : null;
@@ -16,7 +16,7 @@ function show(rows: number[] | null) {
   }
 }
 
-export default function IndexFilter({ lang, folded, counts, names }: Props) {
+export default function IndexFilter({ lang, folded, en, counts, names }: Props) {
   const [ready, setReady] = useState(false);
   const [q, setQ] = useState('');
   const [res, setRes] = useState<FilterResult>({ kind: 'all' });
@@ -30,7 +30,7 @@ export default function IndexFilter({ lang, folded, counts, names }: Props) {
 
   function change(v: string) {
     setQ(v);
-    setRes(filterIndex(folded, counts, v));
+    setRes(filterIndex(folded, counts, v, en));
     setSeq((n) => n + 1);
   }
   function clear() {
@@ -63,7 +63,7 @@ export default function IndexFilter({ lang, folded, counts, names }: Props) {
         />
         {q && <button type="button" className="btn" data-filter-clear onClick={clear}>{t(lang, 'filterClear')}</button>}
       </div>
-      <p id="sq-hint" className="hint">{t(lang, 'filterHint')}</p>
+      <p id="sq-hint" className="hint">{t(lang, en ? 'filterHintEn' : 'filterHint')}</p>
       <p id="sq-count" className={len >= MAX_CHARS ? 'hint over' : 'hint'} data-filter-chars>{t(lang, 'charCount', { n: len })}</p>
       <p role="status" aria-live="polite" className={alert ? 'msg alert' : 'msg'} data-filter-status data-seq={seq}>{status}</p>
       {res.kind === 'ref' && res.a !== undefined && (

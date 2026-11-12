@@ -9,6 +9,7 @@
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { sanitize, type Node } from '../../core/tafseer-html.ts';
 import { surahPath, t, tafseerPath, type Lang } from '../../core/strings.ts';
+import BidiText from './BidiText.tsx';
 
 type Source = { tafsirId: number; title: string | null; author: string | null; edition: string | null; publisher: string | null; language: string | null; provider: string };
 type Ok = { status: 'ok'; s: number; a: number; range: { s: number; from: number; to: number }; text: string; source: Source; review: { state: 'none' } | { state: 'match'; reviewed: string } };
@@ -131,7 +132,7 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
   if (view.kind === 'loading') body = <p className="msg">{t(lang, 'tafseerLoading')}</p>;
   else if (view.kind === 'none') body = <p className="msg" data-tf-msg="none">{t(lang, 'tafseerNone')}</p>;
   else if (view.kind === 'unavailable') body = <p className="msg alert" data-tf-msg="unavailable">{t(lang, 'tafseerUnavailable')}</p>;
-  else if (view.kind === 'not_configured') body = <p className="msg alert" data-tf-msg="not_configured">{t(lang, 'tafseerNotConfigured')}</p>;
+  else if (view.kind === 'not_configured') body = <p className="msg alert" data-tf-msg="not_configured"><BidiText text={t(lang, 'tafseerNotConfigured')} lang={lang} /></p>;
   else if (view.kind === 'auth') body = <p className="msg alert" data-tf-msg="auth">{t(lang, 'tafseerAuthAgain')}</p>;
   else if (view.kind === 'changed') body = <><p className="msg alert" data-tf-msg="changed">{t(lang, 'tafseerChanged', { d: view.reviewed })}</p>{sourceList(view.source)}</>;
   else {
@@ -141,7 +142,7 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
       <>
         {d.range.from !== d.range.to && <p className="tf-range" data-tf-range>{t(lang, 'tafseerRange', { s: d.range.s, from: d.range.from, to: d.range.to })}</p>}
         <div className="tf-text" lang={arabic ? 'ar' : undefined} dir={arabic ? 'rtl' : 'auto'} translate="no" data-tf-text>{render(sanitize(d.text))}</div>
-        <p className="tf-review" data-tf-review={d.review.state}>{d.review.state === 'match' ? t(lang, 'reviewMatch', { d: d.review.reviewed }) : t(lang, 'reviewNone')}</p>
+        <p className="tf-review" data-tf-review={d.review.state}>{d.review.state === 'match' ? t(lang, 'reviewMatch', { d: d.review.reviewed }) : <BidiText text={t(lang, 'reviewNone')} lang={lang} />}</p>
         {sourceList(d.source)}
       </>
     );
@@ -152,7 +153,7 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
   return (
     <div className="tf-view" data-tf-status={view.kind} data-tf-ayah={`${s}:${a}`}>
       <div aria-live="polite" aria-busy={view.kind === 'loading'}>{body}</div>
-      <p className="tf-credit" data-tf-credit>{t(lang, 'tafseerCredit')}</p>
+      <p className="tf-credit" data-tf-credit><BidiText text={t(lang, 'tafseerCredit')} lang={lang} /></p>
       <nav className="tf-nav" aria-label={t(lang, 'ayahNavLabel')}>
         {!atStart && <button type="button" className="btn" data-tf-prev onClick={() => go(a - 1)}>{t(lang, 'prevAyah')}</button>}
         {!atEnd && <button type="button" className="btn" data-tf-next onClick={() => go(a + 1)}>{t(lang, 'nextAyah')}</button>}
