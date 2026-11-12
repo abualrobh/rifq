@@ -129,3 +129,18 @@ test('RQ-006: the audio routes are behind the gate, and reader pages carry media
   expect((await request.get('/2/')).headers()['content-security-policy']).toContain('media-src https://download.quranicaudio.com');
   expect((await request.get('/privacy/')).headers()['content-security-policy']).not.toContain('media-src');
 });
+
+test('the manifest is fetched with the site credentials (use-credentials) and stays behind the gate', async ({ page, request, baseURL }) => {
+  const no = await fetch(baseURL + '/manifest.webmanifest', { redirect: 'manual' });
+  expect(no.status).toBe(401);
+  await no.arrayBuffer();
+  expect((await request.get('/manifest.webmanifest')).status()).toBe(200);
+  const seen: number[] = [];
+  page.on('response', (r) => { if (r.url().endsWith('/manifest.webmanifest')) seen.push(r.status()); });
+  await page.goto('/');
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('crossorigin', 'use-credentials');
+  // The browser's own manifest fetch, credentials included, is let through.
+  const ok = await page.evaluate(async () => (await fetch('/manifest.webmanifest', { credentials: 'include' })).status);
+  expect(ok).toBe(200);
+  expect(seen.every((s) => s === 200)).toBe(true);
+});
