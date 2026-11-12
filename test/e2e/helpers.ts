@@ -30,24 +30,6 @@ type Seen = { url: string; method: string; body: string | null; headers: Record<
 // Every page gets: request capture, CSP violation capture, dialog guard and page error capture.
 // allowHosts: extra hosts a spec may reach. Only the RQ-006 audio spec sets it, to the approved audio
 // host, whose requests it answers itself with a made-up silent file (nothing leaves the machine).
-// RQ-006 with QA RISK-2 (kit v24, pending Hamzeh's approval as an AC3 deviation): the reader page
-// fetches the reciter list and this surah's audio metadata at the first interaction, before play.
-// These are the only POSTs a reader page may send, and only these bodies: the interface language,
-// or a reciter ID and the surah number. Nothing else (no bookmark, last position, text size or
-// night setting) and no query string. Returns the requests left after taking those out.
-export function withoutAudioMeta(seen: Seen[]): Seen[] {
-  return seen.filter((x) => {
-    const path = new URL(x.url).pathname;
-    if (x.method !== 'POST' || (path !== '/api/audio' && path !== '/api/audio/reciters')) return true;
-    const b = JSON.parse(x.body ?? 'null') as Record<string, unknown> | null;
-    const keys = Object.keys(b ?? {}).sort().join(',');
-    const ok = new URL(x.url).search === '' && !x.headers.cookie && (path === '/api/audio/reciters'
-      ? keys === 'lang' && (b!.lang === 'ar' || b!.lang === 'en')
-      : keys === 'r,s' && Number.isInteger(b!.r) && Number.isInteger(b!.s));
-    return !ok; // a POST that is not exactly one of these stays in, so the caller's checks fail on it
-  });
-}
-
 export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[] }>({
   allowHosts: [[], { option: true }],
   seen: async ({}, use) => { await use([]); },

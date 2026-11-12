@@ -221,7 +221,6 @@ bdi[data-ltr-run] { white-space: nowrap; }
    the Tafseer link, a 44 px target each with 8 px between (AC42). The current ayah is marked on the
    row only: a bar at the inline start plus a background, never colour alone and never inside the
    Quran text (AC11, AC45). The bar is a pseudo-element, so marking moves no text. */
-.ap { flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; background: transparent; color: var(--link); border-radius: .375rem; width: 2.75rem; height: 2.75rem; padding: 0; cursor: pointer; }
 /* QA FIND-5: the icon follows data-state (idle or playing), not aria-pressed, because the
    accessible name already changes between "Play ayah" and "Pause ayah". */
 .ayah-tools { flex: none; display: grid; grid-template-columns: repeat(2, 2.75rem); gap: .5rem; align-items: center; justify-items: center; }

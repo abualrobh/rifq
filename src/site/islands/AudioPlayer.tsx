@@ -2,15 +2,8 @@
 //
 // One surah file per reciter with per-ayah timings (D-110 B). The browser plays the file directly
 // from the approved audio host (D-112 B, AC39 media-src); RIFQ's Worker gives only the address and
-// the timings (/api/audio). The audio element never preloads and nothing plays on its own.
-//
-// QA RISK-2 (kit v24): iOS allows play() only inside the tap, and only if the element has its
-// address by then. So the reciter list and this surah's address and timings (metadata only, no
-// sound) are fetched at the reader's first interaction with the page (touch, pointer, key or
-// wheel), before play is tapped; the tap then sets the address and calls play() synchronously.
-// This moves AC3's "nothing before play" to "nothing before the first interaction": a deviation
-// for Hamzeh to approve. If the tap still comes first, the player fetches, tries play(), and on
-// NotAllowedError asks for one tap on Resume; play() is never called on an element with no address.
+// the timings (/api/audio). Nothing is requested before the reader chooses play or opens the
+// reciter list (AC3); the audio element never preloads; nothing plays on its own.
 //
 // The per-ayah play buttons are in the static HTML (Reader.astro), hidden with their space kept
 // until this island loads, so without JavaScript no broken control shows (AC48).
@@ -20,10 +13,18 @@
 // plays to the end of its last ayah and stops (AC9, P-3). During surah playback the playing ayah is
 // saved as the last reading position (AC50, D-117 A).
 //
-// iPhone (AC26 to AC29, D-115 B): see RISK-2 above. Lock screen and system controls use the Media Session API. Whether sound continues with the
-// screen locked can only be measured on the reference phone.
+// iPhone (AC26 to AC29, D-115 B; QA RISK-2): iOS lets an element play only from inside a tap.
+// The first tap calls play() at once on the element, before the address is fetched, which unlocks
+// it so the later play() with the address is allowed (kit v24: surah playback worked on Hamzeh's
+// iPhone this way). Any later tap, once the reciter and this surah's address are known, sets the
+// address and calls play() synchronously inside the tap. If iOS still refuses, the player stays
+// ready and asks for one tap on Resume (code play-NotAllowedError).
+// Lock screen and system controls use the Media Session API: the title follows every ayah change,
+// also while the page is in the background (timeupdate), and the controls are previous and next
+// ayah, not 10-second skips (AC28). Whether sound continues with the screen locked can only be
+// measured on the reference phone.
 import { useEffect, useRef, useState } from 'react';
-import { approvedAudioUrl, AUDIO_HOST, ayahAt } from '../../core/audio.ts';
+import { approvedAudioUrl, AUDIO_HOST, ayahAt, stallWatch } from '../../core/audio.ts';
 import { getStorage, setLast } from '../../core/store.ts';
 import { t, type Lang } from '../../core/strings.ts';
 import { readReciter, writeReciter } from './Settings.tsx';
@@ -67,6 +68,8 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
   const [reason, setReason] = useState('');
   // Mutable state read by event handlers.
   const st = useRef({ mode: 'idle' as Mode, meta: null as Meta | null, metaKey: '', current: 0, stopAt: -1, follow: true, lastUser: 0, reciters: null as Reciter[] | null, rid: null as number | null, target: 0, srcSet: '', seekPending: false, storage: null as ReturnType<typeof getStorage>, loadT: 0, giveT: 0, scrollT: 0 });
+  // AC24, P-5: give up only when the position has not moved for 15 s while playing (kit v24 report).
+  const stall = useRef<ReturnType<typeof stallWatch> | null>(null);
   const seq = useRef(0);
 
   const say = (text: string, isAlert = false) => {
@@ -90,10 +93,27 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     if (!a) return;
     setNow(t(lang, 'audioNowAyah', { a })); // AC44: once per ayah, number only
     if (x.mode === 'surah') setLast(x.storage, [s, a]); // AC50
-    if ('mediaSession' in navigator && navigator.mediaSession) {
-      try { navigator.mediaSession.metadata = new MediaMetadata({ title: t(lang, 'audioMediaTitle', { name, a }), artist: reciterName(), album: t(lang, 'siteName') }); } catch { /* not supported */ }
-    }
+    media(a);
     if (x.follow && x.mode === 'surah' && document.visibilityState === 'visible') scrollTo(a);
+  }
+
+  // AC28: the lock-screen title is the surah name and the ayah being played, with the reciter.
+  // Set on every ayah change, and checked again on every timeupdate (which keeps firing with the
+  // screen locked) against what the Media Session holds now, so a title that could not be set, was
+  // replaced, or is for another ayah is corrected. The position state goes with it: iOS refreshes
+  // its Now Playing view when that changes. `force` sends it again (when sound starts).
+  function media(a: number, force = false) {
+    const ms = 'mediaSession' in navigator ? navigator.mediaSession : null;
+    const x = st.current, el = audio.current;
+    if (!ms || !a || x.mode === 'idle') return;
+    const title = t(lang, 'audioMediaTitle', { name, a }), artist = reciterName();
+    const cur = ms.metadata;
+    if (!force && cur && cur.title === title && cur.artist === artist) return;
+    try { ms.metadata = new MediaMetadata({ title, artist, album: t(lang, 'siteName') }); } catch { return; /* not supported */ }
+    try {
+      if (el && Number.isFinite(el.duration) && el.duration > 0) ms.setPositionState({ duration: el.duration, position: Math.min(Math.max(el.currentTime, 0), el.duration), playbackRate: el.playbackRate || 1 });
+    } catch { /* not supported */ }
+    try { ms.playbackState = el && !el.paused ? 'playing' : 'paused'; } catch { /* none */ }
   }
 
   function scrollTo(a: number) {
@@ -126,6 +146,7 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     const x = st.current;
     const el = audio.current;
     clearTimers();
+    stall.current?.stop();
     el?.pause();
     x.mode = 'idle'; x.stopAt = -1;
     setMode('idle'); setPlaying(false);
@@ -151,7 +172,7 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
   // null: could not be fetched now (the reason is kept); []: fetched, and no reciter is offered.
   const recFail = useRef('');
   const recJob = useRef<Promise<Reciter[] | null> | null>(null);
-  // One request at a time: the warm-up and a tap share the same request.
+  // One request at a time: opening the reciter list and a tap on play share the same request.
   function loadReciters(): Promise<Reciter[] | null> {
     if (st.current.reciters) return Promise.resolve(st.current.reciters);
     if (!recJob.current) recJob.current = fetchReciters().finally(() => { recJob.current = null; });
@@ -204,25 +225,17 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     return m;
   }
 
-  // QA RISK-2: metadata only (no sound), at the first interaction and after a reciter change, so
-  // the tap on play can run synchronously. Failures here are silent; the tap reports them.
-  function warm() {
-    void (async () => {
-      const list = await loadReciters();
-      const r = st.current.rid;
-      if (list?.length && r !== null && (await meta(r)) === 'not_covered') { setDead('surah-not-covered'); why('surah-not-covered'); }
-    })();
-  }
-
   // Starts playback of one ayah or of the surah from ayah a, from a tap.
   // iOS (AC26): play() must run inside the tap. When the reciter and this surah's address are
-  // already known (fetched at the first interaction, RISK-2), begin() runs synchronously in the tap.
-  // Otherwise they are fetched now; if iOS then refuses play(), the player asks for one tap on Resume.
-  // play() is never called on an element with no address (QA RISK-2).
+  // already known (any tap after the first), begin() runs synchronously in the tap. On the first
+  // tap the address must be fetched first (AC3: nothing before play), so play() is called once at
+  // once on the element to unlock it (its error is ignored), and, if iOS still refuses the later
+  // play(), the player stays ready and asks for one tap on Resume.
   function start(m: 'ayah' | 'surah', a: number, gone: number | null = null) {
     const el = audio.current;
     if (!el) return;
     const x = st.current;
+    if (!x.srcSet) void el.play().catch(() => undefined);
     stop(); // AC10: never two at once
     setFrom(a); setReason('');
     if (!navigator.onLine) { setReason('offline'); say(t(lang, 'audioOffline'), true); return; } // AC22
@@ -282,7 +295,9 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
 
   function seekAyah(a: number) {
     const x = st.current, el = audio.current;
-    if (!el || !x.meta || a < 1 || a > count) return;
+    // Only while an ayah or the surah is playing or paused: after a stop (or from the lock screen
+    // when nothing is playing) next and previous do nothing, so no sound starts without a mark.
+    if (!el || !x.meta || x.mode === 'idle' || a < 1 || a > count) return;
     if (x.mode === 'ayah') x.stopAt = x.meta.t[a - 1][1];
     x.target = x.meta.t[a - 1][0];
     if (el.readyState >= 1) el.currentTime = x.target / 1000;
@@ -304,17 +319,18 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     x.rid = id; setRid(id);
     x.meta = null; x.metaKey = '';
     if (was !== 'idle') start(was, at); // AC19: restart at the current ayah
-    else warm(); // RISK-2: the next tap on play stays synchronous
   }
 
   // Position updates: timeupdate (also in the background) and a frame loop while visible.
   function onTime() {
     const x = st.current, el = audio.current;
     if (!el || !x.meta || x.mode === 'idle' || x.seekPending) return;
+    stall.current?.progress(); // any movement restarts the 15 s stall clock (AC24)
     const ms = el.currentTime * 1000;
     if (x.stopAt >= 0 && ms >= x.stopAt) { stop(false); return; } // AC9, AC53
     const a = ayahAt(x.meta.t, ms);
     if (a) mark(a);
+    if (x.current) media(x.current); // AC28: no-op unless the lock-screen title is out of date
   }
 
   useEffect(() => {
@@ -324,13 +340,19 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     let raf = 0;
     const loop = () => { onTime(); raf = el.paused ? 0 : requestAnimationFrame(loop); };
     // Only the loading message goes when sound starts; a notice such as AC18's stays readable.
-    const onPlaying = () => { clearTimers(); setMsg((m) => (m === t(lang, 'audioLoading') || m === coded(t(lang, 'audioTapToPlay'), 'play-NotAllowedError') ? '' : m)); setPlaying(true); syncButtons(); if (!raf) raf = requestAnimationFrame(loop); if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'playing'; } catch { /* none */ } };
-    const onPause = () => { setPlaying(false); syncButtons(); };
-    const onWaiting = () => {
-      if (x.mode === 'idle') return;
-      clearTimeout(x.giveT);
-      x.giveT = window.setTimeout(() => fail(t(lang, 'audioUnavailable'), 'timeout-stalled'), GIVE_UP_MS); // AC24
-    };
+    // AC24, P-5 (kit v24 report: Al-Baqarah stopped at ayah 5 with [timeout-stalled]). 'stalled'
+    // and 'waiting' only start the stall clock; it gives up when the position has not moved for
+    // 15 s while playback is meant to run, and any movement restarts it (src/core/audio.ts).
+    const sw = stallWatch({
+      ms: GIVE_UP_MS,
+      pos: () => el.currentTime,
+      live: () => x.mode !== 'idle' && !el.paused,
+      giveUp: () => fail(t(lang, 'audioUnavailable'), 'timeout-stalled'),
+    });
+    stall.current = sw;
+    const onPlaying = () => { clearTimers(); sw.watch(); setMsg((m) => (m === t(lang, 'audioLoading') || m === coded(t(lang, 'audioTapToPlay'), 'play-NotAllowedError') ? '' : m)); setPlaying(true); syncButtons(); if (!raf) raf = requestAnimationFrame(loop); setHandlers(); if (x.current) media(x.current, true); if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'playing'; } catch { /* none */ } };
+    const onPause = () => { sw.stop(); setPlaying(false); syncButtons(); if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'paused'; } catch { /* none */ } };
+    const onWaiting = () => { if (x.mode !== 'idle') sw.watch(); };
     // Only an error of the file now set counts; the empty element used to prime iOS on the first tap,
     // or a file being replaced, is not a failure of the recitation.
     const onError = () => { if (x.mode !== 'idle' && x.srcSet && el.currentSrc && el.error) fail(t(lang, 'audioUnavailable'), `file-error-${el.error.code}`); };
@@ -379,26 +401,27 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
     const userEvents = ['wheel', 'touchmove', 'keydown'] as const;
     for (const ev of userEvents) window.addEventListener(ev, onUser, { passive: true });
 
-    // RISK-2: the first interaction with the page fetches the reciter list and this surah's
-    // metadata (no sound), so a later tap on play can set the address and play() inside the tap.
-    const firstEvents = ['pointerdown', 'touchstart', 'keydown', 'wheel'] as const;
-    const onFirst = () => { for (const ev of firstEvents) window.removeEventListener(ev, onFirst, true); warm(); };
-    for (const ev of firstEvents) window.addEventListener(ev, onFirst, { capture: true, passive: true });
-
     // AC54: after the screen was locked or the tab hidden, catch up at once.
     const onVis = () => { if (document.visibilityState === 'visible') { onTime(); if (x.follow && x.current && x.mode === 'surah') scrollTo(x.current); } };
     document.addEventListener('visibilitychange', onVis);
 
-    // AC28: lock-screen and system controls act as the player's own controls.
-    const ms = 'mediaSession' in navigator ? navigator.mediaSession : null;
-    if (ms) {
+    // AC28: lock-screen and system controls act as the player's own controls: previous and next
+    // move by ayah. The seek-backward and seek-forward handlers are cleared, because iOS shows
+    // 10-second skip buttons in place of previous and next while they exist (kit v24 report). Set
+    // again whenever sound starts, in case the browser reset them when a new file was set.
+    function setHandlers() {
+      const ms = 'mediaSession' in navigator ? navigator.mediaSession : null;
+      if (!ms) return;
       const set = (a: MediaSessionAction, h: MediaSessionActionHandler | null) => { try { ms.setActionHandler(a, h); } catch { /* not supported */ } };
       set('play', () => { if (x.mode !== 'idle') void el.play().catch(() => undefined); });
       set('pause', () => el.pause());
       set('stop', () => stop(false));
-      set('nexttrack', () => seekAyah(x.current + 1));
       set('previoustrack', () => seekAyah(x.current - 1));
+      set('nexttrack', () => seekAyah(x.current + 1));
+      set('seekbackward', null);
+      set('seekforward', null);
     }
+    setHandlers();
     setReady(true);
     return () => {
       el.pause();
@@ -406,10 +429,9 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
       for (const ev of ['timeupdate', 'playing', 'pause', 'waiting', 'stalled', 'error', 'ended']) el.removeEventListener(ev, ev === 'timeupdate' ? onTime : ev === 'playing' ? onPlaying : ev === 'pause' ? onPause : ev === 'error' ? onError : ev === 'ended' ? onEnded : onWaiting);
       list?.removeEventListener('click', onClick);
       for (const ev of userEvents) window.removeEventListener(ev, onUser);
-      for (const ev of firstEvents) window.removeEventListener(ev, onFirst, true);
       document.removeEventListener('visibilitychange', onVis);
       document.removeEventListener('securitypolicyviolation', onCsp);
-      clearTimers(); clearTimeout(x.scrollT);
+      clearTimers(); sw.stop(); clearTimeout(x.scrollT);
     };
   }, []);
 
@@ -436,10 +458,11 @@ export default function AudioPlayer({ lang, s, count, name, dev = false }: Props
       </div>
       {/* QA FIND-8: a disabled play button says why, next to it and as its description. */}
       {dead && <p className="msg ap-dead" id="ap-dead" data-audio-dead={dead}>{coded(t(lang, dead === 'reciters-empty' ? 'audioNoReciter' : 'audioNoSurah'), dead)}</p>}
-      {/* QA FIND-1: the credit is its own visible line (AC38); the disclosure is labelled and marked. */}
+      {/* QA FIND-1: the credit is its own visible line (AC31); the disclosure is labelled and marked.
+          Its name is its visible text: the label, then the reciter's name once known. */}
       <p className="ap-credit" data-audio-credit><BidiText text={t(lang, 'audioCredit')} lang={lang} /></p>
-      <details className="ap-more" data-audio-more onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) warm(); }}>
-        <summary className="ap-summary" aria-label={t(lang, 'audioMoreLabel')} data-audio-summary>
+      <details className="ap-more" data-audio-more onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) void loadReciters(); }}>
+        <summary className="ap-summary" data-audio-summary>
           <span>{t(lang, 'audioMoreLabel')}</span>
           {reciter && <span className="ap-summary-now"><bdi lang={nameLang(reciter.name)} data-reciter-name>{reciter.name}</bdi></span>}
         </summary>

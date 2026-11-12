@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthetic } from '../fixtures/load.ts';
 import { makeWorker } from '../../src/worker/app.ts';
-import { approvedAudioUrl, ayahAt, catalogueProblems, checkSurahFile, checkTimestamps, coveredSurahs, D111_IDS, fileProblems, foldLatin } from '../../src/core/audio.ts';
+import { approvedAudioUrl, ayahAt, catalogueProblems, checkSurahFile, checkTimestamps, coveredSurahs, D111_IDS, fileProblems, foldLatin, stallWatch } from '../../src/core/audio.ts';
 import { AUDIO_SCOPE } from '../../src/worker/audio.ts';
 import { AR_WORD, createMockQf, MOCK_CLIENT_ID, MOCK_CLIENT_SECRET, mockAudioUrl } from '../mock/qf-mock.ts';
 import { SYN_COUNTS } from '../fixtures/synthetic.ts';
@@ -353,4 +353,68 @@ test('QA FIND-7: an empty catalogue is kept 10 minutes, not 7 days', async () =>
   assert.deepEqual((await (await call(w, '/api/audio/reciters', { lang: 'en' })).json()).reciters, [], 'within 10 minutes the copy is used');
   tick(10 * 60_000);
   assert.deepEqual((await (await call(w, '/api/audio/reciters', { lang: 'en' })).json()).reciters.map((x: { id: number }) => x.id), [7, 97]);
+});
+
+// Kit v24 report: Al-Baqarah stopped at ayah 5 with [timeout-stalled]. 'stalled' fires on healthy
+// playback of large files; the give-up must depend on the position not moving, nothing else.
+function fakeClock() {
+  let now = 0, next = 1;
+  const jobs = new Map<number, { at: number; f: () => void }>();
+  return {
+    timers: { set: (f: () => void, ms: number) => { const id = next++; jobs.set(id, { at: now + ms, f }); return id; }, clear: (id: unknown) => { jobs.delete(id as number); } },
+    advance(ms: number) {
+      const end = now + ms;
+      for (;;) {
+        const due = [...jobs.entries()].filter(([, j]) => j.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+        if (!due) break;
+        now = due[1].at; jobs.delete(due[0]); due[1].f();
+      }
+      now = end;
+    },
+  };
+}
+function watchCase() {
+  const c = fakeClock();
+  const p = { pos: 0, live: true, gaveUp: 0 };
+  const w = stallWatch({ ms: 15000, pos: () => p.pos, live: () => p.live, giveUp: () => { p.gaveUp++; }, timers: c.timers });
+  return { c, p, w };
+}
+
+test('AC24 stall: repeated stalled/waiting events during healthy playback never give up while the position moves', () => {
+  const { c, p, w } = watchCase();
+  w.watch(); // playing
+  for (let i = 0; i < 400; i++) { // 100 s of playback, timeupdate every 250 ms, 'stalled' every 3 s
+    c.advance(250); p.pos += 0.25; w.progress();
+    if (i % 12 === 0) w.watch();
+  }
+  assert.equal(p.gaveUp, 0);
+  assert.equal(w.running, true);
+});
+
+test('AC24 stall: no movement for 15 s while playing gives up once; repeated stalled events do not extend it', () => {
+  const { c, p, w } = watchCase();
+  w.watch(); c.advance(1000); p.pos = 30; w.progress();
+  for (let i = 0; i < 14; i++) { c.advance(1000); w.watch(); w.progress(); } // stuck at 30 s, 'stalled' each second
+  assert.equal(p.gaveUp, 0);
+  c.advance(1000);
+  assert.equal(p.gaveUp, 1, 'given up 15 s after the last movement');
+  c.advance(60000);
+  assert.equal(p.gaveUp, 1);
+});
+
+test('AC24 stall: paused or stopped never gives up; movement seen only when the clock runs out restarts it (background)', () => {
+  const { c, p, w } = watchCase();
+  w.watch(); p.live = false; c.advance(20000); // paused: the clock ran out but nothing happens
+  assert.equal(p.gaveUp, 0);
+  p.live = true; w.watch(); w.stop(); c.advance(20000);
+  assert.equal(p.gaveUp, 0, 'stopped');
+  // Background: timeupdate was held back, but the position moved; the clock restarts.
+  w.watch(); p.pos = 50; c.advance(15000);
+  assert.equal(p.gaveUp, 0);
+  assert.equal(w.running, true);
+  c.advance(15000);
+  assert.equal(p.gaveUp, 1, 'then 15 s without movement gives up');
+  // watch() while not live does not start the clock.
+  const k = watchCase(); k.p.live = false; k.w.watch();
+  assert.equal(k.w.running, false);
 });

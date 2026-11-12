@@ -1,5 +1,5 @@
 // RQ-001 browser tests against the local build. Test IDs from qa-test-plans.md.
-import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow, topAyah, pageAyat, sha, NET4G, openSearch, withoutAudioMeta } from './helpers.ts';
+import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow, topAyah, pageAyat, sha, NET4G, openSearch } from './helpers.ts';
 import { t, ACCOUNT_WORDS } from '../../src/core/strings.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -233,7 +233,7 @@ test('TP1-29: reading, settings and language change send no personal data and no
   await page.click('#lang-switch');
   await hydrated(page);
   expect(seen.length).toBeGreaterThan(0);
-  for (const s of withoutAudioMeta(seen)) {
+  for (const s of seen) {
     expect(s.method, s.url).toBe('GET');
     expect(s.body).toBeNull();
     expect(new URL(s.url).search, 'no query string').toMatch(/^(\?astro-retry=\d+)?$/);

@@ -252,21 +252,50 @@ test('AU-07 (AC7, AC8, P-2, AC46): automatic scrolling follows the ayah, pauses 
   await noOverflow(page);
 });
 
-test('AU-08 (AC28): Media Session title is the surah name and ayah, artist the reciter; next and previous move by ayah', async ({ page }) => {
+test('AU-08 (AC28, kit v24 report): the lock-screen title follows every ayah, also from timeupdate alone; the controls are previous and next ayah, not 10-second skips', async ({ page }) => {
+  // Records the handlers the page sets, so the lock-screen buttons can be pressed from the test.
+  await page.addInitScript(() => {
+    const w = window as unknown as { __h: Record<string, ((d: unknown) => void) | null> };
+    w.__h = {};
+    const orig = MediaSession.prototype.setActionHandler;
+    MediaSession.prototype.setActionHandler = function (this: MediaSession, a: MediaSessionAction, h: MediaSessionActionHandler | null) { w.__h[a] = h as never; return orig.call(this, a, h); };
+  });
   await serveAudio(page);
   await page.goto('/en/2/');
   await hydrated(page);
   await playSurah(page);
-  await seekTo(page, 9 * STEP + 1000);
-  await expect.poll(() => marked(page)).toEqual([10]);
-  const md = await page.evaluate(() => ({ title: navigator.mediaSession.metadata?.title, artist: navigator.mediaSession.metadata?.artist }));
-  expect(md).toEqual({ title: t('en', 'audioMediaTitle', { name: surahs[1].en, a: 10 }), artist: MOCK_RECITER_NAMES[7] });
-  await page.click('[data-next-ayah]');
+  const md = () => page.evaluate(() => ({ title: navigator.mediaSession.metadata?.title, artist: navigator.mediaSession.metadata?.artist }));
+  const want = (a: number) => ({ title: t('en', 'audioMediaTitle', { name: surahs[1].en, a }), artist: MOCK_RECITER_NAMES[7] });
+  // Every ayah change updates the title (Hamzeh saw "ayah 2" stay on the lock screen).
+  for (const a of [2, 3, 5, 10]) {
+    await seekTo(page, (a - 1) * STEP + 1000);
+    await expect.poll(md, { timeout: 3000 }).toEqual(want(a));
+  }
+  // A title that was lost or replaced is put back by the next timeupdate (as with the screen locked).
+  await page.evaluate(() => { navigator.mediaSession.metadata = new MediaMetadata({ title: 'stale', artist: 'stale' }); });
+  await expect.poll(md, { timeout: 3000 }).toEqual(want(10));
+  // AC28: previous and next ayah are set; the 10-second skip handlers are cleared.
+  const kinds = await page.evaluate(() => Object.fromEntries(Object.entries((window as unknown as { __h: Record<string, unknown> }).__h).map(([k, v]) => [k, v === null ? 'null' : typeof v])));
+  expect(kinds).toMatchObject({ previoustrack: 'function', nexttrack: 'function', seekbackward: 'null', seekforward: 'null', play: 'function', pause: 'function' });
+  const press = (a: string) => page.evaluate((x) => (window as unknown as { __h: Record<string, (d: unknown) => void> }).__h[x]({ action: x }), a);
+  await press('nexttrack');
   await expect.poll(() => marked(page)).toEqual([11]);
-  await page.click('[data-prev-ayah]');
-  await page.click('[data-prev-ayah]');
+  await expect.poll(md).toEqual(want(11));
+  await press('previoustrack');
+  await press('previoustrack');
   await expect.poll(() => marked(page)).toEqual([9]);
+  await expect.poll(md).toEqual(want(9));
   expect((await audioState(page)).t).toBeLessThan(8 * STEP + 1500);
+  // The player's own buttons do the same.
+  await page.click('[data-next-ayah]');
+  await expect.poll(() => marked(page)).toEqual([10]);
+  // After a stop, the lock-screen next button starts nothing.
+  await page.evaluate(() => (window as unknown as { __h: Record<string, (d: unknown) => void> }).__h.stop({ action: 'stop' }));
+  await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
+  await press('nexttrack');
+  await page.waitForTimeout(500);
+  expect((await audioState(page)).paused).toBe(true);
+  expect(await marked(page)).toEqual([]);
 });
 
 test('AU-09 (AC39, AC41, AC42, AC45): policy on reader pages only; 44 px targets 8 px apart; mark not by colour alone; RTL icons', async ({ page, request }) => {
@@ -435,12 +464,13 @@ test('AU-15 (QA FIND-1, FIND-4): the reciter and source disclosure is named and 
     await page.goto(lang === 'en' ? '/en/2/' : '/2/');
     await hydrated(page);
     const sum = page.locator('[data-audio-more] summary');
-    await expect(sum).toHaveAttribute('aria-label', t(lang, 'audioMoreLabel'));
-    await expect(sum).toContainText(t(lang, 'audioMoreLabel'));
+    // Named by its visible text (no aria-label hiding the reciter's name), starting with the label.
+    expect(await sum.getAttribute('aria-label')).toBeNull();
+    await expect(sum).toHaveAccessibleName(new RegExp(`^${esc(t(lang, 'audioMoreLabel'))}`));
     const marker = () => sum.evaluate((x) => { const m = getComputedStyle(x, '::before'); return { w: parseFloat(m.width), t: m.transform }; });
     const closed = await marker();
     expect(closed.w).toBeGreaterThan(0);
-    // The credit is outside the disclosure, visible while it is closed (AC38).
+    // The credit is outside the disclosure, visible while it is closed (AC31).
     await expect(page.locator('[data-audio-credit]')).toBeVisible();
     await expect(page.locator('[data-audio-credit]')).toHaveText(t(lang, 'audioCredit'));
     await sum.click();
@@ -454,7 +484,7 @@ test('AU-15 (QA FIND-1, FIND-4): the reciter and source disclosure is named and 
   }
 });
 
-test('AU-16 (QA RISK-2): metadata is fetched at the first interaction, never sound; the tap then sets the address and plays inside the tap; no play() without an address', async ({ page, seen }) => {
+test('AU-16 (AC3, AC26, QA RISK-2): keys and scrolling request nothing; the first tap unlocks the element inside the tap; later taps play inside the tap', async ({ page, seen }) => {
   await page.addInitScript(() => {
     const w = window as unknown as { __plays: { src: string | null; ev: string }[] };
     w.__plays = [];
@@ -465,22 +495,33 @@ test('AU-16 (QA RISK-2): metadata is fetched at the first interaction, never sou
   await serveAudio(page, hits);
   await page.goto('/en/2/');
   await hydrated(page);
-  await page.waitForTimeout(300);
-  expect(seen.filter((x) => x.url.includes('/api/audio'))).toEqual([]);
-  // A first interaction that is not play (a key press): metadata only.
+  // AC3: reading, key presses, pointer presses and scrolling request no audio metadata and no file.
   await page.keyboard.press('Shift');
-  await expect.poll(() => seen.filter((x) => /\/api\/audio$/.test(new URL(x.url).pathname)).length).toBe(1);
-  expect(seen.filter((x) => x.url.includes('/api/audio/reciters')).length).toBe(1);
+  await page.locator('p.ayah[data-r="2:1"]').click(); // a press on the Quran text, not a control
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(500);
+  expect(seen.filter((x) => x.url.includes('/api/audio'))).toEqual([]);
   expect(hits).toEqual([]);
-  expect(await page.$eval('audio[data-audio]', (e) => e.getAttribute('src'))).toBeNull();
-  await page.click('[data-play-surah]');
+  const plays = () => page.evaluate(() => (window as unknown as { __plays: { src: string | null; ev: string }[] }).__plays);
+  // First tap: play() is called inside the tap at once, before the address is known (the iOS
+  // unlock that worked on Hamzeh's iPhone with kit v24); then the file plays.
+  await page.click('button.ap[data-ap="3"]');
   await expect.poll(async () => { const a = await audioState(page); return !a.paused && a.ready >= 3; }).toBe(true);
-  const plays = await page.evaluate(() => (window as unknown as { __plays: { src: string | null; ev: string }[] }).__plays);
-  expect(plays.length).toBeGreaterThan(0);
-  expect(plays.every((p) => !!p.src), 'no play() on an element with no address').toBe(true);
-  expect(plays[0].ev, 'the first play() runs inside the tap').toBe('click');
-  // The tap did not ask again: one reciter list and one address request in all.
+  const first = await plays();
+  expect(first[0], 'the first play() runs inside the tap').toEqual({ src: null, ev: 'click' });
+  expect(first.some((p) => !!p.src)).toBe(true);
+  // A later tap: the address is known, so play() with the address runs inside the tap, and no
+  // second unlock call is made.
+  const n0 = first.length;
+  await page.click('button.ap[data-ap="6"]');
+  await expect.poll(() => marked(page)).toEqual([6]);
+  const later = (await plays()).slice(n0);
+  expect(later.length).toBeGreaterThan(0);
+  expect(later[0].ev, 'later play() runs inside the tap').toBe('click');
+  expect(later.every((p) => !!p.src), 'no unlock call once the address is set').toBe(true);
+  // One reciter list and one address request in all.
   expect(seen.filter((x) => /\/api\/audio$/.test(new URL(x.url).pathname)).length).toBe(1);
+  expect(seen.filter((x) => x.url.includes('/api/audio/reciters')).length).toBe(1);
 });
 
 test('AU-17 (QA FIND-9): a reciter refused by /api/audio refreshes the list, says which reciter is used now, and plays', async ({ page }) => {
@@ -504,4 +545,73 @@ test('AU-17 (QA FIND-9): a reciter refused by /api/audio refreshes the list, say
   await expect.poll(async () => (await audioState(page)).src).toContain('/97/2.mp3');
   await expect(page.locator('[data-play-surah], [data-audio-dead]')).toHaveCount(0);
   await expect(page.locator('[data-audio-status]')).not.toContainText(t('en', 'audioNoSurah'));
+});
+
+test('AU-18 (AC24, P-5, kit v24 report [timeout-stalled]): stalled and waiting events during playback do not stop it; only no progress for 15 s does', async ({ page }) => {
+  test.setTimeout(120_000);
+  await serveAudio(page);
+  await page.goto('/en/2/');
+  await hydrated(page);
+  await playSurah(page);
+  await seekTo(page, 3 * STEP + 1000);
+  await expect.poll(() => marked(page)).toEqual([4]);
+  const t0 = (await audioState(page)).t;
+  // As Safari and Chromium do on large files: 'stalled' (and 'waiting') while playback continues.
+  const fire = () => page.evaluate(() => { const a = document.querySelector('audio[data-audio]')!; a.dispatchEvent(new Event('stalled')); a.dispatchEvent(new Event('waiting')); });
+  await fire();
+  for (let i = 0; i < 4; i++) { await page.waitForTimeout(4500); await fire(); }
+  await page.waitForTimeout(1500); // 19.5 s after the first 'stalled', more than the 15 s limit
+  const st = await audioState(page);
+  expect(st.paused, 'still playing').toBe(false);
+  expect(st.t - t0, 'and moving').toBeGreaterThan(15000);
+  await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'surah');
+  await expect(page.locator('[data-audio-status]')).toHaveAttribute('data-reason', '');
+  await expect(page.locator('[data-audio-status]')).toHaveText('');
+  // Pausing for longer than 15 s is not a stall either.
+  await page.click('[data-pause]');
+  await expect.poll(async () => (await audioState(page)).paused).toBe(true);
+  await page.waitForTimeout(16000);
+  await expect(page.locator('[data-audio-status]')).toHaveAttribute('data-reason', '');
+  await page.click('[data-pause]');
+  await expect.poll(async () => (await audioState(page)).paused).toBe(false);
+});
+
+test('AU-19 (AC24, P-5): when the file really stops arriving, playback gives up 15 s after the position stops, with the message, and the mark stays', async ({ page }) => {
+  test.setTimeout(150_000);
+  // The host answers only up to the 250th second of surah 2's file; a request for anything after
+  // that is never answered (the data has stopped). Playback starts at ayah 47 (230 s).
+  const LIMIT = 44 + 250 * 4000;
+  const pending: Route[] = [];
+  await page.context().route(`https://${AUDIO_HOST}/**`, async (route: Route) => {
+    const body = wav(2);
+    const a = Number(/bytes=(\d+)-/.exec(route.request().headers()['range'] ?? '')?.[1] ?? 0);
+    if (a >= LIMIT) { pending.push(route); return; }
+    const z = LIMIT - 1;
+    return route.fulfill({ status: 206, body: body.subarray(a, z + 1), headers: { 'content-type': 'audio/wav', 'accept-ranges': 'bytes', 'content-range': `bytes ${a}-${z}/${body.length}` } });
+  });
+  await page.goto('/en/2/');
+  await hydrated(page);
+  await page.click('button.apf[data-apf="47"]');
+  await expect.poll(async () => (await audioState(page)).t, { timeout: 20000 }).toBeGreaterThan(46 * STEP + 1000);
+  expect(await marked(page)).toEqual([47]);
+  // Plays to about 250 s, then the position stops; 15 s later it gives up. Track when it last moved.
+  let last = -1, movedAt = Date.now();
+  const status = page.locator('[data-audio-status]');
+  while ((await status.getAttribute('data-reason')) !== 'timeout-stalled') {
+    const a = await audioState(page);
+    // Only movement while playing counts (the give-up pauses the element, which can move it a little).
+    if (!a.paused && a.t !== last) { last = a.t; movedAt = Date.now(); }
+    expect(Date.now() - movedAt, 'gave up too late').toBeLessThan(20000);
+    await page.waitForTimeout(200);
+  }
+  const quiet = Date.now() - movedAt;
+  expect(quiet, 'not before 15 s without movement').toBeGreaterThanOrEqual(14000);
+  await expect(status).toHaveText(`${t('en', 'audioUnavailable')} [timeout-stalled]`);
+  const end = (await audioState(page)).t;
+  expect(end).toBeGreaterThan(48 * STEP);
+  expect(end).toBeLessThanOrEqual(250_500);
+  await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
+  expect((await marked(page)).length, 'AC24: the mark stays on the ayah being played').toBe(1);
+  expect((await audioState(page)).paused).toBe(true);
+  for (const r of pending) await r.abort().catch(() => undefined);
 });

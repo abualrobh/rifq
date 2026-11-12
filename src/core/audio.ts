@@ -172,3 +172,32 @@ export function ayahAt(tm: [number, number][], ms: number): number {
   if (best < 0) return 0;
   return ms < tm[best][1] || (best + 1 < tm.length && ms < tm[best + 1][0]) ? best + 1 : 0;
 }
+
+// Stall give-up (AC24, P-5), after kit v24 stopped Al-Baqarah at ayah 5 with [timeout-stalled]:
+// the browser fires 'stalled' and 'waiting' during healthy playback of a large file, and v24 gave up
+// 15 s after such an event unless 'playing' followed. Now the only test is progress: playback gives
+// up when the position has not moved for `ms` while the element is meant to be playing (`live`).
+// watch() starts the clock if it is not running (it never extends a running one, so repeated
+// 'stalled' events cannot keep a dead file alive); progress() restarts it whenever the position has
+// moved; stop() ends it (pause, stop, end). When the clock runs out, the position is read once more:
+// if it moved (for example timeupdate was held back while the page was in the background), the
+// clock restarts instead of giving up.
+export type Timers = { set: (f: () => void, ms: number) => unknown; clear: (id: unknown) => void };
+export function stallWatch(o: { ms: number; pos: () => number; live: () => boolean; giveUp: () => void; timers?: Timers }) {
+  const tm: Timers = o.timers ?? { set: (f, ms) => setTimeout(f, ms), clear: (id) => clearTimeout(id as ReturnType<typeof setTimeout>) };
+  let id: unknown = null;
+  let at = NaN;
+  const arm = () => { if (id !== null) tm.clear(id); at = o.pos(); id = tm.set(fire, o.ms); };
+  function fire() {
+    id = null;
+    if (!o.live()) return;
+    if (o.pos() !== at) { arm(); return; }
+    o.giveUp();
+  }
+  return {
+    watch() { if (id === null && o.live()) arm(); },
+    progress() { if (id !== null && o.pos() !== at) arm(); },
+    stop() { if (id !== null) tm.clear(id); id = null; },
+    get running() { return id !== null; },
+  };
+}

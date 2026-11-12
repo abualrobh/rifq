@@ -3,7 +3,7 @@
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { test, expect, surahs, N, MOBILE, DESKTOP, BUILD, hydrated, noOverflow, logRemoval, withoutAudioMeta } from './helpers.ts';
+import { test, expect, surahs, N, MOBILE, DESKTOP, BUILD, hydrated, noOverflow, logRemoval } from './helpers.ts';
 import { t, ACCOUNT_WORDS } from '../../src/core/strings.ts';
 
 const KEY = 'rifq.saves';
@@ -136,7 +136,7 @@ test('TP3-16: bookmarks and last position are never sent to a server', async ({ 
   await page.goto('/');
   await hydrated(page);
   await page.click('[data-continue]');
-  for (const s of withoutAudioMeta(seen)) {
+  for (const s of seen) {
     expect(s.method).toBe('GET');
     expect(s.body).toBeNull();
     expect(new URL(s.url).search).toMatch(/^(\?astro-retry=\d+)?$/);
