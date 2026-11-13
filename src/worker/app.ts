@@ -22,12 +22,14 @@ import { renderPage, type PageCfg } from './page.ts';
 import { makeVerify, type VerifyHashes } from './verify.ts';
 import { makeQuoteCheck, type LettersQuran } from './quote-check.ts';
 import { makeReciters, RECITERS_PATH } from './reciters.ts';
+import { AUDIO_LIMIT_PER_MINUTE, makeAudio, type AudioRecord } from './audio.ts';
+import { AUDIO_ORIGIN } from '../core/audio.ts';
 import { CATALOGUE_PATH, SHAPE_PATH, makeTafseer, TAFSEER_LIMIT_PER_MINUTE, type TafseerCfg, type TafseerEnv } from './tafseer.ts';
 
 // testMemoryLimits: unit tests only. It lets tests that pass no binding use per-isolate counters
 // (serverLimit, tafseerLimit). scripts/build.ts never sets it, so deployed builds have no fallback.
-export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; testMemoryLimits?: boolean; verifyHashes?: VerifyHashes | null; lettersQuran?: LettersQuran | null };
-export type Env = GateEnv & TafseerEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit; TAFSEER_LIMIT?: RateLimit };
+export type WorkerCfg = PageCfg & TafseerCfg & { serverLimit?: number; gate?: boolean; assetHeaders?: Record<string, string>; tafseer?: boolean; tafseerLimit?: number; testMemoryLimits?: boolean; verifyHashes?: VerifyHashes | null; lettersQuran?: LettersQuran | null; audio?: boolean; audioLimit?: number; audioRecord?: AudioRecord | null };
+export type Env = GateEnv & TafseerEnv & { ASSETS?: { fetch(r: Request): Promise<Response> }; SEARCH_LIMIT?: RateLimit; AUTH_LIMIT?: RateLimit; TAFSEER_LIMIT?: RateLimit; AUDIO_LIMIT?: RateLimit };
 export type WorkerDeps = Parameters<typeof makeTafseer>[1];
 
 const BASE_HEADERS: Record<string, string> = {
@@ -172,6 +174,9 @@ const MAX_TAFSEER_BODY = 256;
 export const FONT_CHECK_PATH = '/dev/font-check/';
 // Documented in the Font Rendering guide: https://verses.quran.foundation/fonts/quran/...
 export const QF_FONT_ORIGIN = 'https://verses.quran.foundation';
+// RQ-006 AC39: reader pages (/N/ and /en/N/) are the only pages whose policy lists the audio host.
+export const READER_PAGE = /^\/(?:en\/)?\d{1,3}\/?$/;
+const MAX_AUDIO_BODY = 256;
 
 export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDeps = {}) {
   const ix = openIndex(indexBuf);
@@ -181,6 +186,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   const catalogueOn = !!(tafseer && cfg.dev && cfg.gate);
   // RQ-006 preparation (D-110 to D-118): the reciters and timing check page, on the same terms as
   // the catalogue (development builds behind the gate, with the Tafseer client's credentials).
+  // RQ-006: audio metadata routes when the build flag audio is on (src/worker/audio.ts).
+  const audio = cfg.audio ? makeAudio({ dev: cfg.dev, counts: cfg.counts, audioRecord: cfg.audioRecord ?? null }, deps) : null;
+  const auMem = cfg.testMemoryLimits === true ? new MemoryLimiter(cfg.audioLimit ?? AUDIO_LIMIT_PER_MINUTE, WINDOW_MS) : null;
   const reciters = catalogueOn && tafseer ? makeReciters({ dev: cfg.dev, counts: cfg.counts }, { ...deps, client: tafseer.client }) : null;
   // D-081: development builds behind the password gate only.
   const verify = cfg.dev && cfg.gate && cfg.verifyHashes ? makeVerify(cfg.verifyHashes, cfg.dev, deps) : null;
@@ -210,7 +218,24 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
       if (v === 'unavailable') return unavailable();
       if (v === 'limited') return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
-      const c = await reciters.page(env);
+      // Temporary (after the kit v22 report): the checks the player uses, and the AUDIO_LIMIT state.
+      let extra = '';
+      if (audio) {
+        const h = (x: string) => x.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+        const b = env.AUDIO_LIMIT as unknown as { limit?: unknown } | undefined;
+        const binding = b === undefined || b === null ? 'missing (the audio routes answer 503)' : typeof b.limit !== 'function' ? 'present, but it has no limit() (the audio routes answer 503)' : `present; one check now: ${await checkLimit(env.AUDIO_LIMIT, netKey(req), auMem)}`;
+        const d = await audio.diagnose(url.origin, env);
+        const rows = d.reciters.flatMap((r) => r.surahs.length ? r.surahs.map((x) => `<tr data-diag="${r.id}:${x.s}" data-ok="${x.ok ? 'yes' : 'no'}"><td>${r.id}</td><td>${h(Array.isArray(r.catalogue) ? (r.catalogue.join('; ') || 'passes') : r.catalogue)}</td><td>${x.s}</td><td>${x.ok ? 'passes' : '<strong>fails</strong>'}</td><td>${h(x.problems.join('; '))}</td><td>${x.negatives}</td><td data-last-vs-duration>${x.shape ? h(`last ${JSON.stringify(x.shape.last)}; duration ${JSON.stringify(x.shape.duration)}; last end minus duration ${x.shape.lastEndMinusDuration ?? 'n/a'} ms`) : ''}</td><td data-url-path>${x.shape ? h(`${x.shape.urlPath ?? 'none'}${x.shape.urlHasQuery ? ' (has a query string, not shown)' : ''}`) : ''}</td></tr>`) : [`<tr data-diag="${r.id}"><td>${r.id}</td><td>${h(Array.isArray(r.catalogue) ? r.catalogue.join('; ') : r.catalogue)}</td><td colspan="4"></td></tr>`]).join('');
+        extra = `<section aria-labelledby="pc"><h2 id="pc">Player check (RQ-006, temporary)</h2>
+<p>The same checks the reader page player uses (AC59 catalogue, AC12/AC60 timings, AC61 file, approved host), run fresh on this page load.</p>
+<p>AUDIO_LIMIT binding: <strong data-audio-limit>${h(binding)}</strong>.</p>
+<p>Settings: ${h(d.config)}. Offered to the player now: <strong data-offered>${h(Array.isArray(d.offered) ? (d.offered.join(', ') || 'none') : d.offered)}</strong>.</p>
+<table data-diag-table><thead><tr><th scope="col">ID</th><th scope="col">Catalogue (AC59)</th><th scope="col">Surah</th><th scope="col">Result</th><th scope="col">Problems</th><th scope="col">Negative durations</th><th scope="col">Last [from, to] vs duration</th><th scope="col">Address path ({s} = surah)</th></tr></thead><tbody>${rows}</tbody></table>
+<h3>Record shape (D-125 B)</h3>
+<p>Copy this block for the test fixtures. It holds types, counts, the first and last timing, and the address path only: no query string, no Quran text, no word segments, no audio.</p>
+<pre data-record-shape>${h(JSON.stringify({ env: d.config, reciters: d.reciters.map((r) => ({ id: r.id, catalogue: r.catalogue, surahs: r.surahs.map((x) => ({ s: x.s, ok: x.ok, problems: x.problems, negatives: x.negatives, shape: x.shape ?? null })) })) }, null, 1))}</pre></section>`;
+      }
+      const c = await reciters.page(env, extra);
       return html(c.status, c.html);
     }
     if (catalogueOn && tafseer && (pathname === SHAPE_PATH || pathname === SHAPE_PATH.slice(0, -1))) {
@@ -230,6 +255,10 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
         // from Quran Foundation's documented font address.
         if (cfg.dev && (pathname === FONT_CHECK_PATH || pathname === FONT_CHECK_PATH.slice(0, -1))) {
           const csp = (assetHeaders['Content-Security-Policy'] ?? '').replace("font-src 'self'", `font-src 'self' ${QF_FONT_ORIGIN}`);
+          return withHeaders(r, { ...assetHeaders, 'Content-Security-Policy': csp });
+        }
+        if (audio && READER_PAGE.test(pathname)) {
+          const csp = `${assetHeaders['Content-Security-Policy'] ?? ''}; media-src ${AUDIO_ORIGIN}`;
           return withHeaders(r, { ...assetHeaders, 'Content-Security-Policy': csp });
         }
         return withHeaders(r, assetHeaders);
@@ -260,6 +289,19 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       let s = 0;
       try { s = typeof raw === 'string' ? Number((JSON.parse(raw) as { s?: unknown }).s) : 0; } catch { s = 0; }
       const out = await verify.surah(env, s);
+      return json(out.status, out.data);
+    }
+    if ((pathname === '/api/audio' || pathname === '/api/audio/reciters') && audio) {
+      if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
+      if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
+      if (crossSite(req)) return json(403, { status: 'cross_site' });
+      const v = await checkLimit(env.AUDIO_LIMIT, netKey(req), auMem);
+      if (v === 'unavailable') return json(503, { status: 'unavailable' }, { 'retry-after': '60' });
+      if (v === 'limited') return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const raw = await readCapped(req, MAX_AUDIO_BODY);
+      if (raw === 'bad_length') return json(400, { status: 'bad_length' });
+      if (raw === null) return json(413, { status: 'too_long' });
+      const out = pathname === '/api/audio' ? await audio.file(url.origin, raw, env) : await audio.reciters(url.origin, raw, env);
       return json(out.status, out.data);
     }
     if (pathname === '/api/tafseer' && tafseer) {

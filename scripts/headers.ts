@@ -48,7 +48,23 @@ export function buildPolicy(scripts: Iterable<string>, styles: Iterable<string>)
   ].join('; ');
 }
 
-export function writeHeaders(siteDir: string) {
+// RQ-006 AC39: the reader page policy adds media-src for the approved audio host only.
+export const readerPolicy = (csp: string, audioOrigin: string) => `${csp}; media-src ${audioOrigin}`;
+const READER_DIR = /^\/(?:en\/)?\d{1,3}\/$/;
+
+// _headers rules that give reader pages (/N/ and /en/N/) the reader policy. The file allows at most
+// 100 rules, so the 228 reader pages are matched by the placeholders /:p/ and /en/:p/, and every
+// other built page those placeholders would also match (such as /en/ or /privacy/) gets the base
+// policy back. "! Name" removes the header set by an earlier rule. A path that is not built (a 404
+// answer) under /:p/ keeps the reader policy; no page there has a player.
+export function readerRules(pages: string[], csp: string, audioOrigin: string): string {
+  const reader = readerPolicy(csp, audioOrigin);
+  const clash = pages.filter((p) => !READER_DIR.test(p) && (/^\/[^/]+\/$/.test(p) || /^\/en\/[^/]+\/$/.test(p))).sort();
+  const rule = (path: string, value: string) => `${path}\n  ! Content-Security-Policy\n  Content-Security-Policy: ${value}\n`;
+  return rule('/:p/', reader) + rule('/en/:p/', reader) + clash.map((p) => rule(p, csp)).join('');
+}
+
+export function writeHeaders(siteDir: string, opts: { audioOrigin?: string } = {}) {
   const scripts = new Set<string>(), styles = new Set<string>();
   const problems: string[] = [];
   for (const f of htmlFiles(siteDir)) {
@@ -60,7 +76,11 @@ export function writeHeaders(siteDir: string) {
   if (problems.length) throw new Error('CSP check failed:\n' + problems.slice(0, 20).join('\n'));
   const csp = buildPolicy(scripts, styles);
   const headers = assetHeaderMap(csp);
-  const body = '/*\n' + Object.entries(headers).map(([k, v]) => `  ${k}: ${v}\n`).join('');
+  let body = '/*\n' + Object.entries(headers).map(([k, v]) => `  ${k}: ${v}\n`).join('');
+  if (opts.audioOrigin) {
+    const pages = htmlFiles(siteDir).map((f) => f.slice(siteDir.length).replace(/index\.html$/, '')).filter((p) => p.endsWith('/'));
+    body += readerRules(pages, csp, opts.audioOrigin);
+  }
   writeFileSync(join(siteDir, '_headers'), body);
   return { csp, headers, scripts: scripts.size, styles: styles.size };
 }

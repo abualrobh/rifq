@@ -115,3 +115,32 @@ test('/dev/reciters/ is behind the gate, and without Quran Foundation settings i
   await expect(page.locator('.banner')).toContainText('DEVELOPMENT PAGE');
   expect(await page.locator('script').count()).toBe(0);
 });
+
+test('RQ-006: the audio routes are behind the gate, and reader pages carry media-src for the audio host only', async ({ request, baseURL }) => {
+  for (const p of ['/api/audio', '/api/audio/reciters']) {
+    const r = await fetch(baseURL + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"r":7,"s":1}' });
+    expect(r.status, p).toBe(401);
+    await r.arrayBuffer();
+  }
+  // Signed in, without Quran Foundation settings: a plain not-configured answer, no detail.
+  const r = await request.post('/api/audio', { data: { r: 7, s: 1 } });
+  expect(r.status()).toBe(503);
+  expect(await r.json()).toEqual({ status: 'not_configured' });
+  expect((await request.get('/2/')).headers()['content-security-policy']).toContain('media-src https://download.quranicaudio.com');
+  expect((await request.get('/privacy/')).headers()['content-security-policy']).not.toContain('media-src');
+});
+
+test('the manifest is fetched with the site credentials (use-credentials) and stays behind the gate', async ({ page, request, baseURL }) => {
+  const no = await fetch(baseURL + '/manifest.webmanifest', { redirect: 'manual' });
+  expect(no.status).toBe(401);
+  await no.arrayBuffer();
+  expect((await request.get('/manifest.webmanifest')).status()).toBe(200);
+  const seen: number[] = [];
+  page.on('response', (r) => { if (r.url().endsWith('/manifest.webmanifest')) seen.push(r.status()); });
+  await page.goto('/');
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('crossorigin', 'use-credentials');
+  // The browser's own manifest fetch, credentials included, is let through.
+  const ok = await page.evaluate(async () => (await fetch('/manifest.webmanifest', { credentials: 'include' })).status);
+  expect(ok).toBe(200);
+  expect(seen.every((s) => s === 200)).toBe(true);
+});

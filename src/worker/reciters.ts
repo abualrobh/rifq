@@ -143,7 +143,8 @@ export function makeReciters(cfg: RecitersCfg, deps: Deps = {}) {
     return { ok: false, status: 401, reason: 'not authorised' };
   }
 
-  async function page(env: QfSecrets): Promise<{ status: number; html: string }> {
+  // extra: HTML added at the end of the page (the temporary RQ-006 player-check section).
+  async function page(env: QfSecrets, extra = ''): Promise<{ status: number; html: string }> {
     const h = escapeHtml;
     const head = `<!doctype html>
 <html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DEVELOPMENT PAGE: Reciters and timing - RIFQ</title><link rel="stylesheet" href="/rifq-basic.css"></head>
@@ -205,6 +206,7 @@ ${listTable}
 <h2>Ayah-by-ayah recitations (<code>${RECITATIONS_PATH}</code>)${recitations ? `: ${recitations.length}` : ''}</h2>
 <p>These IDs are a different list from the chapter-reciter IDs and are not used for surah audio.</p>
 ${recTable}
+${extra}
 ${foot}` };
   }
 

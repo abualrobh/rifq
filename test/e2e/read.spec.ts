@@ -285,7 +285,12 @@ test('TP1-38 (automated part): reduced motion respected; no media, sound or noti
   for (const p of ['/', '/2/']) {
     await page.goto(p);
     await hydrated(page);
-    expect(await page.locator('audio, video, iframe').count()).toBe(0);
+    // RQ-006: reader pages have the player's one audio element, which loads and plays nothing until
+    // the reader chooses play (AC3); no other media and no frame on any page.
+    expect(await page.locator('video, iframe, audio:not([data-audio])').count()).toBe(0);
+    for (const a of await page.locator('audio[data-audio]').all()) {
+      expect(await a.evaluate((e) => [(e as HTMLAudioElement).preload, e.getAttribute('src'), (e as HTMLAudioElement).paused])).toEqual(['none', null, true]);
+    }
     expect(await page.evaluate(() => (window as any).__notif)).toBe(0);
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior)).not.toBe('smooth');
   }

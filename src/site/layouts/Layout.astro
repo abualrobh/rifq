@@ -17,7 +17,9 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
     <title>{title}</title>
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Browsers fetch the manifest without credentials unless asked; use-credentials sends the
+         test site's Basic auth with it, so the gate stays closed to everyone else. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <!-- D-069: the Quran font is fetched early. crossorigin is required for font preloads, even on
          the same origin; anonymous mode still sends same-origin credentials (the test site gate). -->

@@ -30,7 +30,7 @@ export const CASE = {
 export const OPEN = '\ufd3f', CLOSE = '\ufd3e';
 
 type Quran = { list: { sora: number; aya_no: number; aya_text: string }[] };
-type Opts = { quran?: Quran; expiresIn?: number; slowMs?: number; now?: () => number; noAudioScope?: boolean; counts?: number[] };
+type Opts = { quran?: Quran; expiresIn?: number; slowMs?: number; now?: () => number; noAudioScope?: boolean; arCatalogueFails?: boolean; audioHang?: (id: number, s: number) => boolean; audioDown?: (id: number, s: number) => boolean; emptyCatalogue?: () => boolean; counts?: number[]; audioOverride?: (id: number, s: number, file: Record<string, unknown>) => Record<string, unknown> };
 
 // The ayah text without the no-break space and number stored at its end (D-068).
 export function bareAyah(t: string): string { return t.replace(/\u00a0[\u0660-\u0669\u06f0-\u06f90-9]+$/u, ''); }
@@ -104,7 +104,19 @@ const LIST = [
 const err = (status: number, type: string) => new Response(JSON.stringify({ message: `mock ${type}`, type, success: false }), { status, headers: { 'content-type': 'application/json' } });
 // RQ-006 mock data. The IDs match D-111 so the page's chosen rows can be tested; names are made up.
 export const AUDIO_CASE = { full: 7, incomplete: 2, noTimestamps: 6, forbidden: 9, notInPrelive: 4, signed: 97, negative: 161, notListed: 161 } as const;
-export const RECITERS = [7, 2, 6, 9, 4, 97, 1].map((id) => ({ id, reciter_id: 500 + id, name: `MOCK Reciter ${id}${id === 1 ? ' <b>x</b>' : ''}`, beta: false, style: { name: 'Murattal', language_name: 'english' }, qirat: { name: 'Hafs', language_name: 'english' }, translated_name: { name: `MOCK Reciter ${id}`, language_name: 'english' } }));
+// Names carry the D-111 surname part RIFQ looks for (src/core/audio.ts), so the offered-reciter
+// rules can be tested; everything else about them is made up.
+export const MOCK_RECITER_NAMES: Record<number, string> = { 7: 'MOCK Afasy', 2: 'MOCK Abdul Basit', 6: 'MOCK Husary', 9: 'MOCK Minshawi', 4: 'MOCK Shatri', 97: 'MOCK Dossari', 1: 'MOCK Reciter 1 <b>x</b>' };
+export const RECITERS = [7, 2, 6, 9, 4, 97, 1].map((id) => ({ id, reciter_id: 500 + id, name: MOCK_RECITER_NAMES[id], beta: false, style: { name: 'Murattal', language_name: 'english' }, qirat: { name: 'Hafs', language_name: 'english' }, translated_name: { name: MOCK_RECITER_NAMES[id], language_name: 'english' } }));
+// Arabic-language catalogue values: a made-up name per ID (letters plus the ID digits), and Arabic
+// words for the style and riwayah, as code points.
+export const AR_WORD = (id: number) => String.fromCodePoint(0x645, 0x642, 0x631, 0x626) + ' ' + id;
+export const AR_STYLE = String.fromCodePoint(0x645, 0x631, 0x62a, 0x644);
+export const AR_QIRAT = String.fromCodePoint(0x62d, 0x641, 0x635);
+// Mock audio files: 128 kbit/s, on the approved host. The e2e tests answer these addresses with a
+// made-up silent file through Playwright, so no request leaves the machine.
+export const MOCK_AUDIO_PATH = '/mock-rifq-test';
+export const mockAudioUrl = (id: number, s: number) => `https://download.quranicaudio.com${MOCK_AUDIO_PATH}/${id}/${s}.mp3`;
 export const RECITATIONS = [{ id: 1, reciter_name: 'MOCK Recitation One', style: 'Murattal', translated_name: { name: 'MOCK One', language_name: 'english' } }, { id: 2, reciter_name: 'MOCK Recitation Two', style: 'Mujawwad', translated_name: { name: 'MOCK Two', language_name: 'english' } }];
 const ok = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
 
@@ -114,7 +126,7 @@ export function createMockQf(opts: Opts = {}) {
   const tokenScope = new Map<string, string>();
   const state = {
     mode: 'normal' as 'normal' | 'down' | 'rate',
-    tokenRequests: 0, contentRequests: 0, listRequests: 0,
+    tokenRequests: 0, contentRequests: 0, listRequests: 0, audioRequests: 0,
     tokenBodies: [] as string[],
     contentHeaderNames: [] as string[][],
     paths: [] as string[],
@@ -135,8 +147,12 @@ export function createMockQf(opts: Opts = {}) {
     }));
     if (id === AUDIO_CASE.incomplete && s === 2) ts = ts.slice(0, -1);
     if (id === AUDIO_CASE.negative) ts[0] = { ...ts[0], duration: -1 };
-    const url = id === AUDIO_CASE.signed ? `https://audio.mock.invalid/${id}/${s}.mp3?token=MOCK_SIGNATURE&expires=1` : `https://audio.mock.invalid/${id}/${s}.mp3`;
-    return ok({ audio_file: { id: id * 1000 + s, chapter_id: s, file_size: 1000 + n, format: 'mp3', audio_url: url, duration: id === AUDIO_CASE.negative ? null : n * 5000, ...(id === AUDIO_CASE.noTimestamps ? {} : { timestamps: ts }) } });
+    const url = id === AUDIO_CASE.signed ? `${mockAudioUrl(id, s)}?token=MOCK_SIGNATURE&expires=1` : mockAudioUrl(id, s);
+    // As the real pre-live API does (kit v23 finding): timestamps only with segments=true. Before
+    // kit v24 this mock returned them always, which hid the missing parameter in the Worker.
+    const file: Record<string, unknown> = { id: id * 1000 + s, chapter_id: s, file_size: n * 5000 * 16, format: 'mp3', audio_url: url, duration: id === AUDIO_CASE.negative ? null : n * 5000, ...(id === AUDIO_CASE.noTimestamps || !segments ? {} : { timestamps: ts }) };
+    state.audioRequests++;
+    return ok({ audio_file: opts.audioOverride ? opts.audioOverride(id, s, file) : file });
   }
 
   async function handle(req: Request): Promise<Response> {
@@ -198,9 +214,15 @@ export function createMockQf(opts: Opts = {}) {
     if (path === '/resources/tafsirs') { state.listRequests++; return ok({ tafsirs: LIST }); }
     // RQ-006 /dev/reciters/ checks. Made-up names; the IDs are the D-111 IDs so the page's chosen
     // list can be tested, and each one shows a different case (see AUDIO_CASE).
-    if (path === '/resources/chapter_reciters') return ok({ reciters: RECITERS });
+    // With language=ar the mock answers as QF may: style, qirat, name and translated name in Arabic
+    // (made-up words written as code points; only strings.ts may hold Arabic characters).
+    if (path === '/resources/chapter_reciters' && opts.emptyCatalogue?.()) return ok({ reciters: [] });
+    if (path === '/resources/chapter_reciters' && opts.arCatalogueFails && u.searchParams.get('language') === 'ar') return err(503, 'service_unavailable');
+    if (path === '/resources/chapter_reciters') return ok({ reciters: u.searchParams.get('language') === 'ar' ? RECITERS.map((r) => ({ ...r, name: AR_WORD(r.id), style: { name: AR_STYLE, language_name: 'arabic' }, qirat: { name: AR_QIRAT, language_name: 'arabic' }, translated_name: { name: AR_WORD(r.id), language_name: 'arabic' } })) : RECITERS });
     if (path === '/resources/recitations') return ok({ recitations: RECITATIONS });
     const am = /^\/chapter_recitations\/(\d+)\/(\d+)$/.exec(path);
+    if (am && opts.audioHang?.(Number(am[1]), Number(am[2]))) return new Promise<Response>(() => undefined);
+    if (am && opts.audioDown?.(Number(am[1]), Number(am[2]))) return err(503, 'service_unavailable');
     if (am) return audioFile(Number(am[1]), Number(am[2]), u.searchParams.get('segments') === 'true');
     let m = /^\/tafsirs\/(\d+)\/by_ayah\/(\d+):(\d+)$/.exec(path);
     if (m) {

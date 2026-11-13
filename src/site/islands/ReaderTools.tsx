@@ -105,6 +105,9 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
     let iv = 0;
     const tick = () => {
       if (document.visibilityState !== 'visible') { since.clear(); return; }
+      // RQ-006 AC50 (D-117 A): while a surah plays, the player saves the playing ayah instead, and
+      // the 3-second rule starts again from zero once playback stops.
+      if (document.documentElement.dataset.audioFollow === '1') { since.clear(); return; }
       const now = performance.now();
       let best = 0;
       for (const [el, t0] of since) {
