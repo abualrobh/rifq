@@ -269,7 +269,7 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   await page.click('[data-mini-toggle]');
   await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
   await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('data-state', 'paused');
-  await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('aria-label', /^تشغيل التلاوة/);
+  await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('aria-label', t('ar', 'miniPlay', { s: 1, a: Number(await mini(page).getAttribute('data-a')) }));
   // A paused recitation stays paused at the same point across a change (AC62).
   await hop(page, () => page.click('a.index-card'), '/surahs/');
   await page.click('[data-mini-toggle]');

@@ -176,7 +176,7 @@ export function ayahAt(tm: [number, number][], ms: number): number {
   return ms < tm[best][1] || (best + 1 < tm.length && ms < tm[best + 1][0]) ? best + 1 : 0;
 }
 
-// Stall give-up (AC24, P-5), after kit v24 stopped Al-Baqarah at ayah 5 with [timeout-stalled]:
+// Stall give-up (AC24, P-5), after kit v24 stopped surah 2 at ayah 5 with [timeout-stalled]:
 // the browser fires 'stalled' and 'waiting' during healthy playback of a large file, and v24 gave up
 // 15 s after such an event unless 'playing' followed. Now the only test is progress: playback gives
 // up when the position has not moved for `ms` while the element is meant to be playing (`live`).

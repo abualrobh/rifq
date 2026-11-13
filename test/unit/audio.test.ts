@@ -386,7 +386,7 @@ test('QA FIND-7: an empty catalogue is kept 10 minutes, not 7 days', async () =>
   assert.deepEqual((await (await call(w, '/api/audio/reciters', { lang: 'en' })).json()).reciters.map((x: { id: number }) => x.id), [7, 97]);
 });
 
-// Kit v24 report: Al-Baqarah stopped at ayah 5 with [timeout-stalled]. 'stalled' fires on healthy
+// Kit v24 report: surah 2 stopped at ayah 5 with [timeout-stalled]. 'stalled' fires on healthy
 // playback of large files; the give-up must depend on the position not moving, nothing else.
 function fakeClock() {
   let now = 0, next = 1;
