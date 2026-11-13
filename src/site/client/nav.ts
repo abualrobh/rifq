@@ -85,6 +85,7 @@ function onPrep(ev: Event) {
 
 function onBeforeSwap(ev: Event) {
   const e = ev as SwapEvent;
+  holdUnmounts();
   // An automatic (smooth) scroll still running on the old page must not carry on into the new one.
   window.scrollTo({ left: scrollX, top: scrollY, behavior: 'instant' as ScrollBehavior });
   const root = document.documentElement;
@@ -97,6 +98,29 @@ function onBeforeSwap(ev: Event) {
     root.classList.toggle('dark', dark);
     for (const [p, v] of props) root.style.setProperty(p, v);
   };
+}
+
+// An island of the page being left may still be hydrating (React hydrates in a transition, after
+// Astro has already marked the island done). Unmounting a root before its hydration has finished
+// makes React report error #424 (seen in the tests on quick page changes). So the unmount the router
+// asks for is held until that root has finished hydrating, then let through. The root is already
+// out of the page, so nothing shows; its effects end with the unmount a moment later.
+function stillHydrating(el: Element): boolean {
+  const k = Object.keys(el).find((x) => x.startsWith('__reactContainer'));
+  const fiber = k ? (el as unknown as Record<string, { memoizedState?: { isDehydrated?: boolean } } | undefined>)[k] : undefined;
+  return !!fiber?.memoizedState?.isDehydrated;
+}
+function holdUnmounts() {
+  for (const el of document.querySelectorAll('astro-island')) {
+    if ((el as HTMLElement).dataset.rifqHold) continue;
+    (el as HTMLElement).dataset.rifqHold = '1';
+    el.addEventListener('astro:unmount', (e) => {
+      if (!stillHydrating(el)) return;
+      e.stopImmediatePropagation();
+      const retry = () => { if (stillHydrating(el)) setTimeout(retry, 50); else el.dispatchEvent(new CustomEvent('astro:unmount')); };
+      setTimeout(retry, 50);
+    }, { capture: true });
+  }
 }
 
 function onAfterSwap() {

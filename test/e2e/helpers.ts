@@ -41,6 +41,16 @@ type Seen = { url: string; method: string; body: string | null; headers: Record<
 // in full.
 const INPLACE = process.env.RIFQ_INPLACE === '1';
 const AUDIO_HOST_NAME = 'download.quranicaudio.com';
+// Tests whose check is about a full load itself, so in-place mode cannot express it. Each reason
+// says why; each still runs (and passes) in the normal mode.
+const INPLACE_EXEMPT: [string, string][] = [
+  ['PV-01', 'reads the HTTP response of page.goto (headers); an in-place change has no navigation response'],
+  ['PV-04', 'asserts that no other site is contacted; in this mode a recitation plays, so the approved audio host is (AC33)'],
+  ['IX-03', 'asserts GET-only requests; after the language switch the playing recitation asks for the reciter list in the new language (AC74, a POST of {lang} only)'],
+  ['DS-03', 'asserts the font requests; the fonts were already fetched by the first page of the tab'],
+  ['D-069', 'asserts the font requests; the fonts were already fetched by the first page of the tab'],
+  ['NT-02', 'checks the focus ring after a programmatic focus; Chromium shows it only when the last input was not a pointer, and this mode starts playback with a click'],
+];
 async function primeAudio(page: Page, goto: Page['goto']) {
   const { serveAudio } = await import('./audio-helpers.ts');
   await serveAudio(page, () => 3_600_000);
@@ -57,6 +67,8 @@ export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[
   guard: [async ({ page, seen, allowHosts }, use, info) => {
     const errors: string[] = [];
     let primed = false;
+    const exempt = INPLACE ? INPLACE_EXEMPT.find(([id]) => info.title.startsWith(id)) : undefined;
+    info.skip(!!exempt, exempt ? `in-place mode: ${exempt[1]}` : '');
     if (INPLACE && !/(audio|continuity)\.spec/.test(info.file)) {
       const orig = page.goto.bind(page);
       (page as unknown as { goto: (u: string, o?: unknown) => Promise<unknown> }).goto = async (url: string, opts?: unknown) => {

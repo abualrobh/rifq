@@ -249,7 +249,8 @@ for (const lang of ['ar', 'en'] as const) {
       await hydrated(page);
       const names = await page.$$eval('a[href], button, input:not([type=hidden])', (els) => els.filter((e) => !(e as HTMLElement).hidden || e.matches('button.bm')).map((e) => {
         const el = e as HTMLElement;
-        const lab = el.id ? document.querySelector(`label[for="${el.id}"]`)?.textContent : null;
+        // A control's label: a label pointing at it, or the label it sits in (radio choices).
+        const lab = el.id ? document.querySelector(`label[for="${el.id}"]`)?.textContent : el.closest('label')?.textContent ?? null;
         return { id: el.id, cls: el.className, name: (el.getAttribute('aria-label') ?? lab ?? el.textContent ?? '').trim() };
       }));
       for (const n of names) {
