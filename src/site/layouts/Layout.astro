@@ -48,7 +48,7 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
     {/* RQ-006 v1.3: the one audio element of the tab and the mini-player, carried into every page
         changed in place (transition:persist), after the main content and before the footer (P-12). */}
     {inPlace && audioOn && <audio data-audio preload="none" transition:persist="rifq-audio"></audio>}
-    {inPlace && audioOn && <MiniPlayer lang={lang} dev={dev} client:idle transition:persist="rifq-mini" />}
+    {inPlace && audioOn && <MiniPlayer lang={lang} dev={dev} client:idle transition:persist="rifq-mini" transition:persist-props />}
     <footer class="site-footer">
       <details data-source-details>
         <summary>{t(lang, 'source')}</summary>

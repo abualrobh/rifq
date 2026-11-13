@@ -116,7 +116,7 @@ test('/dev/reciters/ is behind the gate, and without Quran Foundation settings i
   expect(await page.locator('script').count()).toBe(0);
 });
 
-test('RQ-006: the audio routes are behind the gate, and reader pages carry media-src for the audio host only', async ({ request, baseURL }) => {
+test('RQ-006: the audio routes are behind the gate, and every reader-facing page carries media-src for the audio host only (AC39 v1.3)', async ({ request, baseURL }) => {
   for (const p of ['/api/audio', '/api/audio/reciters']) {
     const r = await fetch(baseURL + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"r":7,"s":1}' });
     expect(r.status, p).toBe(401);
@@ -127,7 +127,9 @@ test('RQ-006: the audio routes are behind the gate, and reader pages carry media
   expect(r.status()).toBe(503);
   expect(await r.json()).toEqual({ status: 'not_configured' });
   expect((await request.get('/2/')).headers()['content-security-policy']).toContain('media-src https://download.quranicaudio.com');
-  expect((await request.get('/privacy/')).headers()['content-security-policy']).not.toContain('media-src');
+  // AC39 v1.3: every reader-facing page from the Worker too (same value as _headers); /dev/ pages not.
+  for (const p of ['/privacy/', '/', '/en/surahs/', '/tafseer/2/', '/no-such-page/']) expect((await request.get(p)).headers()['content-security-policy'], p).toContain('media-src https://download.quranicaudio.com');
+  for (const p of ['/dev/font-check/', '/dev/verify-text/']) expect((await request.get(p)).headers()['content-security-policy'], p).not.toContain('media-src');
 });
 
 test('the manifest is fetched with the site credentials (use-credentials) and stays behind the gate', async ({ page, request, baseURL }) => {

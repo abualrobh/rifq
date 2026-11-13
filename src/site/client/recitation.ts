@@ -44,6 +44,8 @@ export type Snap = {
   last: number;
   // The reader page on screen (0 elsewhere), refreshed on every in-place page change.
   page: number;
+  // The interface language of the page on screen (the persisted mini-player reads it, AC74).
+  lang: Lang;
 };
 
 export const LOADING_MS = 1000; // AC20: loading state after 1 s
@@ -51,7 +53,7 @@ export const GIVE_UP_MS = 15000; // P-5: give up after 15 s
 export const SCROLL_PAUSE_MS = 5000; // P-2
 const CHANNEL = 'rifq-recitation';
 
-const IDLE: Snap = { phase: 'none', mode: 'idle', s: 0, count: 0, names: { ar: '', en: '' }, current: 0, playing: false, loading: false, follow: true, rid: null, lists: {}, dead: null, msg: null, reason: '', nowSeq: 0, ready: false, last: 0, page: 0 };
+const IDLE: Snap = { phase: 'none', mode: 'idle', s: 0, count: 0, names: { ar: '', en: '' }, current: 0, playing: false, loading: false, follow: true, rid: null, lists: {}, dead: null, msg: null, reason: '', nowSeq: 0, ready: false, last: 0, page: 0, lang: 'ar' };
 
 async function post(path: string, body: unknown): Promise<{ status: number; data: Record<string, unknown> | null }> {
   try {
@@ -69,7 +71,7 @@ export const pageSurah = (): number => Number(document.querySelector<HTMLElement
 type MetaResult = Meta | 'not_covered' | 'not_offered' | 'error';
 
 function create(el: HTMLAudioElement, dev: boolean) {
-  let snap: Snap = { ...IDLE, ready: true, page: pageSurah() };
+  let snap: Snap = { ...IDLE, ready: true, page: pageSurah(), lang: pageLang() };
   const subs = new Set<() => void>();
   // Mutable working state (read by event handlers).
   const x = {
@@ -417,10 +419,20 @@ function create(el: HTMLAudioElement, dev: boolean) {
   setHandlers();
 
   // ----- in-place page changes (nav.ts, Astro's client router) -----
+  let navType = 'push';
+  document.addEventListener('astro:before-preparation', (e) => { navType = (e as Event & { navigationType?: string }).navigationType ?? 'push'; });
   document.addEventListener('astro:after-swap', () => {
+    // P-2 with AC69: a follow-up timer from the page left behind does not scroll the new one. Coming
+    // back to the playing surah's page with Back or Forward keeps the restored position: automatic
+    // scrolling stays off until 5 s pass with no scrolling there (as after the reader's own scroll).
+    clearTimeout(x.scrollT);
+    if (x.mode === 'surah' && own() && navType === 'traverse') {
+      x.follow = false; set({ follow: false });
+      x.scrollT = window.setTimeout(() => { x.follow = true; set({ follow: true }); if (x.current) scrollToAyah(x.current); }, SCROLL_PAUSE_MS);
+    }
     // D-128: an ended or not-available mini-player goes once the reader moves to another page.
     if (snap.phase === 'ended' || snap.phase === 'failed') { x.begun = false; set({ phase: 'none' }); }
-    set({ page: pageSurah() });
+    set({ page: pageSurah(), lang: pageLang() });
     paint();
     if (x.mode !== 'idle' && x.current) media(x.current, true); // AC74: title in the new language
     // AC74: the reciter's name as QF gives it for the new interface language.

@@ -46,7 +46,7 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
   const show = useCallback((n: number, focus: boolean) => {
     const rows = document.querySelectorAll<HTMLElement>('.tf-row');
     rows.forEach((r, i) => { r.hidden = i !== n - 1; });
-    try { history.replaceState(null, '', `#a${n}${fromPart()}`); } catch { /* the view still works */ }
+    try { history.replaceState(history.state, '', `#a${n}${fromPart()}`); } catch { /* the view still works */ }
     const back = document.querySelector<HTMLAnchorElement>('a[data-back]');
     const f = from.current ?? [s, n];
     if (back) back.href = `${surahPath(lang, f[0])}#a${f[1]}`;

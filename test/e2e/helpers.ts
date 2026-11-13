@@ -30,11 +30,51 @@ type Seen = { url: string; method: string; body: string | null; headers: Record<
 // Every page gets: request capture, CSP violation capture, dialog guard and page error capture.
 // allowHosts: extra hosts a spec may reach. Only the RQ-006 audio spec sets it, to the approved audio
 // host, whose requests it answers itself with a made-up silent file (nothing leaves the machine).
+//
+// RQ-006 v1.3 AC70 in-place mode (RIFQ_INPLACE=1): every spec except the audio and continuity specs
+// runs with its pages reached by in-place changes during playback. The first page.goto of a test
+// loads /1/ in full, starts ayah 1 (single ayah, which never moves the last position) at a slow
+// rate so it plays through the whole test, then every page.goto to a page a reader can open is
+// made in place by a link click, as a reader's own click would be. A goto with options, with a
+// query, to /api/ or /dev/, or to the page already shown stays a full load. At the end the
+// recitation must still be playing (or have ended by itself) unless the test itself loaded a page
+// in full.
+const INPLACE = process.env.RIFQ_INPLACE === '1';
+const AUDIO_HOST_NAME = 'download.quranicaudio.com';
+async function primeAudio(page: Page, goto: Page['goto']) {
+  const { serveAudio } = await import('./audio-helpers.ts');
+  await serveAudio(page, () => 3_600_000);
+  await goto('/1/');
+  await hydrated(page);
+  await page.click('button.ap[data-ap="1"]');
+  await page.waitForFunction(() => { const a = document.querySelector('audio[data-audio]') as HTMLAudioElement | null; return !!a && !a.paused && a.readyState >= 2; });
+  await page.evaluate(() => { (document.querySelector('audio[data-audio]') as HTMLAudioElement).playbackRate = 0.0625; (window as unknown as { __inplace: number }).__inplace = 1; });
+}
+
 export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[] }>({
   allowHosts: [[], { option: true }],
   seen: async ({}, use) => { await use([]); },
-  guard: [async ({ page, seen, allowHosts }, use) => {
+  guard: [async ({ page, seen, allowHosts }, use, info) => {
     const errors: string[] = [];
+    let primed = false;
+    if (INPLACE && !/(audio|continuity)\.spec/.test(info.file)) {
+      const orig = page.goto.bind(page);
+      (page as unknown as { goto: (u: string, o?: unknown) => Promise<unknown> }).goto = async (url: string, opts?: unknown) => {
+        const u = new URL(url, 'http://127.0.0.1:8812');
+        if (opts || u.host !== '127.0.0.1:8812' || u.search || /^\/(api|dev)(\/|$)/.test(u.pathname)) return orig(url, opts as never);
+        if (!primed) { await primeAudio(page, orig); primed = true; seen.length = 0; }
+        const here = await page.evaluate(() => (document.querySelector('meta[name="rifq-page"]') ? location.pathname : '')).catch(() => '');
+        if (!here || here === u.pathname) return orig(url, opts as never);
+        try {
+          await page.evaluate((href) => new Promise<void>((res) => {
+            document.addEventListener('astro:page-load', () => res(), { once: true });
+            const a = document.createElement('a'); a.href = href; document.body.append(a); a.click(); a.remove();
+          }), u.pathname + u.hash);
+        } catch { await page.waitForLoadState(); } // the change became a full load (AC66, AC72)
+        await hydrated(page).catch(() => undefined);
+        return null;
+      };
+    }
     page.on('request', (r) => seen.push({ url: r.url(), method: r.method(), body: r.postData(), headers: r.headers() }));
     page.on('dialog', async (d) => { errors.push('dialog:' + d.type()); await d.dismiss(); });
     page.on('pageerror', (e) => errors.push('pageerror:' + e.message.slice(0, 200)));
@@ -43,12 +83,16 @@ export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[
       document.addEventListener('securitypolicyviolation', (e) => (window as any).__csp.push(e.violatedDirective + ' ' + e.blockedURI));
     });
     await use();
+    if (primed) {
+      const st = await page.evaluate(() => { const a = document.querySelector('audio[data-audio]') as HTMLAudioElement | null; return { same: (window as unknown as { __inplace?: number }).__inplace === 1, playing: !!a && !a.paused, ended: document.querySelector('[data-mini-player]')?.getAttribute('data-phase') === 'ended' }; }).catch(() => ({ same: false, playing: false, ended: false }));
+      if (st.same) expect(st.playing || st.ended, 'AC70: the recitation kept playing through the in-place changes').toBe(true);
+    }
     for (const p of page.context().pages()) {
       const v = await p.evaluate(() => (window as any).__csp ?? []).catch(() => []);
       expect(v, 'no CSP violations').toEqual([]);
     }
     expect(errors, 'no dialogs or page errors').toEqual([]);
-    for (const s of seen) expect(['127.0.0.1', ...allowHosts], 'only local requests').toContain(new URL(s.url).hostname);
+    for (const s of seen) expect(['127.0.0.1', ...allowHosts, ...(primed ? [AUDIO_HOST_NAME] : [])], 'only local requests').toContain(new URL(s.url).hostname);
   }, { auto: true }],
 });
 export { expect };

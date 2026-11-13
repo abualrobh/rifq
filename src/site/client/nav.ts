@@ -31,6 +31,7 @@ type PrepEvent = Event & { to: URL; navigationType: string; formData?: FormData;
 type SwapEvent = Event & { swap: () => void };
 
 let lastType = 'push';
+let lastIndex = 0;
 
 async function preloadStyles(doc: Document) {
   const waits: Promise<unknown>[] = [];
@@ -84,6 +85,8 @@ function onPrep(ev: Event) {
 
 function onBeforeSwap(ev: Event) {
   const e = ev as SwapEvent;
+  // An automatic (smooth) scroll still running on the old page must not carry on into the new one.
+  window.scrollTo({ left: scrollX, top: scrollY, behavior: 'instant' as ScrollBehavior });
   const root = document.documentElement;
   const dark = root.classList.contains('dark');
   const props = [...root.style].map((p) => [p, root.style.getPropertyValue(p)] as const);
@@ -97,6 +100,7 @@ function onBeforeSwap(ev: Event) {
 }
 
 function onAfterSwap() {
+  lastIndex = (history.state as { index?: number } | null)?.index ?? lastIndex;
   const m = /^#a(\d{1,4})$/.exec(location.hash);
   const row = m && lastType !== 'traverse' ? document.getElementById(`a${m[1]}`) : null;
   if (row && row.matches('li.ayah-row')) {
@@ -119,6 +123,10 @@ if (typeof document !== 'undefined' && !w.__rifqNav) {
 // For islands that move to another page by script (the Tafseer page across a surah edge): in place
 // when the router is on this page, otherwise an ordinary replace.
 export function goReplace(url: string) {
-  if (document.querySelector('meta[name="astro-view-transitions-enabled"]')) void navigate(url, { history: 'replace' });
+  if (document.querySelector('meta[name="astro-view-transitions-enabled"]')) {
+    // The router needs its own state on the entry it replaces; a script may have cleared it.
+    if (!history.state) history.replaceState({ index: lastIndex, scrollX, scrollY }, '');
+    void navigate(url, { history: 'replace' });
+  }
   else location.replace(url);
 }
