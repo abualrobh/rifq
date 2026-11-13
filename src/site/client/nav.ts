@@ -134,6 +134,13 @@ function onAfterSwap() {
     return;
   }
   document.getElementById('content')?.focus({ preventScroll: true });
+  // AC69: any other new page opens at the top. Set again on the next frame, in case a smooth
+  // scroll begun on the page just left was still being applied (seen once in three test runs).
+  if (lastType !== 'traverse') {
+    const top = () => { if (scrollY !== 0) window.scrollTo({ left: 0, top: 0, behavior: 'instant' as ScrollBehavior }); };
+    top();
+    requestAnimationFrame(top);
+  }
 }
 
 const w = (typeof window === 'undefined' ? {} : window) as unknown as { __rifqNav?: boolean };
