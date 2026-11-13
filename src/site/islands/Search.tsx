@@ -105,7 +105,7 @@ export default function Search({ lang }: { lang: Lang }) {
 
   return (
     <section className="search" data-search>
-      <form method="post" action="/api/search" role="search" onSubmit={onSubmit} aria-busy={state.kind === 'loading'}>
+      <form method="post" action="/api/search" role="search" data-astro-reload="" onSubmit={onSubmit} aria-busy={state.kind === 'loading'}>
         <input type="hidden" name="lang" value={lang} />
         <label htmlFor="q" className="search-label">{t(lang, 'searchLabel')}</label>
         <div className="search-row">

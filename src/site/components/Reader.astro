@@ -56,7 +56,7 @@ const name = lang === 'ar' ? surah.ar : surah.en;
     {/* RQ-006: the player keeps its space before it loads (AC49), and without JavaScript only a
         short note shows (AC48). */}
     <noscript><p class="msg" data-audio-noscript>{t(lang, 'audioNoScript')}</p></noscript>
-    <AudioPlayer lang={lang} s={surah.n} count={surah.items.length} name={name} dev={dev} client:idle />
+    <AudioPlayer lang={lang} s={surah.n} count={surah.items.length} names={{ ar: surah.ar, en: surah.en }} dev={dev} client:idle />
   </div>}
   <nav class="surah-nav surah-nav-end" aria-label={t(lang, 'navLabel')}>
     {prev && <a rel="prev" href={prev}>{t(lang, 'prevSurah')}</a>}

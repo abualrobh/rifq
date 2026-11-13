@@ -32,7 +32,7 @@ const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
         </li>
       ))}
     </ol>
-    <script is:inline>(function(){var m=/^#a(\d{1,4})(?:;|$)/.exec(location.hash),r=document.querySelectorAll('.tf-row');if(!m)return;var n=+m[1];if(n<1||n>r.length)return;for(var i=0;i<r.length;i++)r[i].hidden=i!==n-1;})();</script>
+    <script is:inline data-astro-rerun>(function(){var m=/^#a(\d{1,4})(?:;|$)/.exec(location.hash),r=document.querySelectorAll('.tf-row');if(!m)return;var n=+m[1];if(n<1||n>r.length)return;for(var i=0;i<r.length;i++)r[i].hidden=i!==n-1;})();</script>
   </section>
   <section class="tf-section tf-tafseer" aria-labelledby="tf-tafseer-h" data-tf-tafseer>
     <h2 id="tf-tafseer-h">{t(lang, 'tafseerSection')}</h2>

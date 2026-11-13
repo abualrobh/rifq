@@ -11,7 +11,7 @@
 // D-079 fingerprints; the D-084 quote check is reported but never blocks) and stops unless it passes. No Tafseer is fetched by any other
 // build, and none is ever written into a build (AC14).
 // --audio turns on RQ-006 (the reader page player, /api/audio and /api/audio/reciters, and
-// media-src for the approved audio host on reader pages only). On by default in development builds,
+// media-src for the approved audio host on every page a reader can open, AC39 v1.3). On by default in development builds,
 // off by default in release builds (the AC32 release check is not built yet). --audio-record names a
 // recorded production check (scripts/audio-check.ts, AC52); without one, production offers no reciter.
 // --fingerprints names the D-079 store (private data repository); --tafseer-record the AC15 record.
@@ -167,7 +167,8 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   const cfg = {
     dev: mode !== 'release', gate: gateOn,
     record: { name: l.record.name, edition: l.record.edition, status: l.record.status },
-    ...(gateOn ? { assetHeaders: hdr.headers } : {}),
+    // The Worker gets the base policy and adds media-src itself to every page but /dev/ (AC39 v1.3).
+    ...(gateOn ? { assetHeaders: { ...hdr.headers, 'Content-Security-Policy': hdr.basePolicy } } : {}),
     tafseer: tf.on,
     // RQ-006: ayah counts for the timing check, and the recorded production check if given.
     ...(au.on ? { audio: true, counts: [0, ...surahCounts(src.list)], audioRecord: au.record ? readJson<AudioRecord>(au.record) : null } : {}),

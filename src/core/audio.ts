@@ -70,7 +70,7 @@ export function checkTimestamps(ts: unknown, s: number, ayat: number, fileDurati
   });
   if (fileDuration !== null && t.length) {
     const over = t[t.length - 1][1] - fileDuration;
-    // Deviation from the AC60 wording, for Hamzeh's approval (kit v23): Quran Foundation's pre-live
+    // Allowance approved by Hamzeh as D-132 (13 Nov; proposed in kit v23): Quran Foundation's pre-live
     // durations are whole seconds (46000, 7264000 ms), so the last ayah's end can pass them by less
     // than a second. When the duration is a whole number of seconds, an overrun under 1000 ms is
     // taken as that rounding; any other overrun fails as AC60 says.
