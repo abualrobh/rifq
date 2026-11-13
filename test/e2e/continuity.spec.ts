@@ -309,8 +309,10 @@ test('CN-05 (AC66, AC3, AC28): a reload or a new tab stops; nothing resumes; the
   await playSurah(page, 2, 'en');
   await expect(page.locator('[data-audio-help]')).toHaveText(t('en', 'audioContinueHelp'));
   // A link opened in a new tab: a full load there, nothing plays; the first tab keeps playing.
-  const [tab] = await Promise.all([context.waitForEvent('page'), page.click('a.brand', { modifiers: ['Control'] })]);
-  await tab.waitForLoadState();
+  // (Headless Chromium does not open a tab on a modified click; a new page in the same context is
+  // the same full load.)
+  const tab = await context.newPage();
+  await tab.goto(await page.locator('a.brand').getAttribute('href') ?? '/en/');
   await hydrated(tab);
   await expect(tab.locator('[data-mini-player]')).toHaveCount(0);
   expect((await audioState(tab))!.paused).toBe(true);

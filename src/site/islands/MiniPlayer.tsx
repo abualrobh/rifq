@@ -4,16 +4,15 @@
 // in the tab order (P-12), shown as a bar fixed at the bottom of the screen while a recitation is
 // loaded in this tab (playing or paused), and while its ended or not-available state is shown
 // (AC75). Before the first play, and after it is closed, nothing is shown and no space is kept.
-// The island is persisted across in-place page changes (transition:persist), so it never flickers
-// or loses focus; the interface language follows the new page (AC74).
+// Its container is persisted across in-place page changes (transition:persist), so it never
+// flickers or loses focus; the interface language follows the new page (AC74).
 // It has no reciter control (A5) and shows no Quran text.
 import { useEffect, useRef, type MouseEvent } from 'react';
 import { ayahPath, t, type Lang } from '../../core/strings.ts';
 import { useRecitation } from '../client/use-recitation.ts';
 
-// The island keeps its first props across page changes (transition:persist-props in the layout), so
-// the router never re-renders it while it may still be hydrating; the interface language comes from
-// the engine, which reads it from each new page (AC74).
+// Mounted once per tab by src/site/client/mini-mount.ts into a persisted container (not hydrated as
+// an island); the interface language comes from the engine, which reads it from each new page (AC74).
 export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; dev?: boolean }) {
   const { snap, engine } = useRecitation(dev);
   const lang: Lang = engine ? snap.lang : first;
