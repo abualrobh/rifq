@@ -146,3 +146,34 @@ test('the manifest is fetched with the site credentials (use-credentials) and st
   expect(ok).toBe(200);
   expect(seen.every((s) => s === 200)).toBe(true);
 });
+
+// RQ-006 v1.3 AC72 on the gate itself (kept last: it locks this address out for the rest of the
+// minute). In-place changes use the credentials already given; a real lock-out answer from the
+// gate is not placed in the page: the address is loaded in full and the browser shows it.
+test('AC72: in-place page changes behind the gate; a lock-out answer is loaded in full', async ({ page, baseURL }) => {
+  await page.goto('/');
+  await hydrated(page);
+  await expect(page.locator('meta[name="rifq-page"]')).toHaveCount(1);
+  await page.evaluate(() => { (window as unknown as { __doc: number }).__doc = 1; });
+  const same = () => page.evaluate(() => (window as unknown as { __doc?: number }).__doc === 1).catch(() => false);
+  await page.click('a.index-card');
+  await page.waitForURL('**/surahs/');
+  await hydrated(page);
+  expect(await same(), 'in place, signed in').toBe(true);
+  await page.click('a[data-surah-link="2"]');
+  await page.waitForURL('**/2/');
+  expect(await same()).toBe(true);
+  // AC39 v1.3 holds for the page the tab entered on (home) and so for every page reached from it.
+  // Now fail the sign-in from this address until the gate locks it out (D-071, M-2).
+  for (let i = 0; i < 12; i++) {
+    const r = await fetch(baseURL + '/', { headers: { authorization: 'Basic ' + Buffer.from('e2e:wrong-password').toString('base64') } });
+    await r.arrayBuffer();
+  }
+  const r = await fetch(baseURL + '/surahs/', { headers: { authorization: 'Basic ' + Buffer.from('e2e:e2e-made-up-password').toString('base64') } });
+  await r.arrayBuffer();
+  test.skip(r.status !== 429, `the gate did not lock this address out (status ${r.status})`);
+  await page.click('[data-index-link] >> nth=0');
+  await page.waitForURL('**/surahs/');
+  await expect.poll(same).toBe(false);
+  await expect(page.locator('body')).toContainText('Too many failed sign-in attempts');
+});
