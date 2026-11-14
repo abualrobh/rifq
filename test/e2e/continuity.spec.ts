@@ -710,3 +710,108 @@ for (const kind of ['made-up', 'recorded'] as const) {
     expect((await marked(page)).length).toBeLessThanOrEqual(1);
   });
 }
+
+// QA v27 FIND-N and FIND-F rest (SC 2.4.11, AC43): keyboard focus moving forward (Tab) and back
+// (Shift+Tab) through the ayah controls on /2/. After each key press the focused control is
+// measured against the sticky header (top) and the top of the player or mini-player (bottom).
+// `clear`: the whole control is between them. `covered`: no part of it is (SC 2.4.11 fails).
+async function sweep(page: Page, fwd: number, back: number) {
+  const check = () => page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    if (!el || !el.closest('ol.ayat')) return null;
+    let edge = innerHeight;
+    for (const sel of ['[data-player]', '[data-mini-player]']) {
+      const b = document.querySelector(sel)?.getBoundingClientRect();
+      if (b && b.height > 0 && b.top > 0 && b.top < edge) edge = b.top;
+    }
+    const head = document.querySelector('.site-header')!.getBoundingClientRect().bottom;
+    const r = el.getBoundingClientRect();
+    const name = `${el.getAttribute('aria-label') ?? el.className} ${Math.round(r.top)}-${Math.round(r.bottom)} (header ${Math.round(head)}, bar ${Math.round(edge)})`;
+    return { clear: r.top >= head - 0.5 && r.bottom <= edge + 0.5, covered: r.bottom <= head + 0.5 || r.top >= edge - 0.5, name };
+  });
+  await page.evaluate(() => { const b = document.querySelector<HTMLElement>('ol.ayat'); b?.setAttribute('tabindex', '-1'); b?.focus(); scrollTo({ top: 0, behavior: 'instant' }); b?.removeAttribute('tabindex'); });
+  const out = { presses: 0, notClear: [] as string[], covered: [] as string[] };
+  for (const [key, times] of [['Tab', fwd], ['Shift+Tab', back]] as const) {
+    for (let i = 0; i < times; i++) {
+      await page.keyboard.press(key);
+      await scrollSettled(page);
+      const r = await check();
+      if (r === null) break;
+      out.presses++;
+      if (!r.clear) out.notClear.push(`${key}: ${r.name}`);
+      if (r.covered) out.covered.push(`${key}: ${r.name}`);
+    }
+  }
+  return out;
+}
+async function setTextSize(page: Page, size: number) {
+  await page.evaluate((v) => { const k = 'rifq.settings'; const s = JSON.parse(localStorage.getItem(k) ?? '{}'); localStorage.setItem(k, JSON.stringify({ ...s, size: v })); }, size);
+}
+// The three player states of CN-14 on /2/ or /en/2/, each followed by a sweep.
+async function sweepStates(page: Page, lang: 'ar' | 'en', fwd: number, back: number) {
+  const p = (s: number) => (lang === 'en' ? `/en/${s}/` : `/${s}/`);
+  const res: { state: string; r: Awaited<ReturnType<typeof sweep>>; size: string }[] = [];
+  const size = () => page.evaluate(() => document.documentElement.style.getPropertyValue('--ayah-size'));
+  await page.goto(p(2));
+  await hydrated(page);
+  res.push({ state: 'idle', r: await sweep(page, fwd, back), size: await size() });
+  await page.click('[data-play-surah]');
+  await expect.poll(async () => { const x = await audioState(page); return !!x && !x.paused && x.ready >= 3; }).toBe(true);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  await expect(mini(page)).toBeVisible();
+  res.push({ state: 'full player + mini-player', r: await sweep(page, fwd, back), size: await size() });
+  await page.click('[data-mini-close]');
+  await playSurah(page, 1, lang);
+  await hop(page, () => page.click('a[data-next] >> nth=0'), p(2));
+  await expect(mini(page)).toHaveAttribute('data-s', '1');
+  res.push({ state: 'mini-player for surah 1', r: await sweep(page, fwd, back), size: await size() });
+  return res;
+}
+
+for (const size of [{ width: 360, height: 640 }, { width: 390, height: 844 }, { width: 430, height: 932 }]) {
+  test(`CN-15 (QA v27 FIND-N, SC 2.4.11): at ${size.width}x${size.height}, Tab and Shift+Tab never leave a focused ayah control under the header or a player (ar, en; text size 1 and 5; 3 player states)`, async ({ page }) => {
+    test.setTimeout(900_000);
+    await serveAudio(page, len);
+    await page.setViewportSize(size);
+    const notes: string[] = [];
+    for (const lang of ['ar', 'en'] as const) {
+      for (const ts of [1.25, 2.5]) {
+        await page.goto(lang === 'en' ? '/en/' : '/');
+        await setTextSize(page, ts);
+        for (const { state, r, size: got } of await sweepStates(page, lang, 40, 30)) {
+          expect(got, `${lang} ${state}: text size applied`).toBe(`${ts}rem`);
+          notes.push(`${lang} size ${ts} ${state}: ${r.presses} presses, ${r.notClear.length} not clear`);
+          expect(r.presses, `${lang} ${ts} ${state}: the sweep reached the ayah list`).toBeGreaterThan(40);
+          expect(r.notClear, `${lang} ${ts} ${state}`).toEqual([]);
+        }
+        await page.click('[data-mini-close]').catch(() => undefined);
+      }
+    }
+    test.info().annotations.push({ type: 'focus', description: notes.join('; ') });
+  });
+}
+
+test('CN-16 (QA v27 FIND-F rest, SC 2.4.11): phone held sideways (844x390) with the full player and the mini-player: no focused ayah control is fully hidden (Tab, Shift+Tab, focus(); ar, en)', async ({ page }) => {
+  test.setTimeout(600_000);
+  await serveAudio(page, len);
+  await page.setViewportSize({ width: 844, height: 390 });
+  const notes: string[] = [];
+  for (const lang of ['ar', 'en'] as const) {
+    await page.goto(lang === 'en' ? '/en/2/' : '/2/');
+    await hydrated(page);
+    await page.click('[data-play-surah]');
+    await expect.poll(async () => { const x = await audioState(page); return !!x && !x.paused && x.ready >= 3; }).toBe(true);
+    await page.click('[data-mini-toggle]');
+    await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+    await expect(mini(page)).toBeVisible();
+    const r = await sweep(page, 60, 30);
+    const f = await focusHidden(page, 0);
+    notes.push(`${lang}: ${r.presses} presses, ${r.notClear.length} not fully clear, ${r.covered.length} fully hidden; focus() ${f.n} controls, ${f.bad.length} not clear`);
+    expect(r.covered, `${lang}: fully hidden by keys`).toEqual([]);
+    expect(r.notClear, `${lang}: not fully clear by keys`).toEqual([]);
+    expect(f.bad, `${lang}: focus()`).toEqual([]);
+    await page.click('[data-mini-close]');
+  }
+  test.info().annotations.push({ type: 'focus', description: notes.join('; ') });
+});
