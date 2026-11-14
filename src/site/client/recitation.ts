@@ -457,8 +457,10 @@ function create(el: HTMLAudioElement, dev: boolean) {
     pauseFollow();
   };
   for (const ev of ['wheel', 'touchmove', 'keydown']) window.addEventListener(ev, onUser, { passive: true });
+  // Only while it plays: when paused nothing scrolls, and showing "go to the playing ayah" then would
+  // change the player's height under the reader's focus (CN-15).
   document.addEventListener('focusin', (e) => {
-    if (x.mode !== 'surah' || !own() || !x.current) return;
+    if (x.mode !== 'surah' || !own() || !x.current || el.paused) return;
     const row = e.target instanceof Element ? e.target.closest<HTMLElement>('ol.ayat li.ayah-row') : null;
     if (row && Number(row.dataset.a) !== x.current) pauseFollow();
   });

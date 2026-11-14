@@ -9,7 +9,7 @@ import { CASE, CLOSE, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, OPEN, passageText } fr
 import { visibleText, sanitize } from '../../src/core/tafseer-html.ts';
 import { STRINGS } from '../../src/core/strings.ts';
 import { indexFromSource } from '../../src/core/tafseer-quotes.ts';
-import { computeMarks } from '../../src/core/tafseer-marks.ts';
+import { computeMarks, markedNodes, markedText } from '../../src/core/tafseer-marks.ts';
 import { hitsIn, probesFrom, scanFolder } from '../../scripts/letters-scan.ts';
 
 const shown = (page: import('@playwright/test').Page) => page.locator('.tf-row:not([hidden])');
@@ -355,4 +355,38 @@ test('TB-05 (D-157): no static file of the build holds the letters-only matching
   expect(site.hits).toEqual([]);
   // Positive control: the scan finds the data where it is meant to be, in the Worker's own config.
   expect(hitsIn(readFileSync(join(BUILD, 'worker-config.json'), 'utf8'), p)).toBeGreaterThan(1000);
+});
+
+test('TB-06 (AC4, AC30): every pre-live passage on screen equals the delivered text except for swapped bracket marks, character by character', async ({ page, request }) => {
+  test.setTimeout(600_000);
+  const brackets = new Set(['(', ')', '{', '}', OPEN, CLOSE]);
+  let pages = 0, styled = 0, swapped = 0;
+  const done = new Set<string>();
+  for (const a of src.list.filter((x) => x.sora <= 2)) {
+    const d = await (await request.post('/api/tafseer', { data: { s: a.sora, a: a.aya_no } })).json();
+    if (d.status !== 'ok') continue;
+    const key = `${d.range.s}:${d.range.from}-${d.range.to}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    expect(Buffer.from(d.text, 'utf8').equals(Buffer.from(passageText(MOCK_TAFSIR_ID, a.sora, a.aya_no, src)!, 'utf8')), 'AC4: the text field is what the API gave').toBe(true);
+    const delivered = visibleText(sanitize(d.text));
+    const m = markedNodes(d.text, d.marks);
+    const want = m ? markedText(m.nodes) : delivered;
+    await page.goto(`/tafseer/${a.sora}/#a${a.aya_no}`);
+    await ready(page);
+    const shown = (await page.locator('[data-tf-text]').evaluate((x) => x.textContent)) ?? '';
+    expect(utf8(shown).equals(utf8(want)), `${a.sora}:${a.aya_no} shown as computed from the delivered text`).toBe(true);
+    // Strip the styling: position by position, the only differences are bracket marks.
+    expect(shown.length).toBe(delivered.length);
+    for (let i = 0; i < shown.length; i++) {
+      if (shown[i] === delivered[i]) continue;
+      expect(brackets.has(shown[i]) && brackets.has(delivered[i]), `${a.sora}:${a.aya_no} position ${i}`).toBe(true);
+      swapped++;
+    }
+    styled += await page.locator('[data-tf-text] [data-tfq]').count();
+    pages++;
+  }
+  test.info().annotations.push({ type: 'tb-06', description: `${pages} passages, ${styled} styled phrases, ${swapped} bracket marks swapped` });
+  expect(pages).toBeGreaterThan(280);
+  expect(styled).toBeGreaterThan(5);
 });
