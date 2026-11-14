@@ -291,8 +291,8 @@ function create(el: HTMLAudioElement, dev: boolean) {
     const fresh = x.srcSet !== md.url;
     if (fresh) { el.src = md.url; x.srcSet = md.url; }
     // The first seek waits for the file's metadata; a later choice (next, previous) updates the target.
-    // The target is the ayah's own start, which need not be 0 for ayah 1 (recorded pre-live data:
-    // reciter 97, surah 2 starts at 3151 ms); nothing before it is marked (AC13).
+    // The target is the ayah's own start, which need not be 0 for ayah 1 (recorded pre-live data
+    // has a surah file whose first ayah starts a few seconds in); nothing before it is marked (AC13).
     x.target = md.t[a - 1][0];
     const seek = () => { x.seekPending = false; try { el.currentTime = x.target / 1000; } catch { /* set when ready */ } };
     if (!fresh && el.readyState >= 1) seek(); else { x.seekPending = true; el.addEventListener('loadedmetadata', seek, { once: true }); }

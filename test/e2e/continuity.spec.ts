@@ -9,7 +9,7 @@ import { t } from '../../src/core/strings.ts';
 import { AUDIO_HOST } from '../../src/core/audio.ts';
 import { MOCK_RECITER_NAMES } from '../mock/qf-mock.ts';
 import { audioState, serveAudio, STEP, type Hit } from './audio-helpers.ts';
-import { loadRecorded, playFromShape } from '../fixtures/recorded-audio.ts';
+import { loadRecorded, playFromShape, type RecordedShape } from '../fixtures/recorded-audio.ts';
 
 test.use({ allowHosts: [AUDIO_HOST] });
 test.describe.configure({ mode: 'default' });
@@ -477,24 +477,48 @@ test('CN-10 (AC73, P-13 in Chromium): 50 in-place changes during surah 2; no rel
   console.log(`CN-10 memory: start ${h0} B, end ${h1} B; listeners ${counts.join(', ')}`);
 });
 
-test('CN-11 (D-125 B, recorded pre-live shape): an address with a double slash and an ayah 1 starting at 3151 ms play as given', async ({ page }) => {
+// CN-11 (D-125 B, D-133 A): an address with a double slash in its path and a first ayah that starts
+// after 0 ms play as given. Run on a made-up shape of that kind (always) and on the recorded pre-live
+// shape of that kind, read from the private fixture (RIFQ_AUDIO_SHAPE) with its own values; no
+// recorded value is written here.
+const MADE_UP_LATE: RecordedShape = {
+  keys: ['audio_url', 'chapter_id', 'duration', 'file_size', 'format', 'id', 'timestamps'], format: 'mp3', fileSize: 116214080, duration: 7162000,
+  types: { file_size: 'number', duration: 'number', audio_url: 'string', timestamps: 'array' },
+  urlPath: 'https://download.quranicaudio.com/quran/mock_made_up_reciter//{s}.mp3', urlHasQuery: false, entries: 286,
+  entryKeys: ['duration', 'segments', 'timestamp_from', 'timestamp_to', 'verse_key'], first: [2740, 11980], last: [7100500, 7161300], lastEndMinusDuration: -700,
+};
+function recordedLate(): RecordedShape | null {
   const rec = loadRecorded();
-  test.skip(!rec, 'RIFQ_AUDIO_SHAPE not given');
-  test.skip(n(2) !== 286, 'needs the real ayah count of surah 2');
-  const sh = rec!.reciters.find((r) => r.id === 97)!.surahs.find((x) => x.s === 2)!.shape!;
-  const play = playFromShape(sh, 2, 7);
-  const hits: Hit[] = [];
-  await serveAudio(page, () => 60_000, hits);
-  await page.route('**/api/audio', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(play) }));
-  await page.goto('/en/2/');
-  await hydrated(page);
-  await page.click('[data-play-surah]');
-  await expect.poll(async () => { const x = (await audioState(page))!; return !x.paused && x.t >= 3151; }).toBe(true);
-  expect((await audioState(page))!.src).toBe('https://download.quranicaudio.com/quran/yasser_ad-dussary//2.mp3');
-  expect(hits.every((h) => h.url === 'https://download.quranicaudio.com/quran/yasser_ad-dussary//2.mp3')).toBe(true);
-  await expect.poll(() => marked(page)).toEqual([1]);
-  // Before 3151 ms nothing is marked from the file (AC13): seek back to 1 s.
-  await seekTo(page, 1000);
-  await page.waitForTimeout(600);
-  expect((await marked(page)).length).toBeLessThanOrEqual(1);
-});
+  if (!rec) return null;
+  for (const r of rec.reciters) for (const x of r.surahs) {
+    const sh = x.shape;
+    if (x.s === 2 && x.ok && sh?.urlPath && /^https:\/\/[^/]+\/.*\/\//.test(sh.urlPath) && sh.first && sh.first[0] > 0) return sh;
+  }
+  return null;
+}
+for (const kind of ['made-up', 'recorded'] as const) {
+  test(`CN-11 (D-125 B, ${kind} shape): an address with a double slash and an ayah 1 starting after 0 ms play as given`, async ({ page }) => {
+    const sh = kind === 'made-up' ? MADE_UP_LATE : recordedLate();
+    test.skip(!sh, 'RIFQ_AUDIO_SHAPE not given (or it holds no such case)');
+    test.skip(n(2) !== 286, 'needs the real ayah count of surah 2');
+    const play = playFromShape(sh!, 2, 7);
+    const url = play.url as string;
+    const first = (play.t as [number, number][])[0][0];
+    expect(url).toMatch(/^https:\/\/[^/]+\/.*\/\/2\.mp3$/);
+    expect(first).toBeGreaterThan(1000);
+    const hits: Hit[] = [];
+    await serveAudio(page, () => 60_000, hits);
+    await page.route('**/api/audio', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(play) }));
+    await page.goto('/en/2/');
+    await hydrated(page);
+    await page.click('[data-play-surah]');
+    await expect.poll(async () => { const x = (await audioState(page))!; return !x.paused && x.t >= first; }).toBe(true);
+    expect((await audioState(page))!.src).toBe(url);
+    expect(hits.every((h) => h.url === url)).toBe(true);
+    await expect.poll(() => marked(page)).toEqual([1]);
+    // Before the first ayah's start nothing is marked from the file (AC13): seek back to 1 s.
+    await seekTo(page, 1000);
+    await page.waitForTimeout(600);
+    expect((await marked(page)).length).toBeLessThanOrEqual(1);
+  });
+}

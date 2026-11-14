@@ -36,8 +36,8 @@ test('AC12, AC60: one entry per ayah, in order, from < to, no overlap, within th
   assert.equal(r.negatives, 7);
   assert.equal(checkTimestamps(ts(1, 6), 1, 7, 35000).ok, false);
   assert.equal(checkTimestamps(ts(2, 7), 1, 7, 35000).ok, false, 'wrong surah keys');
-  const overlap = ts(2, 30); overlap[25].timestamp_from = overlap[24].timestamp_to - 1; // like ID 2, surah 2, entry 26
-  assert.match(checkTimestamps(overlap, 2, 30, 10 ** 9).problems.join(), /entry 26: starts before the previous one ends/);
+  const overlap = ts(2, 30); overlap[16].timestamp_from = overlap[15].timestamp_to - 1; // an overlap inside the list (made-up position)
+  assert.match(checkTimestamps(overlap, 2, 30, 10 ** 9).problems.join(), /entry 17: starts before the previous one ends/);
   const backwards = ts(1, 7); backwards[3].timestamp_to = backwards[3].timestamp_from;
   assert.equal(checkTimestamps(backwards, 1, 7, 35000).ok, false);
   const frac = ts(1, 7); (frac[0] as { timestamp_to: number }).timestamp_to = 10.5;
@@ -48,15 +48,15 @@ test('AC12, AC60: one entry per ayah, in order, from < to, no overlap, within th
   assert.equal(checkTimestamps(gap, 1, 3, 20000).ok, true, 'a gap is allowed');
 });
 
-test('AC61, P-7: mp3, whole bytes, duration above zero, 32 to 320 kbit/s (pre-live Husary sizes fail)', () => {
-  assert.deepEqual(fileProblems('mp3', 839808, 46000), []);
-  assert.deepEqual(fileProblems('mp3', 120888301, 7264000), []);
-  assert.match(fileProblems('mp3', 371.65, 48000).join(), /whole number of bytes/);
-  assert.match(fileProblems('mp3', 2048, 11972000).join(), /bitrate 0 kbit\/s/);
-  assert.match(fileProblems('ogg', 839808, 46000).join(), /not mp3/);
-  assert.match(fileProblems('mp3', 839808, null).join(), /duration/);
-  assert.match(fileProblems('mp3', 839808, 0).join(), /duration/);
-  assert.match(fileProblems('mp3', 10 ** 8, 46000).join(), /outside 32 to 320/);
+test('AC61, P-7: mp3, whole bytes, duration above zero, 32 to 320 kbit/s (made-up sizes of the kinds seen in pre-live data)', () => {
+  assert.deepEqual(fileProblems('mp3', 811520, 41000), []);
+  assert.deepEqual(fileProblems('mp3', 116214080, 7162000), []);
+  assert.match(fileProblems('mp3', 512.25, 39000).join(), /whole number of bytes/);
+  assert.match(fileProblems('mp3', 4096, 9381000).join(), /bitrate 0 kbit\/s/);
+  assert.match(fileProblems('ogg', 811520, 41000).join(), /not mp3/);
+  assert.match(fileProblems('mp3', 811520, null).join(), /duration/);
+  assert.match(fileProblems('mp3', 811520, 0).join(), /duration/);
+  assert.match(fileProblems('mp3', 10 ** 8, 41000).join(), /outside 32 to 320/);
 });
 
 test('AC56: https on exactly the approved host; relative addresses resolve to it; nothing else', () => {
@@ -151,7 +151,7 @@ test('kit v22 fix: the Arabic interface offers the same reciters; the check read
 });
 
 test('AC61 and D-122 A: a reciter whose file metadata is implausible is not offered', async () => {
-  const { w } = setup({ override: (id: number, s: number, f: Record<string, unknown>) => (id === 7 && s === 1 ? { ...f, file_size: 371.65 } : f) });
+  const { w } = setup({ override: (id: number, s: number, f: Record<string, unknown>) => (id === 7 && s === 1 ? { ...f, file_size: 512.25 } : f) });
   const d = await (await call(w, '/api/audio/reciters', { lang: 'en' })).json();
   assert.deepEqual(d.reciters.map((x: { id: number }) => x.id), [97]);
   assert.equal(d.default, 97, 'the default falls to the first offered reciter when 7 is not offered');
@@ -314,10 +314,10 @@ test('/dev/reciters/ player check (temporary): same checks as the player, per re
 
 test('kit v23: a whole-second duration may be passed by the last ayah by under 1000 ms (deviation for approval)', () => {
   const last = (to: number) => { const x = ts(1, 7); x[6].timestamp_to = to; return x; };
-  assert.equal(checkTimestamps(last(46400), 1, 7, 46000).ok, true, 'rounded to whole seconds: 400 ms over is rounding');
-  assert.equal(checkTimestamps(last(46999), 1, 7, 46000).ok, true);
-  assert.match(checkTimestamps(last(47000), 1, 7, 46000).problems.join(), /by 1000 ms/);
-  assert.match(checkTimestamps(last(46400), 1, 7, 46001).problems.join(), /by 399 ms/, 'a duration in ms is taken as exact');
+  assert.equal(checkTimestamps(last(41400), 1, 7, 41000).ok, true, 'rounded to whole seconds: 400 ms over is rounding');
+  assert.equal(checkTimestamps(last(41999), 1, 7, 41000).ok, true);
+  assert.match(checkTimestamps(last(42000), 1, 7, 41000).problems.join(), /by 1000 ms/);
+  assert.match(checkTimestamps(last(41400), 1, 7, 41001).problems.join(), /by 399 ms/, 'a duration in ms is taken as exact');
 });
 
 test('kit v23: failed surah checks are kept 10 minutes only, then asked again', async () => {
