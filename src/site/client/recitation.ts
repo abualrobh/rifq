@@ -244,8 +244,10 @@ function create(el: HTMLAudioElement, dev: boolean) {
   // ----- actions -----
   // Starts one ayah or the surah from ayah a of surah s, from a tap on a reader page. Stops whatever
   // played before (AC10), on this or any page. Synchronous up to play() when everything is known.
-  function start(m: 'ayah' | 'surah', s: number, a: number, info: { count: number; names: Names }, gone: number | null = null) {
-    if (!x.srcSet) void el.play().catch(() => undefined); // iOS: unlock inside the first tap
+  // `hold` (QA v26 FIND-H): load the recitation at that ayah and stay paused (a reciter change while
+  // paused); nothing starts on its own (AC3).
+  function start(m: 'ayah' | 'surah', s: number, a: number, info: { count: number; names: Names }, gone: number | null = null, hold = false) {
+    if (!x.srcSet && !hold) void el.play().catch(() => undefined); // iOS: unlock inside the first tap
     stop();
     const job = ++x.job;
     if (x.s !== s) { x.meta = null; x.metaKey = ''; }
@@ -256,7 +258,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
     x.loadT = window.setTimeout(() => { set({ loading: true }); say('audioLoading'); }, LOADING_MS);
     x.giveT = window.setTimeout(() => fail('audioUnavailable', 'timeout-loading'), GIVE_UP_MS);
     const lang = pageLang();
-    if (x.lists[lang]?.length && x.rid !== null && !x.ridOutage && x.meta && x.metaKey === `${x.rid}:${s}`) { begin(m, a, x.meta); return; }
+    if (x.lists[lang]?.length && x.rid !== null && !x.ridOutage && x.meta && x.metaKey === `${x.rid}:${s}`) { begin(m, a, x.meta, hold); return; }
     void (async () => {
       const list = await loadReciters(lang);
       if (job !== x.job) return;
@@ -275,14 +277,14 @@ function create(el: HTMLAudioElement, dev: boolean) {
         const was = x.rid;
         x.lists = {}; x.rid = null; x.meta = null; x.metaKey = '';
         set({ lists: {}, rid: null });
-        return start(m, s, a, info, was);
+        return start(m, s, a, info, was, hold);
       }
       if (md === 'error') return fail('audioUnavailable', metaFail);
-      begin(m, a, md);
+      begin(m, a, md, hold);
     })();
   }
 
-  function begin(m: 'ayah' | 'surah', a: number, md: Meta) {
+  function begin(m: 'ayah' | 'surah', a: number, md: Meta, hold = false) {
     x.mode = m; x.begun = true;
     x.stopAt = m === 'ayah' ? md.t[a - 1][1] : md.t[md.t.length - 1][1];
     x.follow = true;
@@ -298,6 +300,15 @@ function create(el: HTMLAudioElement, dev: boolean) {
     if (!fresh && el.readyState >= 1) seek(); else { x.seekPending = true; el.addEventListener('loadedmetadata', seek, { once: true }); }
     x.current = 0;
     mark(a);
+    if (hold) {
+      // Paused at the new reciter's start of that ayah: no loading clock (nothing is meant to play),
+      // the lock-screen title names the new reciter; play resumes from here (pauseOrResume).
+      clearTimers();
+      set({ playing: false });
+      media(a, true);
+      if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'paused'; } catch { /* none */ }
+      return;
+    }
     el.play().catch((e) => {
       const name = (e as Error)?.name ?? 'Error';
       if ((x.mode as Mode) === 'idle' || name === 'AbortError') return;
@@ -322,14 +333,15 @@ function create(el: HTMLAudioElement, dev: boolean) {
     if (el.paused) { set({ msg: null }); void el.play().catch((e) => fail('audioUnavailable', `resume-${(e as Error)?.name ?? 'Error'}`)); } else el.pause();
   }
 
-  // AC19, A5: from any reader page; restarts the playing recitation at its current ayah.
+  // AC19, A5: from any reader page; restarts the playing recitation at its current ayah. If it was
+  // paused, the new reciter is loaded at that ayah and stays paused (QA v26 FIND-H, AC3).
   function chooseReciter(id: number) {
     if (id === x.rid && !x.ridOutage) return;
     const at = x.s;
     if (!writeReciter(id)) say('audioNotRemembered', true, '', {}, pageSurah() || x.s); // AC16, said where it was chosen
     x.rid = id; x.ridOutage = false; x.meta = null; x.metaKey = '';
     set({ rid: id });
-    if (x.mode !== 'idle') start(x.mode, at, x.current || 1, { count: x.count, names: x.names });
+    if (x.mode !== 'idle') start(x.mode, at, x.current || 1, { count: x.count, names: x.names }, null, el.paused);
   }
 
   // D-128 B: the close control stops the recitation and hides the mini-player.

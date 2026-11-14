@@ -253,8 +253,15 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   await page.setViewportSize(MOBILE);
   await playSurah(page, 1);
   await hop(page, () => page.click('a.brand'), '/');
-  // Room is kept for the bar (AC67 g): the footer's privacy link is not under it.
-  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+  // Room is kept for the bar (AC67 g): the footer's privacy link is not under it. QA FIND-I (kit v26):
+  // the change's own scroll to the top (on the next frame) must be over before this scroll, and the
+  // page must have stopped at its bottom before anything is measured.
+  await scrollSettled(page);
+  await expect.poll(async () => {
+    await page.evaluate(() => scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+    await scrollSettled(page);
+    return page.evaluate(() => Math.abs(scrollY - (document.documentElement.scrollHeight - innerHeight)) <= 1);
+  }).toBe(true);
   const f = await page.locator('[data-privacy-link]').boundingBox(), m = await mini(page).boundingBox();
   expect(f!.y + f!.height).toBeLessThanOrEqual(m!.y + 1);
   for (const sel of ['[data-mini-toggle]', '[data-mini-go]', '[data-mini-close]']) {
@@ -279,6 +286,11 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   await expect(mini(page)).toHaveAttribute('data-phase', 'ended', { timeout: 4000 });
   await expect(page.locator('[data-mini-status]')).toHaveText(t('ar', 'miniEnded'));
   await expect(page.locator('[data-mini-status]')).toHaveAttribute('aria-live', 'polite');
+  // QA FIND-M: what a screen reader reads in the region holds the ended line once, and not the
+  // visible "now playing" label next to a region name of the same meaning (D-134).
+  const exposed = await exposedText(page, '[data-mini-player]');
+  expect(exposed.split(t('ar', 'miniEnded')).length - 1, exposed).toBe(1);
+  expect(exposed.includes(t('ar', 'miniNowPlaying')), exposed).toBe(false);
   await expect(page.locator('[data-mini-go]')).toHaveAttribute('href', `/1/#a${n(1)}`);
   await expect(page.locator('[data-mini-toggle]')).toHaveCount(0);
   await hop2(page, () => page.click('a.brand'));
@@ -295,6 +307,60 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   expect(await page.evaluate(() => document.activeElement?.id)).toBe('content');
   await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
   expect(await page.evaluate(() => navigator.mediaSession.metadata)).toBeNull();
+});
+test('CN-12 (QA v26 FIND-H, AC19, AC3): changing the reciter while paused loads it at the same ayah and stays paused, on the own page and elsewhere', async ({ page }) => {
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  await playSurah(page, 2);
+  await seekTo(page, 5 * STEP + 500);
+  await expect.poll(() => marked(page)).toEqual([6]);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  // On the playing surah's own page.
+  await page.locator('[data-audio-more] summary').click();
+  await page.check('[data-reciter="97"]');
+  await page.locator('[data-audio-more] summary').click();
+  await expect.poll(async () => (await audioState(page))!.src).toContain('/97/2.mp3');
+  await page.waitForTimeout(1500);
+  expect((await audioState(page))!.paused, 'nothing starts on its own').toBe(true);
+  await expect(mini(page)).toHaveAttribute('data-playing', '0');
+  await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('data-state', 'paused');
+  await expect(page.locator('[data-mini-reciter]')).toHaveText(new RegExp(String(97)));
+  expect(await marked(page)).toEqual([6]);
+  // Play resumes in the new reciter at that ayah.
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => { const x = (await audioState(page))!; return !x.paused && x.t >= 5 * STEP - 50 && x.t < 5 * STEP + 1500; }).toBe(true);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  // On another surah's page.
+  await tag(page);
+  await hop(page, () => page.click('a[data-prev] >> nth=0'), '/1/');
+  await page.locator('[data-audio-more] summary').click();
+  await page.check('[data-reciter="7"]');
+  await page.locator('[data-audio-more] summary').click();
+  await expect.poll(async () => (await audioState(page))!.src).toContain('/7/2.mp3');
+  await page.waitForTimeout(1500);
+  expect((await audioState(page))!.paused, 'nothing starts on its own').toBe(true);
+  await expect(mini(page)).toHaveAttribute('data-s', '2');
+  await expect(mini(page)).toHaveAttribute('data-playing', '0');
+  await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => { const x = (await audioState(page))!; return !x.paused && x.t >= 5 * STEP - 50 && x.t < 5 * STEP + 1500; }).toBe(true);
+  await expect(mini(page)).toHaveAttribute('data-a', '6');
+});
+
+// Resolves when the page has not scrolled for 6 animation frames in a row.
+const scrollSettled = (page: Page) => page.evaluate(() => new Promise<void>((done) => {
+  let last = -1, same = 0;
+  const step = () => { const y = scrollY; same = y === last ? same + 1 : 0; last = y; if (same >= 6) done(); else requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}));
+// The text of an element a screen reader reads (text outside aria-hidden parts), in order.
+const exposedText = (page: Page, sel: string) => page.$eval(sel, (root) => {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let out = '';
+  for (let x = w.nextNode(); x; x = w.nextNode()) if (!(x.parentElement?.closest('[aria-hidden="true"]'))) out += x.nodeValue;
+  return out;
 });
 // A change after which the mini-player may be gone.
 async function hop2(page: Page, click: () => Promise<unknown>) {
@@ -423,6 +489,43 @@ test('CN-09 (AC72 gate-off part, AC66): an answer that is not an RIFQ page is lo
     await expect.poll(async () => !(await audioState(page))!.paused).toBe(true);
     await tag(page);
   }
+  // QA v26 FIND-G: a 404 is placed in the tab only when it is RIFQ's own 404 page. A 404 with
+  // another HTML page (even an A1 page without the not-found marker) is loaded in full.
+  const index = await (await page.request.get('/surahs/')).text();
+  for (const body of ['<p>missing</p>', index]) {
+    await hop(page, () => page.click('a.brand'), '/');
+    await page.route('**/surahs/', (r) => r.fulfill({ status: 404, contentType: 'text/html', body }), { times: 2 });
+    await page.click('a.index-card');
+    await page.waitForURL('**/surahs/');
+    await expect.poll(() => sameDoc(page).catch(() => false), { message: '404 ' + body.length }).toBe(false);
+    await page.unroute('**/surahs/');
+    await page.goto('/2/');
+    await hydrated(page);
+    await page.click('[data-play-surah]');
+    await expect.poll(async () => !(await audioState(page))!.paused).toBe(true);
+    await tag(page);
+  }
+});
+
+test('CN-13 (QA v26 FIND-G, AC62): Back and Forward to RIFQ\'s own 404 page stay in place and keep the recitation playing', async ({ page }) => {
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  const r = await page.goto('/no-such-page/');
+  expect(r!.status()).toBe(404);
+  await hydrated(page);
+  await tag(page);
+  await hop2(page, () => page.click('main a[href="/"]'));
+  await hop2(page, () => page.click('a.index-card'));
+  await hop2(page, () => page.click('a[data-surah-link="2"]'));
+  await hydrated(page);
+  await page.click('[data-play-surah]');
+  await expect.poll(async () => { const x = await audioState(page); return !!x && !x.paused; }).toBe(true);
+  await hop(page, () => page.goBack(), /\/surahs\/$/);
+  await hop(page, () => page.goBack(), /127\.0\.0\.1:\d+\/$/);
+  await hop(page, () => page.goBack(), /\/no-such-page\/$/);
+  await expect(page.locator('h1')).toHaveText(t('ar', 'notFound'));
+  await hop(page, () => page.goForward(), /127\.0\.0\.1:\d+\/$/);
+  expect((await audioState(page))!.paused).toBe(false);
 });
 
 test('CN-10 (AC73, P-13 in Chromium): 50 in-place changes during surah 2; no reload, no break, no listener build-up', async ({ page }) => {

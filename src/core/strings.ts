@@ -170,10 +170,10 @@ const ar = {
   // QA FIND-1 (kit v24): the accessible name and visible label of the reciter and source disclosure.
   audioMoreLabel: 'القارئ والمصدر',
   audioTapToPlay: 'اضغط «متابعة التشغيل» لبدء الصوت.',
-  // RQ-006 v1.3 (D-126 to D-130, kit v26): mini-player and continuity. New; they await Hamzeh's
-  // Arabic review (D-104).
+  // RQ-006 v1.3 (D-126 to D-130, kit v26): mini-player and continuity. The 8 mini-player strings
+  // were reviewed by Hamzeh (D-134): 7 as written; miniRegion changed in kit v27.
   audioContinueHelp: 'يستمر الاستماع أثناء تنقلك في رِفْق، ويتوقف إذا أُعيد تحميل الصفحة أو فُتحت في علامة تبويب جديدة.',
-  miniRegion: 'التلاوة الجارية',
+  miniRegion: 'يُتلى الآن',
   miniNowPlaying: 'يُتلى الآن:',
   miniPlay: 'تشغيل التلاوة، السورة {s}، الآية {a}',
   miniPause: 'إيقاف التلاوة مؤقتًا، السورة {s}، الآية {a}',
