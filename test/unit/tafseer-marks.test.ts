@@ -325,3 +325,13 @@ test('kit v30 reader CPU: the packed word list holds exactly the words of each f
   }
   assert.ok(n > 1000, String(n));
 });
+
+test('kit v30 reader CPU: the startup warm-up runs the matching code on made-up letters and changes nothing', async () => {
+  const { warmUp } = await import('../../src/worker/letters.ts');
+  const before = computeMarks(ix, html(CASE.quoteExact), own(CASE.quoteExact), true);
+  assert.equal(warmUp(), undefined);
+  assert.deepEqual(computeMarks(ix, html(CASE.quoteExact), own(CASE.quoteExact), true), before);
+  // A Worker with Tafseer warms up at startup and still starts and answers.
+  const w = makeWorker(ab, { testMemoryLimits: true, dev: true, gate: false, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, counts: [0, ...SYN_COUNTS.slice(1)], lettersQuran }, {} as never);
+  assert.ok(w && typeof w.fetch === 'function');
+});
