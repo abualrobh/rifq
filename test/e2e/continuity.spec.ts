@@ -815,3 +815,37 @@ test('CN-16 (QA v27 FIND-F rest, SC 2.4.11): phone held sideways (844x390) with 
   }
   test.info().annotations.push({ type: 'focus', description: notes.join('; ') });
 });
+
+test('CN-17 (QA v27 FIND-O): a reciter change while paused, with slow audio metadata, shows no "loading" message while nothing is loading', async ({ page }) => {
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  await playSurah(page, 2);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  // From now on the audio metadata answers after 2.5 s (more than the 1 s loading clock).
+  await page.route('**/api/audio', async (route) => { await new Promise((r) => setTimeout(r, 2500)); await route.continue(); });
+  const status = page.locator('[data-audio-status]');
+  await page.locator('[data-audio-more] summary').click();
+  await page.check('[data-reciter="97"]');
+  await page.locator('[data-audio-more] summary').click();
+  // While the metadata is on its way (held paused, nothing will play): no loading message.
+  await page.waitForTimeout(1500);
+  await expect(status).not.toHaveText(t('ar', 'audioLoading'));
+  await expect.poll(async () => (await audioState(page))!.src, { timeout: 10_000 }).toContain('/97/2.mp3');
+  await page.waitForTimeout(1500);
+  expect((await audioState(page))!.paused).toBe(true);
+  await expect(status).not.toHaveText(t('ar', 'audioLoading'));
+  await expect(status).toHaveAttribute('data-loading', '0');
+});
+
+test('CN-18 (QA v27, informational): in the ended state the mini-player exposes no empty paragraph to screen readers', async ({ page }) => {
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  await playSurah(page, 1);
+  await hop(page, () => page.click('a[data-next] >> nth=0'), '/2/');
+  await seekTo(page, len(1) - 300);
+  await expect(mini(page)).toHaveAttribute('data-phase', 'ended', { timeout: 15_000 });
+  const snap = await mini(page).ariaSnapshot();
+  expect(snap, snap).not.toMatch(/- paragraph\s*$/m);
+  await expect(page.locator('[data-mini-status]')).toHaveText(t('ar', 'miniEnded'));
+});
