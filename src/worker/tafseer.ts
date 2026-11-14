@@ -39,7 +39,9 @@ export const PROVIDER = 'Quran Foundation';
 export const TAFSEER_LIMIT_PER_MINUTE = 60;
 export const CATALOGUE_PATH = '/dev/tafseer-catalogue/';
 export const SHAPE_PATH = '/dev/tafseer-shape/';
-export const CACHE_VERSION = 'v3';
+// v4 (kit v30): the matching code changed (FIND-X one-word own-ayah edge match, 2:72 hamza seat), so
+// no entry with marks from the v3 code is read again; the matching-code hash in the key changes too.
+export const CACHE_VERSION = 'v4';
 const CONTENT_PATH_NOTE = '/content/api/v4';
 // D-076 (2026-11-08): Hamzeh chose Tafsir Ibn Kathir in Arabic. The Quran Foundation docs do not
 // publish its tafsir ID, so no ID is set anywhere: TAFSIR_ID stays a setting, and the catalogue
@@ -132,7 +134,7 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
   function marksFor(p: Passage): Marks | null {
     if (!letters) return null;
     try {
-      return computeMarks(letters.index(served), p.text, p.range, p.languageName === null || isArabic(p.languageName));
+      return computeMarks(letters.index(`/api/tafseer request ${served}`), p.text, p.range, p.languageName === null || isArabic(p.languageName));
     } catch { return null; }
   }
 

@@ -176,15 +176,49 @@ test('D-088: split-off letters at the edges; fragments; middle words exact; 2:72
   assert.ok(reviewCsv(list).includes('"fragment","","",""'));
   // 2:72 style: HAIR SPACE + superscript alef + hamza mark + sukun-like mark + HAIR SPACE + WORD
   // JOINER inside one word. Made-up letters ra and ta.
-  // The API writes the hamza after the superscript alef as a mark (U+0654), which is removed; the
-  // file writes U+0621, a letter. They differ (accepted: 2:72 goes to the reviewers), but the
-  // narrow spaces no longer split the API word.
+  // The API writes the hamza after the superscript alef as a mark (U+0654) on that superscript
+  // alef; the file writes U+0621, a letter. Kit v30: step 1b reads the hamza mark on a superscript
+  // alef as U+0621, so the two now agree (v29 lost the hamza and 2:72 was unmatched).
   const api72 = A(0x631, 0x64e, 0x200a, 0x670, 0x654, 0x6e1, 0x200a, 0x2060, 0x62a);
   const file72 = A(0x631, 0x64e, 0x670, 0x621, 0x6e1, 0x62a);
-  assert.deepEqual(lettersOnlyWords(api72), [A(0x631, 0x62a)]);
-  assert.notEqual(lettersOnly(api72), lettersOnly(file72));
+  assert.deepEqual(lettersOnlyWords(api72), [A(0x631, 0x621, 0x62a)]);
+  assert.equal(lettersOnly(api72), lettersOnly(file72));
+  // Only that seat: a hamza mark after tatweel is still removed (the madda alef case above), and a
+  // superscript alef without a hamza mark stays a mark.
+  assert.deepEqual(lettersOnlyWords(A(0x631, 0x640, 0x654, 0x62a)), [A(0x631, 0x62a)]);
+  assert.deepEqual(lettersOnlyWords(A(0x631, 0x670, 0x62a)), [A(0x631, 0x62a)]);
   assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x2060, 0x62a)), [A(0x631, 0x62a)]);
   assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x62a)), [A(0x631), A(0x62a)], 'a narrow space between letters still splits');
+});
+
+test('kit v30 FIND-X: one word of the own ayah after an attached letter matches; guards keep glosses plain', () => {
+  // Made-up "ayat" (arbitrary letters, not Quran words). 9:1 = [wa+dal-ra-zain, fa+ba+kha-sin-sheen,
+  // alef-lam+tha-jim-ha, qaf-ta-ghain-ya]; 9:2 = [ta-ghain-ya]; 9:3 = [ba-ta-sad-dad-ta].
+  const A = (...c: number[]) => cp(...c);
+  const W = { drz: A(0x62f, 0x631, 0x632), ksh: A(0x62e, 0x633, 0x634), tjh: A(0x62b, 0x62c, 0x62d), qtgy: A(0x642, 0x62a, 0x63a, 0x64a) };
+  const r1 = [A(0x648) + W.drz, A(0x641, 0x628) + W.ksh, A(0x627, 0x644) + W.tjh, W.qtgy];
+  const idx = lettersIndex([{ s: 9, a: 1, letters: r1.join(' ') }, { s: 9, a: 2, letters: A(0x62a, 0x63a, 0x64a) }, { s: 9, a: 3, letters: A(0x628, 0x62a, 0x635, 0x636, 0x62a) }]);
+  const m = (t: string, a: number) => { const x = matchPhrase(idx, t, { s: 9, from: a, to: a }); return [x.result, x.match]; };
+  // The three real shapes (2:178, 2:185, 2:188): the Quran word is wa + the quoted word.
+  assert.deepEqual(m(W.drz, 1), ['matched_own_ayah', 'edge']);
+  // Two attached letters (fa + bi), with marks on the phrase.
+  assert.deepEqual(m(A(0x62e, 0x64e, 0x633, 0x652, 0x634, 0x64f), 1), ['matched_own_ayah', 'edge']);
+  // Never alef + lam (the article): the bare word is a different word.
+  assert.deepEqual(m(W.tjh, 1), ['too_short', null]);
+  // Never a piece inside a word, and no suffix: the end or the start of a longer word does not count.
+  assert.deepEqual(m(A(0x62a, 0x63a, 0x64a), 1), ['too_short', null], 'end of qaf-ta-ghain-ya: qaf is not an attached letter');
+  assert.deepEqual(m(A(0x642, 0x62a, 0x63a), 1), ['too_short', null], 'start of a word');
+  // Own ayah range only: in 9:2 the same word with an attached letter elsewhere stays too short.
+  assert.deepEqual(m(W.drz, 2), ['too_short', null]);
+  // At least 3 letters: a two-letter piece is a fragment as before (D-088).
+  assert.deepEqual(m(A(0x62f, 0x631), 1), ['fragment', null]);
+  // A whole word is still exact.
+  assert.deepEqual(m(W.qtgy, 1), ['matched_own_ayah', 'exact']);
+  // Two-word phrases are unchanged (D-088 edge rules).
+  assert.deepEqual(m(`${W.drz} ${A(0x648, 0x648)}`, 1), ['unmatched', null]);
+  // 9:3: ba + ta-sad-dad-ta: ba is an attached letter, so this matches (accepted risk: a word whose
+  // first root letter is one of the attached letters can match; three letters at least).
+  assert.deepEqual(m(A(0x62a, 0x635, 0x636, 0x62a), 3), ['matched_own_ayah', 'edge']);
 });
 
 test('D-084 phrases: ( ), ornate parentheses either way, and { } as qiraah_or_quote, kept as delivered', () => {

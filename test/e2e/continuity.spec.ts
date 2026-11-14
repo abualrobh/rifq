@@ -964,3 +964,56 @@ test('CN-21 (QA v28 FIND-R): the give-up message of a late held reciter change g
   await expect(status).toHaveAttribute('data-reason', '');
   expect((await audioState(page))!.paused).toBe(true);
 });
+
+// QA v29 FIND-V: a paused reciter change made while offline. Play then says the device is offline
+// (not "loading" for ever), and once back online Play starts the new reciter at the same ayah.
+test('CN-22 (QA v29 FIND-V): after a paused reciter change made offline, play says offline, then plays the new reciter once online', async ({ page, context }) => {
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  await playSurah(page, 2);
+  await seekTo(page, 3 * STEP + 500);
+  await expect.poll(() => marked(page)).toEqual([4]);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  const status = page.locator('[data-audio-status]');
+  await context.setOffline(true);
+  await page.locator('[data-audio-more] summary').click();
+  await page.check('[data-reciter="97"]');
+  await page.locator('[data-audio-more] summary').click();
+  await expect(status).toHaveText(t('ar', 'audioOffline'));
+  // Still offline: play gives the normal offline message, never the loading one.
+  await page.click('[data-pause]');
+  await expect(status).toHaveText(t('ar', 'audioOffline'));
+  await page.waitForTimeout(800);
+  await expect(status).not.toHaveText(t('ar', 'audioLoading'));
+  await expect(status).not.toHaveAttribute('data-loading', '1');
+  expect((await audioState(page))!.paused).toBe(true);
+  // Back online: one press plays the new reciter from the same ayah.
+  await context.setOffline(false);
+  await page.click('[data-pause]');
+  await expect.poll(async () => { const x = (await audioState(page))!; return x.src.includes('/97/2.mp3') && !x.paused && x.t >= 3 * STEP - 50 && x.t < 3 * STEP + 2500; }, { timeout: 10_000 }).toBe(true);
+  await expect.poll(() => marked(page)).toEqual([4]);
+  await expect(status).not.toHaveText(t('ar', 'audioLoading'));
+});
+
+// QA v29 I-2: play pressed during a held reciter change that passes the 15 s give-up is not lost:
+// when the reciter still arrives, it plays (as a plain start that arrives late does).
+test('CN-23 (QA v29 I-2): a play press during a held change that passes the give-up plays when the reciter arrives', async ({ page }) => {
+  test.setTimeout(90_000);
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  await playSurah(page, 2);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  await page.route('**/api/audio', async (route) => { await new Promise((r) => setTimeout(r, 17_000)); await route.continue(); });
+  const status = page.locator('[data-audio-status]');
+  await page.locator('[data-audio-more] summary').click();
+  await page.check('[data-reciter="97"]');
+  await page.locator('[data-audio-more] summary').click();
+  await page.waitForTimeout(1000);
+  await page.click('[data-pause]');
+  await expect(status).toHaveText(t('ar', 'audioLoading'));
+  await expect(status).toContainText(t('ar', 'audioUnavailable'), { timeout: 17_000 });
+  await expect.poll(async () => { const x = (await audioState(page))!; return x.src.includes('/97/2.mp3') && !x.paused; }, { timeout: 15_000 }).toBe(true);
+  await expect(status).not.toContainText(t('ar', 'audioUnavailable'));
+});

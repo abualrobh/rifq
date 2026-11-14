@@ -11,13 +11,15 @@ import { lettersIndex, packedIndex, type LettersIndex, type PackedLetters } from
 // version of the matching code (scripts/build.ts); both go into the Tafseer cache key (D-156 A).
 export type LettersQuran = { counts: number[]; letters?: string[]; emlaey?: string[]; packed?: PackedLetters['forms']; sha256?: string; checkVersion?: string };
 
-export type IndexTiming = { builtAtRequest: number | null; buildMs: number | null };
+// Which route built this isolate's index first (kit v30, QA v29 FIND-W: the label was always
+// "/api/tafseer request 0" when the quote check or the timing page built it). No time is kept: the
+// Workers clock does not move while code runs, so a time measured here would be 0.
+export type IndexTiming = { builtBy: string | null };
 
-// One index per Worker isolate, built on first use and kept while the isolate lives. (buildMs uses
-// the Workers clock, which does not move while code runs; the timing page measures it properly.)
+// One index per Worker isolate, built on first use and kept while the isolate lives.
 export function makeLetters(q: LettersQuran) {
   let ix: LettersIndex | null = null;
-  const timing: IndexTiming = { builtAtRequest: null, buildMs: null };
+  const timing: IndexTiming = { builtBy: null };
   const rows = () => {
     const out: { s: number; a: number; letters: string; emlaey?: string }[] = [];
     let i = 0;
@@ -29,16 +31,12 @@ export function makeLetters(q: LettersQuran) {
     q,
     timing,
     built: () => ix !== null,
-    index(request = 0): LettersIndex {
+    index(by = 'unnamed'): LettersIndex {
       if (ix) return ix;
-      const t0 = performance.now();
       ix = make();
-      timing.builtAtRequest = request;
-      timing.buildMs = performance.now() - t0;
+      timing.builtBy = by;
       return ix;
     },
-    // A separate index built now and not kept (timing page only).
-    fresh: (): LettersIndex => make(),
     // Cache-key part (D-156 A): check version and approved-file SHA-256, or "unversioned" when a
     // test config gives neither.
     key: () => `${q.checkVersion ?? 'unversioned'}-${q.sha256 ?? 'nosha'}`,

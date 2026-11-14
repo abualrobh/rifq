@@ -18,7 +18,8 @@
 // text of the passage's own ayah range; otherwise in the same surah; otherwise anywhere in the
 // approved text (consecutive words may run across ayah ends). Results: matched_own_ayah,
 // matched_same_surah, matched_elsewhere, unmatched, or too_short (fewer than 2 letters-only words,
-// unless it matches its own ayah range). Phrases in { } are labelled qiraah_or_quote: braces also
+// unless it matches its own ayah range, exactly or, since kit v30, after an attached letter).
+// Phrases in { } are labelled qiraah_or_quote: braces also
 // mark readings (qira'at) in this Tafseer, so they are listed for reviewers and never count as
 // failures. Limits: a phrase outside brackets is not found; a bracketed phrase that is not a quote
 // (a gloss, a name) is checked anyway and usually comes out unmatched or too_short; matching by
@@ -75,11 +76,20 @@ const HAMZA_SEAT = new RegExp(`([${cls([[0x627, 0x627], [0x648, 0x648], [0x649, 
 // 2:72; that was reverted, because the API writes the hamza-with-madda alef, which the file stores
 // as alef with hamza above + madda, as tatweel + U+0654 + fatha + alef, and those words then no
 // longer matched. 2:72 goes to the reviewers instead.)
+// Step 1b (kit v30, 2:72): a hamza above (U+0654) written on a superscript alef (U+0670), with
+// other combining marks allowed in between, is the hamza letter U+0621 standing after that
+// superscript alef. The API writes 2:72 that way (superscript alef + U+0654 + sukun), where the
+// approved file writes superscript alef + U+0621 + sukun; the superscript alef is not a letter in
+// letters-only form, so without this the hamza was lost and the quote of 2:72 did not match. The
+// approved file (both forms) holds no U+0670 followed by U+0654, so its letters-only form does not
+// change (checked on all 6,236 ayat). Only this seat is handled: the tatweel + U+0654 that the API
+// writes for the madda alef is left to step 2 as before (see the v14 note above).
+const HAMZA_ON_SUPERSCRIPT_ALEF = /\u0670(\p{Mn}*?)\u0654/gu;
 export function composeHamza(s: string): string {
   return s.replace(HAMZA_SEAT, (_m, base: string, mid: string, hamza: string) => {
     const to = base === '\u0627' ? (hamza === '\u0654' ? '\u0623' : '\u0625') : base === '\u0648' ? '\u0624' : '\u0626';
     return to + mid;
-  });
+  }).replace(HAMZA_ON_SUPERSCRIPT_ALEF, (_m, mid: string) => '\u0670' + mid + '\u0621');
 }
 
 export function lettersOnlyWords(s: string): string[] {
@@ -222,6 +232,22 @@ export type MatchedForm = 'uthmani' | 'emlaey' | 'both' | null;
 // there, and `match` whether it was exact or edge.
 export const FRAGMENT_MAX_LETTERS = 2;
 
+// Kit v30 (FIND-X, from the real pre-live reviewer list of 2026-11-14): a quote of ONE word whose
+// Quran word in its own ayah range carries an attached letter (2:178, 2:185 and 2:188: the ayah has
+// wa + the word) was "too_short", so it showed plain. A one-word phrase now also matches its own
+// ayah range when a whole Quran word there is exactly one of these attached-letter prefixes followed
+// by the phrase's whole word:
+//   an optional question alef, then an optional wa or fa, then an optional bi, li or ka
+//   (at least one letter; never alef + lam, which is also the article).
+// Guards, so a gloss is not turned green: own ayah range only (same surah and anywhere still need
+// exact whole words, unchanged); the phrase has at least ONE_WORD_EDGE_MIN_LETTERS letters; only a
+// prefix from that closed list, never an arbitrary start; no suffix and no match inside a word (for
+// a single word D-088's "end of the first word, start of the last word" would allow any piece of
+// any word, so it is not used). Its match type is "edge", as for D-088.
+export const ONE_WORD_EDGE_MIN_LETTERS = 3;
+const PROCLITIC = /^(?:\u0627?(?:\u0648|\u0641)?(?:\u0628|\u0644|\u0643)?)$/u;
+export const isProclitic = (p: string) => p.length > 0 && p !== '\u0627\u0644' && PROCLITIC.test(p);
+
 export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; from: number; to: number }): { letters: string; words: number; result: Result; form: MatchedForm; match: MatchType } {
   const words = lettersOnlyWords(phrase);
   const letters = words.join(' ');
@@ -246,6 +272,11 @@ export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; 
   const ownExact = at(ownText, exact);
   if (ownExact) return out('matched_own_ayah', ownExact, 'exact');
   if (total <= FRAGMENT_MAX_LETTERS) return out('fragment');
+  if (words.length === 1 && total >= ONE_WORD_EDGE_MIN_LETTERS) {
+    const w = words[0];
+    const hit = forms.filter(([, f]) => ownText(f).split(' ').some((q) => q.length > w.length && q.endsWith(w) && isProclitic(q.slice(0, q.length - w.length)))).map(([k]) => k);
+    if (hit.length) return out('matched_own_ayah', hit.length === 2 ? 'both' : hit[0], 'edge');
+  }
   if (words.length < 2) return out('too_short');
   // Edge needle: no space before the first word or after the last, so the first word may be the
   // end of a Quran word and the last word the start of one; inner spaces keep every other word whole.
@@ -272,9 +303,12 @@ export const emptyCounts = (): Record<Result, number> => ({ matched_own_ayah: 0,
 // Checks one passage. Every phrase is counted; the reviewer list holds every phrase that did not
 // match its own ayah range, except fragments (D-088), plus every phrase in braces and every
 // unclosed bracket. Edge matches count as matched at their level; match says exact or edge.
-export function checkPassage(ix: LettersIndex, html: string, own: { s: number; from: number; to: number }, ref: string, sum: QuoteSummary, list: ReviewItem[]) {
+// `each` (kit v30) receives every phrase with its result, so a caller that also needs the display
+// class (the quote check page, AC31) does not match each phrase a second time.
+export function checkPassage(ix: LettersIndex, html: string, own: { s: number; from: number; to: number }, ref: string, sum: QuoteSummary, list: ReviewItem[], each?: (p: Phrase, result: Result) => void) {
   for (const p of findPhrases(html)) {
     const m = matchPhrase(ix, p.text, own);
+    each?.(p, m.result);
     sum.phrases++;
     sum.byResult[m.result]++;
     if (p.label === 'qiraah_or_quote') sum.braces++;

@@ -1,6 +1,7 @@
-// D-084 development page island. It asks RIFQ's own Worker to run the quote check one surah at a
-// time, with a pause between surahs, shows the counts and the reviewer list, and offers the list as
-// JSON or CSV made in the browser. Nothing is stored or sent anywhere else. The phrases are Tafseer
+// D-084 development page island. It asks RIFQ's own Worker to run the quote check one small part of
+// a surah at a time (kit v30: about 10 passages a request, so each Worker request stays light on
+// CPU), with a pause between requests, shows the counts and the reviewer list, and offers the list
+// as JSON or CSV made in the browser. Nothing is stored or sent anywhere else. The phrases are Tafseer
 // text exactly as delivered; they are shown as plain text (no markup is ever interpreted).
 //
 // AC31 (RQ-005 v1.1, D-149): the Worker also returns each passage's display classes (one letter per
@@ -10,8 +11,9 @@
 import { useRef, useState } from 'react';
 import { reviewCsv, type CsvRow as ReviewItem } from '../../core/review-csv.ts';
 
-// Proposal: 1 second between surahs, as on the text check page.
-const SURAH_PAUSE_MS = 1000;
+// Kit v30: 1.1 seconds between requests (each part of a surah is one request; under the
+// 60-a-minute Tafseer limit).
+const PART_PAUSE_MS = 1100;
 const RESULTS = ['matched_own_ayah', 'matched_same_surah', 'matched_elsewhere', 'unmatched', 'too_short', 'fragment'] as const;
 const CLASSES = [['O', 'own ayah: Quran font, green, { }'], ['A', 'another ayah: Quran font, brown, ( )'], ['P', 'plain, ( )'], ['N', 'as delivered (unclosed)']] as const;
 const COMPARE_PAUSE_MS = 1100;
@@ -56,29 +58,41 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
     stop.current = false;
     setList([]); setCounts({}); setErrors([]); setDone([]); setDisplay([]); setState('running');
     for (let s = a; s <= b; s++) {
-      if (stop.current) { setState('stopped'); return; }
-      try {
-        const r = await fetch('/api/dev/quote-check', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ s }) });
-        const d = await r.json();
-        if (r.status === 200 && Array.isArray(d.list)) {
-          setList((x) => [...x, ...d.list]);
-          setCounts((c) => {
-            const n = { ...c };
-            n.phrases = (n.phrases ?? 0) + d.summary.phrases;
-            n.braces = (n.braces ?? 0) + d.summary.braces;
-            n.passages = (n.passages ?? 0) + d.passages;
-            n.edge = (n.edge ?? 0) + (d.summary.edgeMatches ?? 0);
-            for (const k of RESULTS) n[k] = (n[k] ?? 0) + (d.summary.byResult[k] ?? 0);
-            for (const [k] of CLASSES) n['d' + k] = (n['d' + k] ?? 0) + (d.displayCounts?.[k] ?? 0);
-            return n;
-          });
-          if (Array.isArray(d.display)) setDisplay((x) => [...x, ...d.display]);
-        } else setErrors((x) => [...x, `surah ${s}: ${d.status ?? r.status}${d.kind ? ' (' + d.kind + ')' : ''}${d.missing ? ' ' + d.missing.join(', ') : ''}`]);
-      } catch {
-        setErrors((x) => [...x, `surah ${s}: network`]);
+      let part: { page: number; skip: number } | null = { page: 1, skip: 0 };
+      let parts = 0;
+      while (part) {
+        if (stop.current) { setState('stopped'); return; }
+        if (parts++) await new Promise((res) => setTimeout(res, PART_PAUSE_MS));
+        try {
+          const r: Response = await fetch('/api/dev/quote-check', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ s, page: part.page, skip: part.skip }) });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const d: any = await r.json();
+          if (r.status === 200 && Array.isArray(d.list)) {
+            setList((x) => [...x, ...d.list]);
+            setCounts((c) => {
+              const n = { ...c };
+              n.phrases = (n.phrases ?? 0) + d.summary.phrases;
+              n.braces = (n.braces ?? 0) + d.summary.braces;
+              n.passages = (n.passages ?? 0) + d.passages;
+              n.edge = (n.edge ?? 0) + (d.summary.edgeMatches ?? 0);
+              n.requests = (n.requests ?? 0) + 1;
+              for (const k of RESULTS) n[k] = (n[k] ?? 0) + (d.summary.byResult[k] ?? 0);
+              for (const [k] of CLASSES) n['d' + k] = (n['d' + k] ?? 0) + (d.displayCounts?.[k] ?? 0);
+              return n;
+            });
+            if (Array.isArray(d.display)) setDisplay((x) => [...x, ...d.display]);
+            part = d.next && Number.isInteger(d.next.page) && Number.isInteger(d.next.skip) ? { page: d.next.page, skip: d.next.skip } : null;
+          } else {
+            setErrors((x) => [...x, `surah ${s} page ${part!.page}: ${d.status ?? r.status}${d.kind ? ' (' + d.kind + ')' : ''}${d.missing ? ' ' + d.missing.join(', ') : ''}`]);
+            part = null;
+          }
+        } catch {
+          setErrors((x) => [...x, `surah ${s} page ${part!.page}: network`]);
+          part = null;
+        }
       }
       setDone((x) => [...x, s]);
-      if (s < b) await new Promise((res) => setTimeout(res, SURAH_PAUSE_MS));
+      if (s < b) await new Promise((res) => setTimeout(res, PART_PAUSE_MS));
     }
     setState('finished');
   }
@@ -101,7 +115,7 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
         <button type="button" className="btn" data-qc-json disabled={!list.length} onClick={() => save(JSON.stringify({ check: 'D-084', made: new Date().toISOString(), counts, list, errors }, null, 1), 'application/json', 'rifq-d084-reviewer-list.json')}>Download JSON</button>{' '}
         <button type="button" className="btn" data-qc-csv disabled={!list.length} onClick={() => save(reviewCsv(list), 'text/csv;charset=utf-8', 'rifq-d084-reviewer-list.csv')}>Download CSV</button>
       </p>
-      <p role="status" data-qc-progress>Surahs checked: {done.length} ({state}).</p>
+      <p role="status" data-qc-progress>Surahs checked: {done.length} ({state}). Requests: <span data-qc-requests>{counts.requests ?? 0}</span>.</p>
       <table>
         <tbody>
           <tr><th scope="row">Passages</th><td data-qc-passages>{counts.passages ?? 0}</td></tr>

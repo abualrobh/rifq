@@ -12,7 +12,6 @@ import { blockTextOf, classOf, computeMarks, markedNodes, markedText, MARKS_VERS
 import { makeWorker } from '../../src/worker/app.ts';
 import { CACHE_VERSION, type CacheLike } from '../../src/worker/tafseer.ts';
 import { makeLetters } from '../../src/worker/letters.ts';
-import { tickClock } from '../../src/worker/timing.ts';
 import { hitsIn, probesFrom, PROBE_MIN_WORDS } from '../../scripts/letters-scan.ts';
 import { checkVersion, MATCHING_FILES } from '../../scripts/build.ts';
 
@@ -142,7 +141,7 @@ test('D-156 A: the Worker sends the passage unchanged plus marks only, and keeps
   const keys = [...cache.m.keys()].filter((k) => !k.endsWith('/list'));
   assert.equal(keys.length, 1);
   assert.ok(keys[0].includes(`/tafseer/${CACHE_VERSION}/prelive/${MOCK_TAFSIR_ID}/2%3A${CASE.quoteSameSurah}/m1-test-${'a'.repeat(64)}`), keys[0]);
-  assert.equal(CACHE_VERSION, 'v3');
+  assert.equal(CACHE_VERSION, 'v4');
   const stored = JSON.parse(cache.m.get(keys[0])!);
   assert.deepEqual(stored.data.marks, d.marks, 'marks stored with the passage, same fetch time');
   // A second read comes from the cache, with the same marks and no new API call.
@@ -176,9 +175,18 @@ test('D-157: no response holds the matching data; without it there are no marks 
 
 test('AC31: /dev/quote-check/ gives the same display classes as /api/tafseer, passage by passage', async () => {
   const { w } = worker({ gate: true });
-  const r = await w.fetch(new Request('http://127.0.0.1/api/dev/quote-check', { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: '{"s":2}' }), ENV as never);
-  const q = await r.json();
-  assert.equal(q.status, 'ok');
+  // Kit v30: the check comes in small parts (page, skip); the parts together cover the surah.
+  const q = { display: [] as { ref: string; n: number; c: string }[], displayCounts: { O: 0, A: 0, P: 0, N: 0 } as Record<string, number>, summary: { phrases: 0 } };
+  let part: { page: number; skip: number } | null = { page: 1, skip: 0 };
+  while (part) {
+    const r = await w.fetch(new Request('http://127.0.0.1/api/dev/quote-check', { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ s: 2, ...part }) }), ENV as never);
+    const d = await r.json();
+    assert.equal(d.status, 'ok');
+    q.display.push(...d.display);
+    for (const k of Object.keys(q.displayCounts)) q.displayCounts[k] += d.displayCounts[k];
+    q.summary.phrases += d.summary.phrases;
+    part = d.next;
+  }
   assert.ok(q.display.length > 30);
   let compared = 0;
   for (const p of q.display as { ref: string; n: number; c: string }[]) {
@@ -197,32 +205,42 @@ test('D-156 A timing page: gated, numbers and references only', async () => {
   const { w } = worker({ gate: true });
   const get = (path: string, h: Record<string, string> = auth) => w.fetch(new Request('http://127.0.0.1' + path, { headers: h }), ENV as never);
   assert.equal((await get('/dev/tafseer-timing/?s=2', {})).status, 401);
+  // Kit v30 (QA v29 FIND-W): the 401 challenge is not a signed-in request, so the first signed-in
+  // load of a fresh isolate says "yes"; no time is shown; the letters index is not built by it.
   const first = await (await get('/dev/tafseer-timing/')).text();
-  assert.ok(first.includes('data-t-cold'));
+  assert.match(first, /data-t-cold>yes</);
+  assert.match(first, /data-t-before>0</);
+  assert.match(first, /data-t-all>1</);
+  assert.match(first, /data-t-built>no</);
+  assert.ok(first.includes('data-t-evidence') && first.includes('Cloudflare dashboard'));
+  assert.ok(!/ ms</.test(first) && !first.includes('data-t-verdict') && !first.includes('data-t-clock'), 'no timings claimed');
   const r = await get('/dev/tafseer-timing/?s=2');
   assert.equal(r.status, 200);
   const h = await r.text();
-  for (const k of ['data-t-own', 'data-t-fresh', 'data-t-first', 'data-t-p50', 'data-t-p95', 'data-t-max', 'data-t-total', 'data-t-worst', 'data-t-verdict']) assert.ok(h.includes(k), k);
+  for (const k of ['data-t-total', 'data-t-most', 'data-t-next', 'data-t-phrases']) assert.ok(h.includes(k), k);
+  assert.match(h, /data-t-cold>no</);
+  assert.match(h, /data-t-built>no</, 'counting phrases builds no index');
+  assert.equal((h.match(/data-t-phrases>/g) ?? []).length <= 10, true, 'one small page only');
+  assert.equal((await get('/dev/tafseer-timing/?s=2&page=0')).status, 400);
+  // The label names the route that built the index.
+  await ask(w, 2, 1, auth);
+  assert.match(await (await get('/dev/tafseer-timing/')).text(), /data-t-built>yes, by \/api\/tafseer request 1</);
   const arabicBlock = (n: number) => (n >= 0x600 && n <= 0x6ff) || (n >= 0x750 && n <= 0x77f) || (n >= 0x8a0 && n <= 0x8ff) || (n >= 0xfb50 && n <= 0xfdff) || (n >= 0xfe70 && n <= 0xfeff);
   assert.ok(![...h].some((c) => arabicBlock(c.codePointAt(0)!)), 'no Arabic text at all');
   assert.ok(!h.includes('MOCK'), 'no Tafseer text');
-  assert.match(h, /data-t-clock="(moved|frozen)"/);
   assert.equal((await get('/dev/tafseer-timing/?s=2', { ...auth, 'sec-fetch-site': 'cross-site' })).status, 403);
   // Not in a build without the gate.
   const off = worker({ gate: false });
   assert.notEqual((await off.w.fetch(new Request('http://127.0.0.1/dev/tafseer-timing/?s=2'), ENV as never)).status, 200);
 });
 
-test('the timing clock waits for a timer before reading the time', async () => {
-  let n = 0;
-  const c = tickClock(() => ++n);
-  assert.equal(await c(), 1);
-  assert.equal(await c(), 2);
+test('kit v30 FIND-W: the letters index says which route built it', () => {
   const L = makeLetters(lettersQuran);
   assert.equal(L.built(), false);
-  L.index(3);
+  L.index('/api/tafseer request 3');
+  L.index('/api/dev/quote-check');
   assert.equal(L.built(), true);
-  assert.equal(L.timing.builtAtRequest, 3);
+  assert.equal(L.timing.builtBy, '/api/tafseer request 3', 'the first builder is kept');
   assert.equal(L.key(), `m1-test-${'a'.repeat(64)}`);
 });
 
