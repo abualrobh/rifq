@@ -213,6 +213,10 @@ bdi[data-ltr-run] { white-space: nowrap; }
 .reader-search > .search { margin-block: .5rem 1rem; }
 .ayat { list-style: none; padding: 0; margin: 1rem 0; }
 .ayah-row { display: flex; gap: .5rem; align-items: flex-start; padding-block: .5rem; border-bottom: 1px solid var(--line); scroll-margin-top: calc(var(--header-h, 3.75rem) + .5rem); }
+/* QA v27 FIND-N (SC 2.4.11, AC43): the controls inside a row get the same top offset as the row.
+   When focus moves back (Shift+Tab), the browser lines up the focused control itself, not its row,
+   with the top of the window; without this the control ended up under the sticky header. */
+.ayah-row :is(a, button, [tabindex]) { scroll-margin-top: calc(var(--header-h, 3.75rem) + .5rem); }
 .ayah-row:target { background: var(--target); outline: 2px solid var(--focus); border-radius: .75rem; }
 /* D-069 font (self-hosted above), then the fallback. Mushaf accuracy still needs the D-012 reviewer. */
 .ayah { flex: 1; margin: 0; font-family: "Noto Naskh Arabic", "Scheherazade New", serif; font-size: var(--ayah-size, 1.5rem); line-height: 2.2; overflow-wrap: anywhere; }
