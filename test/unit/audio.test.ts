@@ -458,9 +458,11 @@ test('/dev/reciters/ record shape: only the file name is templated; a folder nam
   assert.equal(shape('https://download.quranicaudio.com/a/112.mp3', 2), 'https://download.quranicaudio.com/a/112.mp3');
 });
 
-test('D-134: the mini-player region name in Arabic is the reviewed text; English unchanged; the visible label keeps its wording', () => {
-  assert.equal(STRINGS.ar.miniRegion, 'يُتلى الآن');
+test('D-134: the mini-player region name in Arabic is the reviewed text (the visible label without its colon); English unchanged', () => {
+  // The Arabic text is not spelled here (no Arabic outside the strings file, check-no-quran.ts).
+  // D-134: miniRegion became the same words as the reviewed visible label miniNowPlaying.
+  assert.equal(STRINGS.ar.miniRegion + ':', STRINGS.ar.miniNowPlaying);
+  assert.equal(STRINGS.ar.miniRegion.length, 10);
   assert.equal(STRINGS.en.miniRegion, 'Now playing');
-  assert.equal(STRINGS.ar.miniNowPlaying, 'يُتلى الآن:');
   assert.equal(STRINGS.en.miniNowPlaying, 'Now playing:');
 });
