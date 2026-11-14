@@ -255,7 +255,8 @@ function create(el: HTMLAudioElement, dev: boolean) {
     set({ s, count: info.count, names: info.names, phase: 'active', reason: '', msg: null, current: 0, last: a });
     if (!navigator.onLine) { why('offline'); set({ phase: 'none' }); say('audioOffline', true); return; } // AC22
     clearTimers();
-    x.loadT = window.setTimeout(() => { set({ loading: true }); say('audioLoading'); }, LOADING_MS);
+    // QA v27 FIND-O: while held paused nothing is meant to play, so no "loading" message is shown.
+    if (!hold) x.loadT = window.setTimeout(() => { set({ loading: true }); say('audioLoading'); }, LOADING_MS);
     x.giveT = window.setTimeout(() => fail('audioUnavailable', 'timeout-loading'), GIVE_UP_MS);
     const lang = pageLang();
     if (x.lists[lang]?.length && x.rid !== null && !x.ridOutage && x.meta && x.metaKey === `${x.rid}:${s}`) { begin(m, a, x.meta, hold); return; }
@@ -305,6 +306,8 @@ function create(el: HTMLAudioElement, dev: boolean) {
       // the lock-screen title names the new reciter; play resumes from here (pauseOrResume).
       clearTimers();
       set({ playing: false });
+      // QA v27 FIND-O: nothing is loading now, so no "loading" message stays on screen or in the status.
+      if (snap.msg?.key === 'audioLoading') set({ msg: null });
       media(a, true);
       if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'paused'; } catch { /* none */ }
       return;

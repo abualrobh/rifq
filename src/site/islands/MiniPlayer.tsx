@@ -77,9 +77,11 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
         : null}
       <div className="mini-info" data-mini-info>
         <p className="mini-now"><span className="mini-label" aria-hidden="true" data-mini-label>{t(lang, 'miniNowPlaying')}</span>{' '}<bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-mini-surah>{s}. {name}</bdi>{' · '}<span data-mini-ayah>{t(lang, 'audioNowAyah', { a })}</span></p>
-        <p className="mini-sub">
+        {/* QA v27 (Informational): when the line shows a state, the whole paragraph is hidden from
+            screen readers (the status below reads it), so no empty paragraph is exposed. */}
+        <p className="mini-sub" aria-hidden={status ? 'true' : undefined}>
           {status
-            ? <span data-mini-state aria-hidden="true">{status}</span>
+            ? <span data-mini-state>{status}</span>
             : <>{reciter && <bdi lang={latin ? 'en' : 'ar'} dir={latin ? 'ltr' : 'rtl'} data-mini-reciter>{reciter}</bdi>}{reciter && ' · '}<bdi lang="en" dir="ltr" data-mini-credit>Quran Foundation</bdi></>}
         </p>
       </div>
