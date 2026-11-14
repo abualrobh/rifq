@@ -9,7 +9,7 @@ import { t } from '../../src/core/strings.ts';
 import { AUDIO_HOST } from '../../src/core/audio.ts';
 import { MOCK_RECITER_NAMES } from '../mock/qf-mock.ts';
 import { audioState, serveAudio, STEP, type Hit } from './audio-helpers.ts';
-import { loadRecorded, playFromShape } from '../fixtures/recorded-audio.ts';
+import { loadRecorded, playFromShape, type RecordedShape } from '../fixtures/recorded-audio.ts';
 
 test.use({ allowHosts: [AUDIO_HOST] });
 test.describe.configure({ mode: 'default' });
@@ -253,8 +253,15 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   await page.setViewportSize(MOBILE);
   await playSurah(page, 1);
   await hop(page, () => page.click('a.brand'), '/');
-  // Room is kept for the bar (AC67 g): the footer's privacy link is not under it.
-  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+  // Room is kept for the bar (AC67 g): the footer's privacy link is not under it. QA FIND-I (kit v26):
+  // the change's own scroll to the top (on the next frame) must be over before this scroll, and the
+  // page must have stopped at its bottom before anything is measured.
+  await scrollSettled(page);
+  await expect.poll(async () => {
+    await page.evaluate(() => scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+    await scrollSettled(page);
+    return page.evaluate(() => Math.abs(scrollY - (document.documentElement.scrollHeight - innerHeight)) <= 1);
+  }).toBe(true);
   const f = await page.locator('[data-privacy-link]').boundingBox(), m = await mini(page).boundingBox();
   expect(f!.y + f!.height).toBeLessThanOrEqual(m!.y + 1);
   for (const sel of ['[data-mini-toggle]', '[data-mini-go]', '[data-mini-close]']) {
@@ -279,6 +286,11 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   await expect(mini(page)).toHaveAttribute('data-phase', 'ended', { timeout: 4000 });
   await expect(page.locator('[data-mini-status]')).toHaveText(t('ar', 'miniEnded'));
   await expect(page.locator('[data-mini-status]')).toHaveAttribute('aria-live', 'polite');
+  // QA FIND-M: what a screen reader reads in the region holds the ended line once, and not the
+  // visible "now playing" label next to a region name of the same meaning (D-134).
+  const exposed = await exposedText(page, '[data-mini-player]');
+  expect(exposed.split(t('ar', 'miniEnded')).length - 1, exposed).toBe(1);
+  expect(exposed.includes(t('ar', 'miniNowPlaying')), exposed).toBe(false);
   await expect(page.locator('[data-mini-go]')).toHaveAttribute('href', `/1/#a${n(1)}`);
   await expect(page.locator('[data-mini-toggle]')).toHaveCount(0);
   await hop2(page, () => page.click('a.brand'));
@@ -295,6 +307,145 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   expect(await page.evaluate(() => document.activeElement?.id)).toBe('content');
   await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
   expect(await page.evaluate(() => navigator.mediaSession.metadata)).toBeNull();
+});
+test('CN-12 (QA v26 FIND-H, AC19, AC3): changing the reciter while paused loads it at the same ayah and stays paused, on the own page and elsewhere', async ({ page }) => {
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  await playSurah(page, 2);
+  await seekTo(page, 5 * STEP + 500);
+  await expect.poll(() => marked(page)).toEqual([6]);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  // On the playing surah's own page.
+  await page.locator('[data-audio-more] summary').click();
+  await page.check('[data-reciter="97"]');
+  await page.locator('[data-audio-more] summary').click();
+  await expect.poll(async () => (await audioState(page))!.src).toContain('/97/2.mp3');
+  await page.waitForTimeout(1500);
+  expect((await audioState(page))!.paused, 'nothing starts on its own').toBe(true);
+  await expect(mini(page)).toHaveAttribute('data-playing', '0');
+  await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('data-state', 'paused');
+  await expect(page.locator('[data-mini-reciter]')).toHaveText(new RegExp(String(97)));
+  expect(await marked(page)).toEqual([6]);
+  // Play resumes in the new reciter at that ayah.
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => { const x = (await audioState(page))!; return !x.paused && x.t >= 5 * STEP - 50 && x.t < 5 * STEP + 1500; }).toBe(true);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  // On another surah's page.
+  await tag(page);
+  await hop(page, () => page.click('a[data-prev] >> nth=0'), '/1/');
+  await page.locator('[data-audio-more] summary').click();
+  await page.check('[data-reciter="7"]');
+  await page.locator('[data-audio-more] summary').click();
+  await expect.poll(async () => (await audioState(page))!.src).toContain('/7/2.mp3');
+  await page.waitForTimeout(1500);
+  expect((await audioState(page))!.paused, 'nothing starts on its own').toBe(true);
+  await expect(mini(page)).toHaveAttribute('data-s', '2');
+  await expect(mini(page)).toHaveAttribute('data-playing', '0');
+  await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => { const x = (await audioState(page))!; return !x.paused && x.t >= 5 * STEP - 50 && x.t < 5 * STEP + 1500; }).toBe(true);
+  await expect(mini(page)).toHaveAttribute('data-a', '6');
+});
+
+// QA v26 FIND-F (SC 2.4.11, AC43, AC67 d): no focused ayah control on /2/ at 390 px is hidden by the
+// sticky player or the mini-player, with nothing playing, with the full player (and the mini-player
+// D-130 puts under it), and with the mini-player for another surah. Every focusable control in the
+// ayah list is focused; the first 60 by the Tab key, then all of them by focus().
+async function focusHidden(page: Page, tabs: number) {
+  const check = () => page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    if (!el || !el.closest('ol.ayat')) return null;
+    let edge = innerHeight;
+    for (const sel of ['[data-player]', '[data-mini-player]']) {
+      const b = document.querySelector(sel)?.getBoundingClientRect();
+      if (b && b.height > 0 && b.top > 0 && b.top < edge) edge = b.top;
+    }
+    const head = document.querySelector('.site-header')!.getBoundingClientRect().bottom;
+    const r = el.getBoundingClientRect();
+    return r.bottom <= edge + 0.5 && r.bottom > head ? '' : `${el.getAttribute('aria-label') ?? el.className} bottom ${Math.round(r.bottom)} edge ${Math.round(edge)}`;
+  });
+  const bad: string[] = [];
+  await page.evaluate(() => { const b = document.querySelector<HTMLElement>('ol.ayat'); b?.setAttribute('tabindex', '-1'); b?.focus(); scrollTo({ top: 0, behavior: 'instant' }); b?.removeAttribute('tabindex'); });
+  let seen = 0;
+  for (let i = 0; i < tabs; i++) {
+    await page.keyboard.press('Tab');
+    await scrollSettled(page);
+    const r = await check();
+    if (r === null) break;
+    seen++;
+    if (r) bad.push('Tab: ' + r);
+  }
+  const all = await page.evaluate(async () => {
+    const out: string[] = [];
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const els = [...document.querySelectorAll<HTMLElement>('ol.ayat :is(a[href], button:not([disabled]))')].filter((e) => e.tabIndex >= 0 && e.getClientRects().length > 0);
+    for (const el of els) {
+      el.focus();
+      await frame();
+      let edge = innerHeight;
+      for (const sel of ['[data-player]', '[data-mini-player]']) {
+        const b = document.querySelector(sel)?.getBoundingClientRect();
+        if (b && b.height > 0 && b.top > 0 && b.top < edge) edge = b.top;
+      }
+      const head = document.querySelector('.site-header')!.getBoundingClientRect().bottom;
+      const r = el.getBoundingClientRect();
+      if (!(r.bottom <= edge + 0.5 && r.bottom > head)) out.push(`${el.getAttribute('aria-label') ?? el.className} bottom ${Math.round(r.bottom)} edge ${Math.round(edge)}`);
+    }
+    return { n: els.length, out };
+  });
+  return { tabbed: seen, n: all.n, bad: [...bad, ...all.out] };
+}
+
+test('CN-14 (QA v26 FIND-F, SC 2.4.11): focused ayah controls on /2/ are never hidden by the player or the mini-player', async ({ page }) => {
+  test.setTimeout(400_000);
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  const results: string[] = [];
+  // 1. Nothing playing: the idle player only.
+  await page.goto('/2/');
+  await hydrated(page);
+  await expect(mini(page)).toHaveCount(0);
+  let r = await focusHidden(page, 60);
+  results.push(`idle: ${r.tabbed} by Tab, ${r.n} by focus()`);
+  expect(r.tabbed).toBe(60);
+  expect(r.n).toBeGreaterThan(286 * 3);
+  expect(r.bad, 'idle').toEqual([]);
+  // 2. The full player with a recitation (paused, so nothing scrolls by itself), and the mini-player.
+  await page.click('[data-play-surah]');
+  await expect.poll(async () => { const x = await audioState(page); return !!x && !x.paused && x.ready >= 3; }).toBe(true);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  await expect(mini(page)).toBeVisible();
+  r = await focusHidden(page, 60);
+  results.push(`full player: ${r.tabbed} by Tab, ${r.n} by focus()`);
+  expect(r.bad, 'full player and mini-player').toEqual([]);
+  // 3. The mini-player for another surah (surah 1 playing), on /2/.
+  await page.click('[data-mini-close]');
+  await playSurah(page, 1);
+  await hop(page, () => page.click('a[data-next] >> nth=0'), '/2/');
+  await expect(mini(page)).toHaveAttribute('data-s', '1');
+  r = await focusHidden(page, 60);
+  results.push(`mini-player: ${r.tabbed} by Tab, ${r.n} by focus()`);
+  expect(r.bad, 'mini-player').toEqual([]);
+  // (Surah 1 is short, so it may have ended during the checks; the bar then shows the ended state.)
+  await expect(mini(page)).toBeVisible();
+  test.info().annotations.push({ type: 'focus', description: results.join('; ') });
+});
+
+// Resolves when the page has not scrolled for 6 animation frames in a row.
+const scrollSettled = (page: Page) => page.evaluate(() => new Promise<void>((done) => {
+  let last = -1, same = 0;
+  const step = () => { const y = scrollY; same = y === last ? same + 1 : 0; last = y; if (same >= 6) done(); else requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}));
+// The text of an element a screen reader reads (text outside aria-hidden parts), in order.
+const exposedText = (page: Page, sel: string) => page.$eval(sel, (root) => {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let out = '';
+  for (let x = w.nextNode(); x; x = w.nextNode()) if (!(x.parentElement?.closest('[aria-hidden="true"]'))) out += x.nodeValue;
+  return out;
 });
 // A change after which the mini-player may be gone.
 async function hop2(page: Page, click: () => Promise<unknown>) {
@@ -423,6 +574,43 @@ test('CN-09 (AC72 gate-off part, AC66): an answer that is not an RIFQ page is lo
     await expect.poll(async () => !(await audioState(page))!.paused).toBe(true);
     await tag(page);
   }
+  // QA v26 FIND-G: a 404 is placed in the tab only when it is RIFQ's own 404 page. A 404 with
+  // another HTML page (even an A1 page without the not-found marker) is loaded in full.
+  const index = await (await page.request.get('/surahs/')).text();
+  for (const body of ['<p>missing</p>', index]) {
+    await hop(page, () => page.click('a.brand'), '/');
+    await page.route('**/surahs/', (r) => r.fulfill({ status: 404, contentType: 'text/html', body }), { times: 2 });
+    await page.click('a.index-card');
+    await page.waitForURL('**/surahs/');
+    await expect.poll(() => sameDoc(page).catch(() => false), { message: '404 ' + body.length }).toBe(false);
+    await page.unroute('**/surahs/');
+    await page.goto('/2/');
+    await hydrated(page);
+    await page.click('[data-play-surah]');
+    await expect.poll(async () => !(await audioState(page))!.paused).toBe(true);
+    await tag(page);
+  }
+});
+
+test('CN-13 (QA v26 FIND-G, AC62): Back and Forward to RIFQ\'s own 404 page stay in place and keep the recitation playing', async ({ page }) => {
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  const r = await page.goto('/no-such-page/');
+  expect(r!.status()).toBe(404);
+  await hydrated(page);
+  await tag(page);
+  await hop2(page, () => page.click('main a[href="/"]'));
+  await hop2(page, () => page.click('a.index-card'));
+  await hop2(page, () => page.click('a[data-surah-link="2"]'));
+  await hydrated(page);
+  await page.click('[data-play-surah]');
+  await expect.poll(async () => { const x = await audioState(page); return !!x && !x.paused; }).toBe(true);
+  await hop(page, () => page.goBack(), /\/surahs\/$/);
+  await hop(page, () => page.goBack(), /127\.0\.0\.1:\d+\/$/);
+  await hop(page, () => page.goBack(), /\/no-such-page\/$/);
+  await expect(page.locator('h1')).toHaveText(t('ar', 'notFound'));
+  await hop(page, () => page.goForward(), /127\.0\.0\.1:\d+\/$/);
+  expect((await audioState(page))!.paused).toBe(false);
 });
 
 test('CN-10 (AC73, P-13 in Chromium): 50 in-place changes during surah 2; no reload, no break, no listener build-up', async ({ page }) => {
@@ -477,24 +665,48 @@ test('CN-10 (AC73, P-13 in Chromium): 50 in-place changes during surah 2; no rel
   console.log(`CN-10 memory: start ${h0} B, end ${h1} B; listeners ${counts.join(', ')}`);
 });
 
-test('CN-11 (D-125 B, recorded pre-live shape): an address with a double slash and an ayah 1 starting at 3151 ms play as given', async ({ page }) => {
+// CN-11 (D-125 B, D-133 A): an address with a double slash in its path and a first ayah that starts
+// after 0 ms play as given. Run on a made-up shape of that kind (always) and on the recorded pre-live
+// shape of that kind, read from the private fixture (RIFQ_AUDIO_SHAPE) with its own values; no
+// recorded value is written here.
+const MADE_UP_LATE: RecordedShape = {
+  keys: ['audio_url', 'chapter_id', 'duration', 'file_size', 'format', 'id', 'timestamps'], format: 'mp3', fileSize: 116214080, duration: 7162000,
+  types: { file_size: 'number', duration: 'number', audio_url: 'string', timestamps: 'array' },
+  urlPath: 'https://download.quranicaudio.com/quran/mock_made_up_reciter//{s}.mp3', urlHasQuery: false, entries: 286,
+  entryKeys: ['duration', 'segments', 'timestamp_from', 'timestamp_to', 'verse_key'], first: [2740, 11980], last: [7100500, 7161300], lastEndMinusDuration: -700,
+};
+function recordedLate(): RecordedShape | null {
   const rec = loadRecorded();
-  test.skip(!rec, 'RIFQ_AUDIO_SHAPE not given');
-  test.skip(n(2) !== 286, 'needs the real ayah count of surah 2');
-  const sh = rec!.reciters.find((r) => r.id === 97)!.surahs.find((x) => x.s === 2)!.shape!;
-  const play = playFromShape(sh, 2, 7);
-  const hits: Hit[] = [];
-  await serveAudio(page, () => 60_000, hits);
-  await page.route('**/api/audio', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(play) }));
-  await page.goto('/en/2/');
-  await hydrated(page);
-  await page.click('[data-play-surah]');
-  await expect.poll(async () => { const x = (await audioState(page))!; return !x.paused && x.t >= 3151; }).toBe(true);
-  expect((await audioState(page))!.src).toBe('https://download.quranicaudio.com/quran/yasser_ad-dussary//2.mp3');
-  expect(hits.every((h) => h.url === 'https://download.quranicaudio.com/quran/yasser_ad-dussary//2.mp3')).toBe(true);
-  await expect.poll(() => marked(page)).toEqual([1]);
-  // Before 3151 ms nothing is marked from the file (AC13): seek back to 1 s.
-  await seekTo(page, 1000);
-  await page.waitForTimeout(600);
-  expect((await marked(page)).length).toBeLessThanOrEqual(1);
-});
+  if (!rec) return null;
+  for (const r of rec.reciters) for (const x of r.surahs) {
+    const sh = x.shape;
+    if (x.s === 2 && x.ok && sh?.urlPath && /^https:\/\/[^/]+\/.*\/\//.test(sh.urlPath) && sh.first && sh.first[0] > 0) return sh;
+  }
+  return null;
+}
+for (const kind of ['made-up', 'recorded'] as const) {
+  test(`CN-11 (D-125 B, ${kind} shape): an address with a double slash and an ayah 1 starting after 0 ms play as given`, async ({ page }) => {
+    const sh = kind === 'made-up' ? MADE_UP_LATE : recordedLate();
+    test.skip(!sh, 'RIFQ_AUDIO_SHAPE not given (or it holds no such case)');
+    test.skip(n(2) !== 286, 'needs the real ayah count of surah 2');
+    const play = playFromShape(sh!, 2, 7);
+    const url = play.url as string;
+    const first = (play.t as [number, number][])[0][0];
+    expect(url).toMatch(/^https:\/\/[^/]+\/.*\/\/2\.mp3$/);
+    expect(first).toBeGreaterThan(1000);
+    const hits: Hit[] = [];
+    await serveAudio(page, () => 60_000, hits);
+    await page.route('**/api/audio', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(play) }));
+    await page.goto('/en/2/');
+    await hydrated(page);
+    await page.click('[data-play-surah]');
+    await expect.poll(async () => { const x = (await audioState(page))!; return !x.paused && x.t >= first; }).toBe(true);
+    expect((await audioState(page))!.src).toBe(url);
+    expect(hits.every((h) => h.url === url)).toBe(true);
+    await expect.poll(() => marked(page)).toEqual([1]);
+    // Before the first ayah's start nothing is marked from the file (AC13): seek back to 1 s.
+    await seekTo(page, 1000);
+    await page.waitForTimeout(600);
+    expect((await marked(page)).length).toBeLessThanOrEqual(1);
+  });
+}

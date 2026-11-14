@@ -11,8 +11,10 @@ import { t, homePath, privacyPath, type Lang } from '../../core/strings.ts';
 // privacy, 404) change in place with Astro's client router (src/site/client/nav.ts), so a recitation
 // keeps playing; they carry the rifq-page marker the router checks before placing a page in the tab
 // (AC72). Development pages pass false: always full loads, no mini-player (A1, AC66).
-interface Props { lang: Lang; title: string; alt: string; wide?: boolean; inPlace?: boolean }
-const { lang, title, alt, wide = false, inPlace = true } = Astro.props;
+// notFound: RIFQ's own 404 page, which answers with status 404; its second marker lets the router
+// place it in the tab too (QA v26 FIND-G: Back or Forward to it keeps the recitation playing).
+interface Props { lang: Lang; title: string; alt: string; wide?: boolean; inPlace?: boolean; notFound?: boolean }
+const { lang, title, alt, wide = false, inPlace = true, notFound = false } = Astro.props;
 const other: Lang = lang === 'ar' ? 'en' : 'ar';
 ---
 <!doctype html>
@@ -30,6 +32,7 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
          the same origin; anonymous mode still sends same-origin credentials (the test site gate). -->
     <link rel="preload" href="/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
     {inPlace && <meta name="rifq-page" content="a1" />}
+    {inPlace && notFound && <meta name="rifq-not-found" content="1" />}
     {inPlace && <ClientRouter fallback="swap" />}
     {inPlace && <script>import '../client/nav.ts';</script>}
     <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem')}catch(e){}})();</script>
