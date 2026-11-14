@@ -729,7 +729,12 @@ async function sweep(page: Page, fwd: number, back: number) {
     const name = `${el.getAttribute('aria-label') ?? el.className} ${Math.round(r.top)}-${Math.round(r.bottom)} (header ${Math.round(head)}, bar ${Math.round(edge)})`;
     return { clear: r.top >= head - 0.5 && r.bottom <= edge + 0.5, covered: r.bottom <= head + 0.5 || r.top >= edge - 0.5, name };
   });
+  // The web fonts are loaded first: a font arriving after a key press can change the header's
+  // height and move the page after the browser has scrolled the control into view (seen once at
+  // 360 px in English in a repeated run), which is a different matter from focus scrolling.
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await page.evaluate(() => { const b = document.querySelector<HTMLElement>('ol.ayat'); b?.setAttribute('tabindex', '-1'); b?.focus(); scrollTo({ top: 0, behavior: 'instant' }); b?.removeAttribute('tabindex'); });
+  await scrollSettled(page);
   const out = { presses: 0, notClear: [] as string[], covered: [] as string[] };
   for (const [key, times] of [['Tab', fwd], ['Shift+Tab', back]] as const) {
     for (let i = 0; i < times; i++) {
