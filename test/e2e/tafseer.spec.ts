@@ -118,6 +118,9 @@ test('AC17: next and previous follow source order across surahs, with no skip or
     const ref = await shown(page).locator('p.ayah').getAttribute('data-r');
     expect(ref).toBe(visited[visited.length - 1]);
     await page.locator('[data-tf-next]').click();
+    // Across the surah edge the next page now opens in place (RQ-006 v1.3), with no navigation for
+    // the test to wait on: wait for the shown ayah to change.
+    await expect(page.locator('[data-tf-ayah]')).not.toHaveAttribute('data-tf-ayah', visited[visited.length - 1]);
     await ready(page);
   }
   const n1 = src.list.filter((x) => x.sora === 1).length;

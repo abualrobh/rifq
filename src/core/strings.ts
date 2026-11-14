@@ -170,6 +170,16 @@ const ar = {
   // QA FIND-1 (kit v24): the accessible name and visible label of the reciter and source disclosure.
   audioMoreLabel: 'القارئ والمصدر',
   audioTapToPlay: 'اضغط «متابعة التشغيل» لبدء الصوت.',
+  // RQ-006 v1.3 (D-126 to D-130, kit v26): mini-player and continuity. New; they await Hamzeh's
+  // Arabic review (D-104).
+  audioContinueHelp: 'يستمر الاستماع أثناء تنقلك في رِفْق، ويتوقف إذا أُعيد تحميل الصفحة أو فُتحت في علامة تبويب جديدة.',
+  miniRegion: 'التلاوة الجارية',
+  miniNowPlaying: 'يُتلى الآن:',
+  miniPlay: 'تشغيل التلاوة، السورة {s}، الآية {a}',
+  miniPause: 'إيقاف التلاوة مؤقتًا، السورة {s}، الآية {a}',
+  miniGo: 'الانتقال إلى الآية الجارية تلاوتها، {s}:{a}',
+  miniClose: 'إغلاق المشغّل',
+  miniEnded: 'انتهت التلاوة.',
   // Privacy page "Listening" item (D-112, RQ-006 AC40): the wording proposed in RQ-006 v1.1,
   // shown only when PRIVACY_LISTENING_ON is true. It stays off until Hamzeh approves it.
   pvListenL: 'الاستماع',
@@ -359,6 +369,14 @@ const en: typeof ar = {
   audioNoReciter: 'No reciter is available for now. Reading still works.',
   audioMoreLabel: 'Reciter and source',
   audioTapToPlay: 'Tap Resume to start the sound.',
+  audioContinueHelp: 'Listening continues while you move around RIFQ, and stops if the page is reloaded or opened in a new tab.',
+  miniRegion: 'Now playing',
+  miniNowPlaying: 'Now playing:',
+  miniPlay: 'Play recitation, surah {s}, ayah {a}',
+  miniPause: 'Pause recitation, surah {s}, ayah {a}',
+  miniGo: 'Go to the playing ayah, {s}:{a}',
+  miniClose: 'Close player',
+  miniEnded: 'The recitation has ended.',
   pvListenL: 'Listening',
   pvListen: "when you play a recitation, our server asks Quran Foundation for the audio file's address and the ayah timings. Your address and device details are not passed to them in that request. Your browser then plays the file directly from the audio server that Quran Foundation's service points to (download.quranicaudio.com), which receives your network address and basic browser details and can see which recitation you play. We don't keep a record of what you listen to. We keep the file address and ayah timings for no more than 7 days.",
   // Privacy page, D-099 approved text (see the Arabic block above).

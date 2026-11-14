@@ -234,6 +234,28 @@ bdi[data-ltr-run] { white-space: nowrap; }
 .ayah-row.ap-current::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: -.6rem; width: 4px; border-radius: 2px; background: var(--link); }
 .player { position: sticky; bottom: 0; z-index: 4; min-height: 7.5rem; box-sizing: border-box; margin-block: .5rem; padding: .5rem .75rem; background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; box-shadow: 0 -2px 10px rgb(0 0 0 / .08); max-height: 55vh; overflow-y: auto; overscroll-behavior: contain; }
 .ap-player[data-ready="0"] { visibility: hidden; }
+.ap-help { margin: .25rem 0 0; font-size: .875rem; color: var(--muted); overflow-wrap: anywhere; }
+.ap-dead[hidden] { display: none; }
+/* RQ-006 v1.3: the full player sits above the mini-player when both show (D-130, AC63: never
+   overlapping). --mini-h is the mini-player's measured height, set only while it is shown. */
+.player { bottom: var(--mini-h, 0px); }
+/* Mini-player (AC63, AC67): a bar fixed at the bottom of every reader-facing page while a recitation
+   is loaded. The page keeps room for it (AC49, AC67 g), so it never covers the last ayah, the footer
+   links or the go-to-current control. It reflows at 320 px (SC 1.4.10): parts wrap, nothing scrolls
+   sideways. No animation (AC67 h). */
+html:has(.mini) { scroll-padding-bottom: calc(var(--mini-h, 4.5rem) + 1rem); }
+body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + .5rem); }
+.mini { position: fixed; inset-inline: 0; bottom: 0; z-index: 6; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .375rem max(.75rem, calc((100% - var(--page-w)) / 2 + .75rem)); padding-bottom: max(.375rem, env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--control-border); box-shadow: 0 -2px 10px rgb(0 0 0 / .1); max-height: 50vh; overflow-y: auto; }
+.mini .btn.icon-btn { flex: none; min-width: 2.75rem; min-height: 2.75rem; }
+.mini-info { flex: 1 1 10rem; min-width: 0; }
+.mini-info p { margin: 0; overflow-wrap: anywhere; line-height: 1.35; }
+.mini-now { font-weight: 700; }
+.mini-label { font-weight: 400; color: var(--muted); }
+.mini-sub { font-size: .875rem; color: var(--muted); }
+.mini-play[data-state="playing"] { border-color: var(--link); }
+[dir="rtl"] .mini-go-icon { transform: scaleX(-1); }
+/* Page changes in place have no animated transition (AC67 h, RQ-006 out of scope). */
+::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 .ap-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .ap-main { font-weight: 700; }
 :root[dir="rtl"] .ap-dir, [dir="rtl"] .ap-dir { transform: scaleX(-1); }

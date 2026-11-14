@@ -225,14 +225,38 @@ test('route rules: POST JSON only, cross-site refused, AUDIO_LIMIT fails closed,
   assert.equal((await call(setup({ audio: false }).w, '/api/audio', { r: 7, s: 1 })).status, 404);
 });
 
-test('AC39: the Worker adds media-src for the audio host on reader pages only', async () => {
+test('AC39 v1.3: the Worker adds media-src for the audio host on every page a reader can open, never on /dev/', async () => {
   const assets = { fetch: async () => new Response('<p>x</p>', { headers: { 'content-type': 'text/html' } }) };
   const csp = "default-src 'none'; script-src 'self'; font-src 'self'; connect-src 'self'";
   const w = makeWorker(ab, { dev: true, audio: true, gate: true, record: { name: 'S', edition: 'e', status: 's' }, counts, assetHeaders: { 'Content-Security-Policy': csp } });
   const env = { SITE_USER: 'u', SITE_PASSWORD: 'p', AUTH_LIMIT: { limit: async () => ({ success: true }) }, ASSETS: assets };
   const get = (p: string) => w.fetch(new Request('http://127.0.0.1' + p, { headers: { authorization: 'Basic ' + Buffer.from('u:p').toString('base64') } }), env as never);
-  for (const p of ['/2/', '/en/114/', '/1']) assert.equal((await get(p)).headers.get('content-security-policy'), `${csp}; media-src https://download.quranicaudio.com`, p);
-  for (const p of ['/', '/en/', '/surahs/', '/privacy/', '/tafseer/2/', '/en/tafseer/2/', '/dev/reciters-x/', '/1234/']) assert.equal((await get(p)).headers.get('content-security-policy'), csp, p);
+  const withMedia = `${csp}; media-src https://download.quranicaudio.com`;
+  for (const p of ['/2/', '/en/114/', '/1', '/', '/en/', '/surahs/', '/en/surahs/', '/privacy/', '/en/privacy/', '/tafseer/2/', '/en/tafseer/2/', '/1234/', '/no-such-page/']) assert.equal((await get(p)).headers.get('content-security-policy'), withMedia, p);
+  for (const p of ['/dev/reciters-x/', '/dev/verify-text/', '/dev']) assert.equal((await get(p)).headers.get('content-security-policy'), csp, p);
+  // Audio off: no page gets media-src.
+  const off = makeWorker(ab, { dev: true, audio: false, gate: true, record: { name: 'S', edition: 'e', status: 's' }, counts, assetHeaders: { 'Content-Security-Policy': csp } });
+  assert.equal((await off.fetch(new Request('http://127.0.0.1/2/', { headers: { authorization: 'Basic ' + Buffer.from('u:p').toString('base64') } }), env as never)).headers.get('content-security-policy'), csp);
+});
+
+test('AC39 v1.3: the static _headers rules give every page media-src and take it off /dev/', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { writeHeaders } = await import('../../scripts/headers.ts');
+  const dir = mkdtempSync(join(tmpdir(), 'rifq-hdr-'));
+  for (const p of ['', 'en', '2', 'en/2', 'surahs', 'privacy', 'tafseer/2', 'dev/font-check']) { mkdirSync(join(dir, p), { recursive: true }); writeFileSync(join(dir, p, 'index.html'), '<p>x</p>'); }
+  writeFileSync(join(dir, '404.html'), '<p>x</p>');
+  const r = writeHeaders(dir, { audioOrigin: 'https://download.quranicaudio.com' });
+  const body = readFileSync(join(dir, '_headers'), 'utf8');
+  assert.equal(r.csp, `${r.basePolicy}; media-src https://download.quranicaudio.com`);
+  assert.ok(body.startsWith(`/*\n  Content-Security-Policy: ${r.csp}\n`));
+  assert.ok(body.includes(`/dev/*\n  ! Content-Security-Policy\n  Content-Security-Policy: ${r.basePolicy}\n`));
+  assert.equal((body.match(/media-src/g) ?? []).length, 1);
+  assert.doesNotMatch(r.csp, /media-src[^;]*('self'|\*|blob:|data:)/);
+  const off = writeHeaders(dir);
+  assert.doesNotMatch(readFileSync(join(dir, '_headers'), 'utf8'), /media-src|\/dev\//);
+  assert.equal(off.csp, off.basePolicy);
 });
 
 test('AC40: the privacy "Listening" item is written but off; the live privacy text is unchanged', () => {
@@ -330,10 +354,17 @@ test('QA FIND-2: one slow or failing surah call removes only that reciter; an ou
   const hang = setup({ audioHang: (id, s) => id === 97 && s === 2 });
   const r = await call(hang.w, '/api/audio/reciters', { lang: 'en' });
   assert.equal(r.status, 200);
-  assert.deepEqual((await r.json()).reciters.map((x: { id: number }) => x.id), [7]);
+  const rj = await r.json();
+  assert.deepEqual(rj.reciters.map((x: { id: number }) => x.id), [7]);
+  // QA v25 FIND-B: the reciter left out for an outage is named, so the browser keeps a stored choice.
+  assert.deepEqual(rj.unavailable, [97]);
   // A 5xx on one reciter's file: same.
   const down = setup({ audioDown: (id) => id === 97 });
-  assert.deepEqual((await (await call(down.w, '/api/audio/reciters', { lang: 'en' })).json()).reciters.map((x: { id: number }) => x.id), [7]);
+  const dj = await (await call(down.w, '/api/audio/reciters', { lang: 'en' })).json();
+  assert.deepEqual(dj.reciters.map((x: { id: number }) => x.id), [7]);
+  assert.deepEqual(dj.unavailable, [97]);
+  // No outage: nothing is named.
+  assert.deepEqual((await (await call(setup().w, '/api/audio/reciters', { lang: 'en' })).json()).unavailable, []);
   // /api/audio checks only the asked reciter: 7 plays while 97's files are down.
   const n = down.mock.state.audioRequests;
   assert.equal((await call(down.w, '/api/audio', { r: 7, s: 1 })).status, 200);
@@ -355,7 +386,7 @@ test('QA FIND-7: an empty catalogue is kept 10 minutes, not 7 days', async () =>
   assert.deepEqual((await (await call(w, '/api/audio/reciters', { lang: 'en' })).json()).reciters.map((x: { id: number }) => x.id), [7, 97]);
 });
 
-// Kit v24 report: Al-Baqarah stopped at ayah 5 with [timeout-stalled]. 'stalled' fires on healthy
+// Kit v24 report: surah 2 stopped at ayah 5 with [timeout-stalled]. 'stalled' fires on healthy
 // playback of large files; the give-up must depend on the position not moving, nothing else.
 function fakeClock() {
   let now = 0, next = 1;

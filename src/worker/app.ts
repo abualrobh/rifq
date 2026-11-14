@@ -174,8 +174,10 @@ const MAX_TAFSEER_BODY = 256;
 export const FONT_CHECK_PATH = '/dev/font-check/';
 // Documented in the Font Rendering guide: https://verses.quran.foundation/fonts/quran/...
 export const QF_FONT_ORIGIN = 'https://verses.quran.foundation';
-// RQ-006 AC39: reader pages (/N/ and /en/N/) are the only pages whose policy lists the audio host.
+// RQ-006 AC39 v1.1: reader pages (/N/ and /en/N/). Kept for reference; since v1.3 (D-126 1A, P-10)
+// every static page except /dev/ lists the audio host (DEV_PAGE below).
 export const READER_PAGE = /^\/(?:en\/)?\d{1,3}\/?$/;
+export const DEV_PAGE = /^\/dev(?:\/|$)/;
 const MAX_AUDIO_BODY = 256;
 
 export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDeps = {}) {
@@ -257,7 +259,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
           const csp = (assetHeaders['Content-Security-Policy'] ?? '').replace("font-src 'self'", `font-src 'self' ${QF_FONT_ORIGIN}`);
           return withHeaders(r, { ...assetHeaders, 'Content-Security-Policy': csp });
         }
-        if (audio && READER_PAGE.test(pathname)) {
+        // AC39 v1.3: the same page policy as the static _headers rules: media-src for the approved
+        // audio host on every page a reader can open (including the 404 answer), never on /dev/.
+        if (audio && !DEV_PAGE.test(pathname)) {
           const csp = `${assetHeaders['Content-Security-Policy'] ?? ''}; media-src ${AUDIO_ORIGIN}`;
           return withHeaders(r, { ...assetHeaders, 'Content-Security-Policy': csp });
         }

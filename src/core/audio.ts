@@ -70,7 +70,7 @@ export function checkTimestamps(ts: unknown, s: number, ayat: number, fileDurati
   });
   if (fileDuration !== null && t.length) {
     const over = t[t.length - 1][1] - fileDuration;
-    // Deviation from the AC60 wording, for Hamzeh's approval (kit v23): Quran Foundation's pre-live
+    // Allowance approved by Hamzeh as D-132 (13 Nov; proposed in kit v23): Quran Foundation's pre-live
     // durations are whole seconds (46000, 7264000 ms), so the last ayah's end can pass them by less
     // than a second. When the duration is a whole number of seconds, an overrun under 1000 ms is
     // taken as that rounding; any other overrun fails as AC60 says.
@@ -176,7 +176,7 @@ export function ayahAt(tm: [number, number][], ms: number): number {
   return ms < tm[best][1] || (best + 1 < tm.length && ms < tm[best + 1][0]) ? best + 1 : 0;
 }
 
-// Stall give-up (AC24, P-5), after kit v24 stopped Al-Baqarah at ayah 5 with [timeout-stalled]:
+// Stall give-up (AC24, P-5), after kit v24 stopped surah 2 at ayah 5 with [timeout-stalled]:
 // the browser fires 'stalled' and 'waiting' during healthy playback of a large file, and v24 gave up
 // 15 s after such an event unless 'playing' followed. Now the only test is progress: playback gives
 // up when the position has not moved for `ms` while the element is meant to be playing (`live`).

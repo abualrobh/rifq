@@ -116,7 +116,7 @@ test('/dev/reciters/ is behind the gate, and without Quran Foundation settings i
   expect(await page.locator('script').count()).toBe(0);
 });
 
-test('RQ-006: the audio routes are behind the gate, and reader pages carry media-src for the audio host only', async ({ request, baseURL }) => {
+test('RQ-006: the audio routes are behind the gate, and every reader-facing page carries media-src for the audio host only (AC39 v1.3)', async ({ request, baseURL }) => {
   for (const p of ['/api/audio', '/api/audio/reciters']) {
     const r = await fetch(baseURL + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"r":7,"s":1}' });
     expect(r.status, p).toBe(401);
@@ -127,7 +127,9 @@ test('RQ-006: the audio routes are behind the gate, and reader pages carry media
   expect(r.status()).toBe(503);
   expect(await r.json()).toEqual({ status: 'not_configured' });
   expect((await request.get('/2/')).headers()['content-security-policy']).toContain('media-src https://download.quranicaudio.com');
-  expect((await request.get('/privacy/')).headers()['content-security-policy']).not.toContain('media-src');
+  // AC39 v1.3: every reader-facing page from the Worker too (same value as _headers); /dev/ pages not.
+  for (const p of ['/privacy/', '/', '/en/surahs/', '/tafseer/2/', '/no-such-page/']) expect((await request.get(p)).headers()['content-security-policy'], p).toContain('media-src https://download.quranicaudio.com');
+  for (const p of ['/dev/font-check/', '/dev/verify-text/']) expect((await request.get(p)).headers()['content-security-policy'], p).not.toContain('media-src');
 });
 
 test('the manifest is fetched with the site credentials (use-credentials) and stays behind the gate', async ({ page, request, baseURL }) => {
@@ -143,4 +145,35 @@ test('the manifest is fetched with the site credentials (use-credentials) and st
   const ok = await page.evaluate(async () => (await fetch('/manifest.webmanifest', { credentials: 'include' })).status);
   expect(ok).toBe(200);
   expect(seen.every((s) => s === 200)).toBe(true);
+});
+
+// RQ-006 v1.3 AC72 on the gate itself (kept last: it locks this address out for the rest of the
+// minute). In-place changes use the credentials already given; a real lock-out answer from the
+// gate is not placed in the page: the address is loaded in full and the browser shows it.
+test('AC72: in-place page changes behind the gate; a lock-out answer is loaded in full', async ({ page, baseURL }) => {
+  await page.goto('/');
+  await hydrated(page);
+  await expect(page.locator('meta[name="rifq-page"]')).toHaveCount(1);
+  await page.evaluate(() => { (window as unknown as { __doc: number }).__doc = 1; });
+  const same = () => page.evaluate(() => (window as unknown as { __doc?: number }).__doc === 1).catch(() => false);
+  await page.click('a.index-card');
+  await page.waitForURL('**/surahs/');
+  await hydrated(page);
+  expect(await same(), 'in place, signed in').toBe(true);
+  await page.click('a[data-surah-link="2"]');
+  await page.waitForURL('**/2/');
+  expect(await same()).toBe(true);
+  // AC39 v1.3 holds for the page the tab entered on (home) and so for every page reached from it.
+  // Now fail the sign-in from this address until the gate locks it out (D-071, M-2).
+  for (let i = 0; i < 12; i++) {
+    const r = await fetch(baseURL + '/', { headers: { authorization: 'Basic ' + Buffer.from('e2e:wrong-password').toString('base64') } });
+    await r.arrayBuffer();
+  }
+  const r = await fetch(baseURL + '/surahs/', { headers: { authorization: 'Basic ' + Buffer.from('e2e:e2e-made-up-password').toString('base64') } });
+  await r.arrayBuffer();
+  test.skip(r.status !== 429, `the gate did not lock this address out (status ${r.status})`);
+  await page.click('[data-index-link] >> nth=0');
+  await page.waitForURL('**/surahs/');
+  await expect.poll(same).toBe(false);
+  await expect(page.locator('body')).toContainText('Too many failed sign-in attempts');
 });

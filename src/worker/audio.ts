@@ -141,7 +141,7 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
   // reads the English catalogue (language=en): with language=ar, QF may give the style, qirat and
   // translated name in Arabic, and the check, which compares with Murattal, Hafs and the Latin
   // surname, would then refuse every reciter (seen on the test site with kit v22).
-  async function offered(origin: string, q: QfConfig): Promise<{ list: { id: number; e: CatalogueEntry }[]; checked: 'worker' | 'record' | 'none'; outage: number }> {
+  async function offered(origin: string, q: QfConfig): Promise<{ list: { id: number; e: CatalogueEntry }[]; checked: 'worker' | 'record' | 'none'; outage: number; outageIds: number[] }> {
     const cat = await catalogue(origin, q, 'en');
     const listed = D111_IDS.flatMap((id) => {
       const e = cat.find((x) => x.id === id);
@@ -149,16 +149,16 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     });
     if (q.env === 'production') {
       const rec = cfg.audioRecord;
-      if (!rec || rec.env !== 'production') return { list: [], checked: 'none', outage: 0 };
-      return { list: listed.filter((x) => rec.passed.includes(x.id)), checked: 'record', outage: 0 };
+      if (!rec || rec.env !== 'production') return { list: [], checked: 'none', outage: 0, outageIds: [] };
+      return { list: listed.filter((x) => rec.passed.includes(x.id)), checked: 'record', outage: 0, outageIds: [] };
     }
     // QA FIND-2: each reciter is judged on its own. A failed check removes only that reciter; an
     // outage (error or no answer within RECITER_CHECK_MS) removes it for now and is reported
     // separately, so one slow or failing surah call no longer empties the whole list.
     const res = await Promise.allSettled(listed.map((x) => reciterPasses(origin, q, x.id)));
     const list = listed.filter((_, i) => res[i].status === 'fulfilled' && (res[i] as PromiseFulfilledResult<boolean>).value);
-    const outage = res.filter((r) => r.status === 'rejected').length;
-    return { list, checked: 'worker', outage };
+    const outageIds = listed.filter((_, i) => res[i].status === 'rejected').map((x) => x.id);
+    return { list, checked: 'worker', outage: outageIds.length, outageIds };
   }
 
   // One reciter in pre-live: every covered surah passes. Rejects on an outage or a time-out.
@@ -197,7 +197,10 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
         return { id, name: (local && displayName(local, 'ar')) || displayName(e, 'en'), style: e.style, qirat: e.qirat };
       });
       const def = list.some((x) => x.id === DEFAULT_RECITER) ? DEFAULT_RECITER : (list[0]?.id ?? null);
-      return { status: 200, data: { status: 'ok', reciters: list, default: def } };
+      // QA v25 FIND-B: the D-111 IDs whose check could not be made now (outage or time-out), so the
+      // browser keeps a reader's stored choice of one of them instead of treating it as gone (AC18
+      // is for reciters no longer offered, not for a short outage). D-111 IDs only; nothing else.
+      return { status: 200, data: { status: 'ok', reciters: list, default: def, unavailable: o.outageIds } };
     } catch { return { status: 503, data: { status: 'unavailable' } }; }
   }
 

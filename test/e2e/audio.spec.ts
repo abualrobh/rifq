@@ -298,10 +298,11 @@ test('AU-08 (AC28, kit v24 report): the lock-screen title follows every ayah, al
   expect(await marked(page)).toEqual([]);
 });
 
-test('AU-09 (AC39, AC41, AC42, AC45): policy on reader pages only; 44 px targets 8 px apart; mark not by colour alone; RTL icons', async ({ page, request }) => {
+test('AU-09 (AC39 v1.3, AC41, AC42, AC45): policy on every reader-facing page; 44 px targets 8 px apart; mark not by colour alone; RTL icons', async ({ page, request }) => {
   const csp = (p: string) => request.get(p).then((r) => r.headers()['content-security-policy']);
-  for (const p of ['/1/', '/en/114/']) expect(await csp(p)).toContain(`media-src https://${AUDIO_HOST}`);
-  for (const p of ['/', '/surahs/', '/privacy/', '/en/privacy/', '/tafseer/1/']) expect(await csp(p)).not.toContain('media-src');
+  // AC39 v1.3 (D-126 1A, P-10): every page a reader can open, including the 404 answer, lists the
+  // approved audio host and nothing else; /dev/ pages do not (none are built with the gate off).
+  for (const p of ['/1/', '/en/114/', '/', '/en/', '/surahs/', '/en/surahs/', '/privacy/', '/en/privacy/', '/tafseer/1/', '/en/tafseer/1/', '/no-such-page/']) expect(await csp(p), p).toContain(`media-src https://${AUDIO_HOST}`);
   const reader = await csp('/1/');
   expect(reader).toContain("default-src 'none'");
   expect(reader).toContain("connect-src 'self'");

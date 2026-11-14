@@ -6,6 +6,7 @@
 // src/core/tafseer-html.ts: plain text and a short list of tags with no attributes. Nothing is ever
 // passed to innerHTML, so no script runs and no outside resource loads.
 // Nothing is stored: no reading history, no Tafseer copy, nothing in browser storage (AC22).
+import { goReplace } from '../client/nav.ts';
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { sanitize, type Node } from '../../core/tafseer-html.ts';
 import { surahPath, t, tafseerPath, type Lang } from '../../core/strings.ts';
@@ -45,7 +46,7 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
   const show = useCallback((n: number, focus: boolean) => {
     const rows = document.querySelectorAll<HTMLElement>('.tf-row');
     rows.forEach((r, i) => { r.hidden = i !== n - 1; });
-    try { history.replaceState(null, '', `#a${n}${fromPart()}`); } catch { /* the view still works */ }
+    try { history.replaceState(history.state, '', `#a${n}${fromPart()}`); } catch { /* the view still works */ }
     const back = document.querySelector<HTMLAnchorElement>('a[data-back]');
     const f = from.current ?? [s, n];
     if (back) back.href = `${surahPath(lang, f[0])}#a${f[1]}`;
@@ -107,9 +108,10 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
     moved.current = true;
     if (n >= 1 && n <= count) { setA(n); show(n, true); void load(n); return; }
     // Across a surah edge: the next or previous surah's Tafseer page, replacing this history entry
+    // (in place since RQ-006 v1.3, so a recitation keeps playing, AC62)
     // so the browser's Back button still returns to the reader (AC18).
-    if (n < 1 && s > 1) location.replace(`${tafseerPath(lang, s - 1)}#a${prevCount}${fromPart()}`);
-    if (n > count && s < last) location.replace(`${tafseerPath(lang, s + 1)}#a1${fromPart()}`);
+    if (n < 1 && s > 1) goReplace(`${tafseerPath(lang, s - 1)}#a${prevCount}${fromPart()}`);
+    if (n > count && s < last) goReplace(`${tafseerPath(lang, s + 1)}#a1${fromPart()}`);
   };
 
   const notStated = t(lang, 'notStated');

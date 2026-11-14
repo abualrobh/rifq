@@ -2,12 +2,17 @@
 // Every page uses this layout, so every page shows the source details (RQ-001 AC6) and, in
 // development mode, the unverified-data banner.
 import '../styles/global.css';
+import { ClientRouter } from 'astro:transitions';
 import Settings from '../islands/Settings.tsx';
 import Bidi from '../components/Bidi.astro';
-import { dev, record } from '../lib/data';
+import { dev, record, audioOn } from '../lib/data';
 import { t, homePath, privacyPath, type Lang } from '../../core/strings.ts';
-interface Props { lang: Lang; title: string; alt: string; wide?: boolean }
-const { lang, title, alt, wide = false } = Astro.props;
+// inPlace (RQ-006 v1.3, D-126 1A): pages a reader can open (A1: home, index, reader, Tafseer,
+// privacy, 404) change in place with Astro's client router (src/site/client/nav.ts), so a recitation
+// keeps playing; they carry the rifq-page marker the router checks before placing a page in the tab
+// (AC72). Development pages pass false: always full loads, no mini-player (A1, AC66).
+interface Props { lang: Lang; title: string; alt: string; wide?: boolean; inPlace?: boolean }
+const { lang, title, alt, wide = false, inPlace = true } = Astro.props;
 const other: Lang = lang === 'ar' ? 'en' : 'ar';
 ---
 <!doctype html>
@@ -24,6 +29,9 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
     <!-- D-069: the Quran font is fetched early. crossorigin is required for font preloads, even on
          the same origin; anonymous mode still sends same-origin credentials (the test site gate). -->
     <link rel="preload" href="/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    {inPlace && <meta name="rifq-page" content="a1" />}
+    {inPlace && <ClientRouter fallback="swap" />}
+    {inPlace && <script>import '../client/nav.ts';</script>}
     <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem')}catch(e){}})();</script>
   </head>
   <!-- wide: home, the surah index and reader pages use the wider tablet and desktop layout. -->
@@ -36,6 +44,11 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
       <Settings lang={lang} client:idle />
     </header>
     <main id="content" tabindex="-1"><slot /></main>
+    {/* RQ-006 v1.3: the one audio element of the tab and the mini-player, carried into every page
+        changed in place (transition:persist), after the main content and before the footer (P-12). */}
+    {inPlace && audioOn && <audio data-audio preload="none" transition:persist="rifq-audio"></audio>}
+    {inPlace && audioOn && <div class="mini-root" data-mini-root data-dev={dev ? '1' : '0'} transition:persist="rifq-mini"></div>}
+    {inPlace && audioOn && <script>import '../client/mini-mount.ts';</script>}
     <footer class="site-footer">
       <details data-source-details>
         <summary>{t(lang, 'source')}</summary>
