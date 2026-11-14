@@ -349,6 +349,91 @@ test('CN-12 (QA v26 FIND-H, AC19, AC3): changing the reciter while paused loads 
   await expect(mini(page)).toHaveAttribute('data-a', '6');
 });
 
+// QA v26 FIND-F (SC 2.4.11, AC43, AC67 d): no focused ayah control on /2/ at 390 px is hidden by the
+// sticky player or the mini-player, with nothing playing, with the full player (and the mini-player
+// D-130 puts under it), and with the mini-player for another surah. Every focusable control in the
+// ayah list is focused; the first 60 by the Tab key, then all of them by focus().
+async function focusHidden(page: Page, tabs: number) {
+  const check = () => page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    if (!el || !el.closest('ol.ayat')) return null;
+    let edge = innerHeight;
+    for (const sel of ['[data-player]', '[data-mini-player]']) {
+      const b = document.querySelector(sel)?.getBoundingClientRect();
+      if (b && b.height > 0 && b.top > 0 && b.top < edge) edge = b.top;
+    }
+    const head = document.querySelector('.site-header')!.getBoundingClientRect().bottom;
+    const r = el.getBoundingClientRect();
+    return r.bottom <= edge + 0.5 && r.bottom > head ? '' : `${el.getAttribute('aria-label') ?? el.className} bottom ${Math.round(r.bottom)} edge ${Math.round(edge)}`;
+  });
+  const bad: string[] = [];
+  await page.evaluate(() => { const b = document.querySelector<HTMLElement>('ol.ayat'); b?.setAttribute('tabindex', '-1'); b?.focus(); scrollTo({ top: 0, behavior: 'instant' }); b?.removeAttribute('tabindex'); });
+  let seen = 0;
+  for (let i = 0; i < tabs; i++) {
+    await page.keyboard.press('Tab');
+    await scrollSettled(page);
+    const r = await check();
+    if (r === null) break;
+    seen++;
+    if (r) bad.push('Tab: ' + r);
+  }
+  const all = await page.evaluate(async () => {
+    const out: string[] = [];
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const els = [...document.querySelectorAll<HTMLElement>('ol.ayat :is(a[href], button:not([disabled]))')].filter((e) => e.tabIndex >= 0 && e.getClientRects().length > 0);
+    for (const el of els) {
+      el.focus();
+      await frame();
+      let edge = innerHeight;
+      for (const sel of ['[data-player]', '[data-mini-player]']) {
+        const b = document.querySelector(sel)?.getBoundingClientRect();
+        if (b && b.height > 0 && b.top > 0 && b.top < edge) edge = b.top;
+      }
+      const head = document.querySelector('.site-header')!.getBoundingClientRect().bottom;
+      const r = el.getBoundingClientRect();
+      if (!(r.bottom <= edge + 0.5 && r.bottom > head)) out.push(`${el.getAttribute('aria-label') ?? el.className} bottom ${Math.round(r.bottom)} edge ${Math.round(edge)}`);
+    }
+    return { n: els.length, out };
+  });
+  return { tabbed: seen, n: all.n, bad: [...bad, ...all.out] };
+}
+
+test('CN-14 (QA v26 FIND-F, SC 2.4.11): focused ayah controls on /2/ are never hidden by the player or the mini-player', async ({ page }) => {
+  test.setTimeout(400_000);
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  const results: string[] = [];
+  // 1. Nothing playing: the idle player only.
+  await page.goto('/2/');
+  await hydrated(page);
+  await expect(mini(page)).toHaveCount(0);
+  let r = await focusHidden(page, 60);
+  results.push(`idle: ${r.tabbed} by Tab, ${r.n} by focus()`);
+  expect(r.tabbed).toBe(60);
+  expect(r.n).toBeGreaterThan(286 * 3);
+  expect(r.bad, 'idle').toEqual([]);
+  // 2. The full player with a recitation (paused, so nothing scrolls by itself), and the mini-player.
+  await page.click('[data-play-surah]');
+  await expect.poll(async () => { const x = await audioState(page); return !!x && !x.paused && x.ready >= 3; }).toBe(true);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  await expect(mini(page)).toBeVisible();
+  r = await focusHidden(page, 60);
+  results.push(`full player: ${r.tabbed} by Tab, ${r.n} by focus()`);
+  expect(r.bad, 'full player and mini-player').toEqual([]);
+  // 3. The mini-player for another surah (surah 1 playing), on /2/.
+  await page.click('[data-mini-close]');
+  await playSurah(page, 1);
+  await hop(page, () => page.click('a[data-next] >> nth=0'), '/2/');
+  await expect(mini(page)).toHaveAttribute('data-s', '1');
+  r = await focusHidden(page, 60);
+  results.push(`mini-player: ${r.tabbed} by Tab, ${r.n} by focus()`);
+  expect(r.bad, 'mini-player').toEqual([]);
+  // (Surah 1 is short, so it may have ended during the checks; the bar then shows the ended state.)
+  await expect(mini(page)).toBeVisible();
+  test.info().annotations.push({ type: 'focus', description: results.join('; ') });
+});
+
 // Resolves when the page has not scrolled for 6 animation frames in a row.
 const scrollSettled = (page: Page) => page.evaluate(() => new Promise<void>((done) => {
   let last = -1, same = 0;
