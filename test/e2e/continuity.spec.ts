@@ -854,3 +854,113 @@ test('CN-18 (QA v27, informational): in the ended state the mini-player exposes 
   expect(snap, snap).not.toMatch(/- paragraph\s*$/m);
   await expect(page.locator('[data-mini-status]')).toHaveText(t('ar', 'miniEnded'));
 });
+
+// QA v28 FIND-P (SC 2.4.11 and 2.4.7 in practice, AC43, AC67 d, P-2): while a surah plays, focus
+// moved to another ayah's control (Tab, Shift+Tab, focus()) is the reader moving: automatic
+// scrolling pauses and stays paused while focus stays there, so the control stays on screen.
+const focusOnScreen = (page: Page) => page.evaluate(() => {
+  const el = document.activeElement as HTMLElement;
+  let edge = innerHeight;
+  for (const sel of ['[data-player]', '[data-mini-player]']) {
+    const b = document.querySelector(sel)?.getBoundingClientRect();
+    if (b && b.height > 0 && b.top > 0 && b.top < edge) edge = b.top;
+  }
+  const head = document.querySelector('.site-header')!.getBoundingClientRect().bottom;
+  const r = el.getBoundingClientRect();
+  return { ok: r.top >= head - 0.5 && r.bottom <= edge + 0.5, label: el.getAttribute('aria-label') ?? '', top: Math.round(r.top), bottom: Math.round(r.bottom), head: Math.round(head), edge: Math.round(edge) };
+});
+for (const lang of ['ar', 'en'] as const) {
+  test(`CN-19 (QA v28 FIND-P, ${lang}): focus on another ayah's control during surah playback is never scrolled off screen`, async ({ page }) => {
+    await serveAudio(page, len);
+    await page.setViewportSize(MOBILE);
+    await playSurah(page, 2, lang);
+    // By focus(): the control of ayah 10, then two ayah changes, the second after the 5 s pause.
+    await page.focus('button.ap[data-ap="10"]');
+    let f = await focusOnScreen(page);
+    expect(f.ok, JSON.stringify(f)).toBe(true);
+    await seekTo(page, STEP + 300);
+    await expect.poll(() => marked(page)).toEqual([2]);
+    await expect(page.locator('[data-go-current]')).toBeVisible();
+    await page.waitForTimeout(600);
+    f = await focusOnScreen(page);
+    expect(f.ok, `after the ayah change: ${JSON.stringify(f)}`).toBe(true);
+    await page.waitForTimeout(5200);
+    await seekTo(page, 2 * STEP + 300);
+    await expect.poll(() => marked(page)).toEqual([3]);
+    await page.waitForTimeout(600);
+    f = await focusOnScreen(page);
+    expect(f.ok, `5 s later, focus still there: ${JSON.stringify(f)}`).toBe(true);
+    // By the keyboard: Tab to the next control, then an ayah change.
+    await page.keyboard.press('Tab');
+    await seekTo(page, 3 * STEP + 300);
+    await expect.poll(() => marked(page)).toEqual([4]);
+    await page.waitForTimeout(600);
+    f = await focusOnScreen(page);
+    expect(f.ok, `after Tab: ${JSON.stringify(f)}`).toBe(true);
+    // "Go to the playing ayah" turns automatic scrolling back on at once (AC64).
+    await page.click('[data-go-current]');
+    await expect(page.locator('li#a4')).toBeInViewport();
+    await seekTo(page, 4 * STEP + 300);
+    await expect.poll(() => marked(page)).toEqual([5]);
+    await expect(page.locator('li#a5')).toBeInViewport();
+    // Focus on the playing ayah's own control does not pause it.
+    await page.focus('button.ap[data-ap="5"]');
+    await seekTo(page, 5 * STEP + 300);
+    await expect.poll(() => marked(page)).toEqual([6]);
+    await expect(page.locator('[data-go-current]')).toHaveCount(0);
+  });
+}
+
+// QA v28 FIND-Q: Play pressed while a paused reciter change is still loading is not lost: the
+// player says it is loading, and the recitation starts at the same ayah once the reciter is ready.
+test('CN-20 (QA v28 FIND-Q): play pressed during a held reciter change starts it once loaded, with a loading message meanwhile', async ({ page }) => {
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  await playSurah(page, 2);
+  await seekTo(page, 3 * STEP + 500);
+  await expect.poll(() => marked(page)).toEqual([4]);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  await page.route('**/api/audio', async (route) => { await new Promise((r) => setTimeout(r, 2500)); await route.continue(); });
+  const status = page.locator('[data-audio-status]');
+  for (const [rid, how] of [['97', '[data-mini-toggle]'], ['7', '[data-pause]']] as const) {
+    await page.locator('[data-audio-more] summary').click();
+    await page.check(`[data-reciter="${rid}"]`);
+    await page.locator('[data-audio-more] summary').click();
+    await page.waitForTimeout(500);
+    // While held, the full player offers to resume (not "Play surah" from ayah 1).
+    await expect(page.locator('[data-play-surah]')).toHaveCount(0);
+    await page.click(how);
+    await expect(status).toHaveText(t('ar', 'audioLoading'));
+    await expect(status).toHaveAttribute('data-loading', '1');
+    await expect.poll(async () => { const x = (await audioState(page))!; return x.src.includes(`/${rid}/2.mp3`) && !x.paused && x.t >= 3 * STEP - 50 && x.t < 3 * STEP + 2500; }, { timeout: 10_000 }).toBe(true);
+    await expect(status).not.toHaveText(t('ar', 'audioLoading'));
+    expect(await marked(page)).toEqual([4]);
+    await page.click('[data-mini-toggle]');
+    await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+    await seekTo(page, 3 * STEP + 500);
+  }
+});
+
+// QA v28 FIND-R: a held change whose metadata comes after the 15 s give-up: the "not available"
+// message is shown at the give-up and taken away when the new reciter is ready.
+test('CN-21 (QA v28 FIND-R): the give-up message of a late held reciter change goes once the reciter is ready', async ({ page }) => {
+  test.setTimeout(90_000);
+  await serveAudio(page, len);
+  await page.setViewportSize(MOBILE);
+  await playSurah(page, 2);
+  await page.click('[data-mini-toggle]');
+  await expect.poll(async () => (await audioState(page))!.paused).toBe(true);
+  await page.route('**/api/audio', async (route) => { await new Promise((r) => setTimeout(r, 17_000)); await route.continue(); });
+  const status = page.locator('[data-audio-status]');
+  await page.locator('[data-audio-more] summary').click();
+  await page.check('[data-reciter="97"]');
+  await page.locator('[data-audio-more] summary').click();
+  // Development builds add the reason code after the message.
+  await expect(status).toContainText(t('ar', 'audioUnavailable'), { timeout: 17_000 });
+  await expect(status).toHaveAttribute('data-reason', 'timeout-loading');
+  await expect.poll(async () => (await audioState(page))!.src, { timeout: 15_000 }).toContain('/97/2.mp3');
+  await expect(status).not.toContainText(t('ar', 'audioUnavailable'));
+  await expect(status).toHaveAttribute('data-reason', '');
+  expect((await audioState(page))!.paused).toBe(true);
+});

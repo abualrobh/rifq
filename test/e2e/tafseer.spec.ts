@@ -5,9 +5,12 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { BUILD, expect, sliceOf, src, test, utf8, hydrated } from './helpers.ts';
-import { CASE, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, passageText } from '../mock/qf-mock.ts';
+import { CASE, CLOSE, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, OPEN, passageText } from '../mock/qf-mock.ts';
 import { visibleText, sanitize } from '../../src/core/tafseer-html.ts';
 import { STRINGS } from '../../src/core/strings.ts';
+import { indexFromSource } from '../../src/core/tafseer-quotes.ts';
+import { computeMarks } from '../../src/core/tafseer-marks.ts';
+import { hitsIn, probesFrom, scanFolder } from '../../scripts/letters-scan.ts';
 
 const shown = (page: import('@playwright/test').Page) => page.locator('.tf-row:not([hidden])');
 async function ready(page: import('@playwright/test').Page) {
@@ -214,4 +217,142 @@ test('AC14: no passage from the API is in the build output', async () => {
   const walk = (d: string) => { for (const n of readdirSync(d)) { if (n.startsWith('.wrangler') || n.startsWith('test-results') || n === 'reports') continue; const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (readFileSync(p).includes('MOCK PASSAGE')) hits.push(p); } };
   walk(BUILD);
   expect(hits).toEqual([]);
+});
+
+// ----- D-149 bracket display (RQ-005 v1.1 AC29 to AC37; D-153 C; D-156 A) -----
+// The mock's quote cases hold phrases cut by program from the source at run time. The expected
+// class of each phrase comes from the same check run here on the same source (AC31).
+const QIX = indexFromSource(src.list);
+const D084 = [CASE.quoteExact, CASE.quoteAltered, CASE.quoteSameSurah, CASE.quoteElsewhere, CASE.quoteUnmatched, CASE.braces, CASE.tooShort, CASE.wasla, CASE.apiAlef];
+const expected = (a: number) => computeMarks(QIX, passageText(MOCK_TAFSIR_ID, 2, a, src)!, { s: 2, from: a, to: a }, true);
+const BR = new RegExp(`[(){}${OPEN}${CLOSE}]`, 'g');
+const NAMES: Record<string, string> = { O: 'own', A: 'other', P: 'plain' };
+
+test('TB-01 (AC29, AC30, AC31, AC4): each phrase gets the class the check gives, and only its brackets change', async ({ page, request }) => {
+  for (const a of D084) {
+    const want = expected(a);
+    const d = await (await request.post('/api/tafseer', { data: { s: 2, a } })).json();
+    expect(d.marks, `2:${a} marks from the Worker`).toEqual(want);
+    expect(Buffer.from(d.text, 'utf8').equals(Buffer.from(passageText(MOCK_TAFSIR_ID, 2, a, src)!, 'utf8')), 'AC4').toBe(true);
+    await page.goto(`/tafseer/2/#a${a}`);
+    await ready(page);
+    const el = page.locator('[data-tf-text]');
+    await expect(el).toHaveAttribute('data-tf-marked', '1');
+    const got = await el.locator('[data-tfq]').evaluateAll((xs) => xs.map((x) => (x as HTMLElement).dataset.tfq));
+    expect(got, `2:${a}`).toEqual([...want.c].filter((c) => c !== 'N').map((c) => NAMES[c]));
+    // AC30: with the bracket marks of both texts removed, the words are byte-identical.
+    const shown = (await el.evaluate((x) => x.textContent)) ?? '';
+    const delivered = visibleText(sanitize(d.text));
+    expect(shown.length).toBe(delivered.length);
+    expect(utf8(shown.replace(BR, '')).equals(utf8(delivered.replace(BR, '')))).toBe(true);
+    // Brackets: { } for own ayah, ( ) for the rest.
+    for (const s of await el.locator('[data-tfq]').all()) {
+      const k = await s.getAttribute('data-tfq');
+      const tx = (await s.textContent()) ?? '';
+      expect([tx[0], tx[tx.length - 1]].join(''), `2:${a} ${k}`).toBe(k === 'own' ? '{}' : '()');
+    }
+  }
+});
+
+test('TB-02 (AC33, AC34, AC35, D-153 C): colours in light and dark mode with contrast; font and brackets tell styles apart; quotations with no added words', async ({ page }) => {
+  await page.goto(`/tafseer/2/#a${CASE.braces}`);
+  await ready(page);
+  const look = () => page.evaluate(() => {
+    const css = (sel: string) => { const e = document.querySelector<HTMLElement>(sel); return e ? { color: getComputedStyle(e).color, font: getComputedStyle(e).fontFamily, bg: getComputedStyle(e.closest('.tf-section') ?? document.body).backgroundColor } : null; };
+    return { own: css('[data-tfq="own"]'), plain: css('[data-tfq="plain"]'), text: css('[data-tf-text]') };
+  });
+  const lum = (rgb: string) => { const v = rgb.match(/\d+/g)!.slice(0, 3).map(Number).map((c) => { const x = c / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+  const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  let l = await look();
+  expect(l.own!.color).toBe('rgb(23, 77, 60)'); // #174D3C
+  expect(l.own!.font).toContain('Noto Naskh Arabic');
+  expect(l.plain!.font).toBe(l.text!.font);
+  expect(l.plain!.color).toBe(l.text!.color);
+  expect(ratio(l.own!.color, l.own!.bg)).toBeGreaterThanOrEqual(4.5);
+  // Other-ayah style, light and dark.
+  await page.goto(`/tafseer/2/#a${CASE.quoteElsewhere}`);
+  await ready(page);
+  const other = () => page.evaluate(() => { const e = document.querySelector<HTMLElement>('[data-tfq="other"]')!; return { color: getComputedStyle(e).color, font: getComputedStyle(e).fontFamily, bg: getComputedStyle(e.closest('.tf-section')!).backgroundColor, page: getComputedStyle(document.body).backgroundColor }; });
+  let o = await other();
+  expect(o.color).toBe('rgb(122, 90, 30)'); // #7A5A1E
+  expect(o.font).toContain('Noto Naskh Arabic');
+  expect(ratio(o.color, o.bg)).toBeGreaterThanOrEqual(4.5);
+  expect(ratio(o.color, o.page)).toBeGreaterThanOrEqual(4.5);
+  await page.locator('[data-night]').click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  o = await other();
+  expect(o.color).toBe('rgb(217, 174, 110)'); // #D9AE6E
+  expect(ratio(o.color, o.bg)).toBeGreaterThanOrEqual(4.5);
+  expect(ratio(o.color, o.page)).toBeGreaterThanOrEqual(4.5);
+  await page.goto(`/tafseer/2/#a${CASE.quoteExact}`);
+  await ready(page);
+  l = await look();
+  expect(l.own!.color).toBe('rgb(124, 201, 172)'); // #7CC9AC
+  expect(ratio(l.own!.color, l.own!.bg)).toBeGreaterThanOrEqual(4.5);
+  await expect(page.locator('[data-tf-ayah]')).toHaveAttribute('data-tf-ayah', `2:${CASE.quoteExact}`);
+  // D-153 C: own and other ayah phrases are q elements; nothing is added to the text, and the q
+  // shows no quotation marks of its own.
+  const q = page.locator('[data-tfq="own"] q');
+  await expect(q).toHaveCount(1);
+  expect(await q.evaluate((e) => [getComputedStyle(e, '::before').content, getComputedStyle(e, '::after').content])).toEqual(['none', 'none']);
+  const words = await page.locator('[data-tf-text]').evaluate((e) => (e as HTMLElement).innerText);
+  expect(words.replace(BR, '').replace(/\s+/g, ' ').trim()).toBe(visibleText(sanitize(passageText(MOCK_TAFSIR_ID, 2, CASE.quoteExact, src)!)).replace(BR, '').replace(/\s+/g, ' ').trim());
+  await expect(page.locator('[data-tf-text] [aria-label], [data-tf-text] [aria-hidden], [data-tf-text] .sr-only')).toHaveCount(0);
+  // AC34 in forced colours: the brackets and the font stay.
+  await page.emulateMedia({ forcedColors: 'active' });
+  const fc = await page.evaluate(() => { const e = document.querySelector<HTMLElement>('[data-tfq="own"]')!; return { font: getComputedStyle(e).fontFamily, text: e.textContent ?? '' }; });
+  expect(fc.font).toContain('Noto Naskh Arabic');
+  expect(fc.text.startsWith('{') && fc.text.endsWith('}')).toBe(true);
+});
+
+test('TB-03 (AC36): at 390 px and the largest text size, styled phrases grow with the text, stay inline and nothing overflows', async ({ page }) => {
+  // The size buttons are in the header at desktop width (as in AC20); the check is then at 390 px.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`/tafseer/2/#a${CASE.braces}`);
+  await ready(page);
+  const size = () => page.evaluate(() => [getComputedStyle(document.querySelector('[data-tfq="own"]')!).fontSize, getComputedStyle(document.querySelector('[data-tf-text]')!).fontSize].map(parseFloat));
+  const before = await size();
+  for (let i = 0; i < 6; i++) { const b = page.locator('[data-larger]'); if (await b.isDisabled()) break; await b.click(); }
+  await expect(page.locator('[data-larger]')).toBeDisabled();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const after = await size();
+  expect(after[0]).toBeGreaterThan(before[0]);
+  expect(after[0] / after[1]).toBeCloseTo(before[0] / before[1], 2);
+  const box = await page.evaluate(() => {
+    const e = document.querySelector<HTMLElement>('[data-tfq="own"]')!;
+    return { display: getComputedStyle(e).display, sw: document.documentElement.scrollWidth, iw: innerWidth, overflow: e.closest<HTMLElement>('[data-tf-text]')!.scrollWidth - e.closest<HTMLElement>('[data-tf-text]')!.clientWidth };
+  });
+  expect(box.display).toBe('inline');
+  expect(box.sw).toBeLessThanOrEqual(box.iw + 1);
+  expect(box.overflow).toBeLessThanOrEqual(1);
+});
+
+test('TB-04 (AC37): missing, broken, wrong-version or wrong-count marks show the passage exactly as delivered, with no message', async ({ page }) => {
+  const breakers: ((m: Record<string, unknown>) => unknown)[] = [() => undefined, () => 'OOP', (m) => ({ ...m, v: 9 }), (m) => ({ ...m, n: (m.n as number) + 1 }), (m) => ({ ...m, c: 'Z'.repeat(m.n as number) })];
+  for (const [i, f] of breakers.entries()) {
+    await page.route('**/api/tafseer', async (route) => {
+      const r = await route.fetch();
+      const d = await r.json();
+      const m = f(d.marks);
+      if (m === undefined) delete d.marks; else d.marks = m;
+      await route.fulfill({ response: r, body: JSON.stringify(d) });
+    });
+    await page.goto(`/tafseer/2/#a${CASE.braces}`);
+    await ready(page);
+    const el = page.locator('[data-tf-text]');
+    await expect(el, `case ${i}`).toHaveAttribute('data-tf-marked', '0');
+    await expect(el.locator('[data-tfq]')).toHaveCount(0);
+    expect(await el.evaluate((x) => x.textContent)).toBe(visibleText(sanitize(passageText(MOCK_TAFSIR_ID, 2, CASE.braces, src)!)));
+    await expect(page.locator('[data-tf-msg]')).toHaveCount(0);
+    await page.unroute('**/api/tafseer');
+  }
+});
+
+test('TB-05 (D-157): no static file of the build holds the letters-only matching data; the Worker config does', async () => {
+  const p = probesFrom(src.list);
+  const site = scanFolder(join(BUILD, 'site'), p);
+  expect(site.files).toBeGreaterThan(100);
+  expect(site.hits).toEqual([]);
+  // Positive control: the scan finds the data where it is meant to be, in the Worker's own config.
+  expect(hitsIn(readFileSync(join(BUILD, 'worker-config.json'), 'utf8'), p)).toBeGreaterThan(1000);
 });

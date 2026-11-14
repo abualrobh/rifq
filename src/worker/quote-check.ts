@@ -6,29 +6,26 @@
 // letters-only form only (no displayed text). Nothing is stored or logged. The reviewer list holds
 // the phrases as delivered, which are Tafseer text shown to Hamzeh inside the app; the page offers
 // it as JSON or CSV made in the browser.
-import { chapterPassages, checkPassage, lettersIndex, newSummary, type LettersIndex, type ReviewItem } from '../core/tafseer-quotes.ts';
+import { chapterPassages, checkPassage, newSummary, type ReviewItem } from '../core/tafseer-quotes.ts';
+import { computeMarks } from '../core/tafseer-marks.ts';
+import { makeLetters, type Letters, type LettersQuran } from './letters.ts';
 import { byChapterPath, parseByChapter, QfClient, qfConfig, QfError, type QfSecrets } from './qf.ts';
 import { PAGE_PAUSE_MS } from './verify.ts';
 
-// Letters-only text per ayah, in source order: Uthmani (aya_text) and, under D-085, plain spelling
-// (aya_text_emlaey), used for matching only and never displayed.
-export type LettersQuran = { counts: number[]; letters: string[]; emlaey?: string[] };
+export type { LettersQuran } from './letters.ts';
 
 type Deps = { fetch?: (u: string, i: RequestInit) => Promise<Response>; now?: () => number; pauseMs?: number; timeoutMs?: number };
 
-export function makeQuoteCheck(q: LettersQuran, devAllowed: boolean, deps: Deps = {}) {
+// AC31 (RQ-005 v1.1): the display marks of each passage are worked out here with the same index and
+// the same code as /api/tafseer (computeMarks), so the page can show and compare them.
+export function makeQuoteCheck(src: LettersQuran | Letters, devAllowed: boolean, deps: Deps = {}) {
   const qf = new QfClient(deps.fetch, deps.now, deps.timeoutMs);
-  let ix: LettersIndex | null = null;
-  const index = () => {
-    if (ix) return ix;
-    const rows: { s: number; a: number; letters: string; emlaey?: string }[] = [];
-    let i = 0;
-    for (let s = 1; s < q.counts.length; s++) for (let a = 1; a <= q.counts[s]; a++) { rows.push({ s, a, letters: q.letters[i] ?? '', emlaey: q.emlaey?.[i] }); i++; }
-    ix = lettersIndex(rows);
-    return ix;
-  };
+  const L: Letters = 'index' in src ? src : makeLetters(src);
+  const q = L.q;
+  const index = () => L.index();
 
-  async function surah(env: QfSecrets & { TAFSIR_ID?: string }, s: number): Promise<{ status: number; data: Record<string, unknown> }> {
+  // The configured work's passages for one surah, page by page (also used by the timing page).
+  async function passages(env: QfSecrets & { TAFSIR_ID?: string }, s: number): Promise<{ status: number; data: Record<string, unknown> } | { id: number; pages: number; records: number; passages: ReturnType<typeof chapterPassages> }> {
     if (!Number.isInteger(s) || s < 1 || s >= q.counts.length) return { status: 400, data: { status: 'bad_request' } };
     const c = qfConfig(env, devAllowed);
     const idRaw = typeof env.TAFSIR_ID === 'string' ? env.TAFSIR_ID.trim() : '';
@@ -48,11 +45,28 @@ export function makeQuoteCheck(q: LettersQuran, devAllowed: boolean, deps: Deps 
       if (page !== null && pages >= 20) break;
       if (page !== null) await new Promise((res) => setTimeout(res, deps.pauseMs ?? PAGE_PAUSE_MS));
     }
+    return { id, pages, records: items.length, passages: chapterPassages(items.filter((x) => x.verse_key.startsWith(`${s}:`))) };
+  }
+
+  async function surah(env: QfSecrets & { TAFSIR_ID?: string }, s: number): Promise<{ status: number; data: Record<string, unknown> }> {
+    const got = await passages(env, s);
+    if ('status' in got) return got;
+    const { id, pages, records } = got;
     const sum = newSummary();
     const list: ReviewItem[] = [];
-    const passages = chapterPassages(items.filter((x) => x.verse_key.startsWith(`${s}:`)));
-    for (const p of passages) checkPassage(index(), p.text, { s: p.s, from: p.from, to: p.to }, p.ref, sum, list);
-    return { status: 200, data: { status: 'ok', s, tafsirId: id, pages, records: items.length, passages: passages.length, summary: sum, list } };
+    const list2 = got.passages;
+    // D-149 display classes per passage (the Worker's /api/tafseer marks), for AC31. A class letter
+    // per phrase only. The work is Arabic here (D-077), so P-11 does not apply.
+    const display: { ref: string; range: string; n: number; c: string }[] = [];
+    const byClass = { O: 0, A: 0, P: 0, N: 0 };
+    for (const p of list2) {
+      const own = { s: p.s, from: p.from, to: p.to };
+      checkPassage(index(), p.text, own, p.ref, sum, list);
+      const m = computeMarks(index(), p.text, own, true);
+      for (const ch of m.c) byClass[ch as keyof typeof byClass]++;
+      display.push({ ref: p.ref, range: `${p.s}:${p.from}-${p.to}`, n: m.n, c: m.c });
+    }
+    return { status: 200, data: { status: 'ok', s, tafsirId: id, pages, records, passages: list2.length, summary: sum, list, display, displayCounts: byClass } };
   }
-  return { surah, client: qf };
+  return { surah, passages, letters: L, client: qf };
 }

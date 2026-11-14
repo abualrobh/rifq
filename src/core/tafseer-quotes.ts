@@ -94,8 +94,15 @@ const PAIRS: [string, string, Bracket][] = [['(', ')', '()'], ['\ufd3f', '\ufd3e
 // Bracketed phrases of one passage in reading order, read from its displayed text (markup
 // removed, entities decoded), never across a paragraph. The text is kept exactly as delivered.
 export function findPhrases(html: string): Phrase[] {
-  const t = blockText(html);
-  const out: Phrase[] = [];
+  return phrasesAt(blockText(html)).map(({ start: _s, end: _e, ...p }) => p);
+}
+
+// The same scan on text already read with blockText, with each phrase's place in it (D-149
+// display): `start` is the index of the opening bracket, `end` the index of the closing bracket
+// (for an unclosed phrase, the end of its line). UTF-16 indexes; brackets are single code units.
+export type PlacedPhrase = Phrase & { start: number; end: number };
+export function phrasesAt(t: string): PlacedPhrase[] {
+  const out: PlacedPhrase[] = [];
   let i = 0;
   while (i < t.length) {
     const p = PAIRS.find(([o]) => o === t[i]);
@@ -103,11 +110,15 @@ export function findPhrases(html: string): Phrase[] {
     let j = i + 1;
     while (j < t.length && t[j] !== p[1] && t[j] !== '\n') j++;
     const label = p[2] === '{}' ? 'qiraah_or_quote' : 'quote';
-    if (j < t.length && t[j] === p[1]) { out.push({ bracket: p[2], label, text: t.slice(i + 1, j) }); i = j + 1; }
-    else { out.push({ bracket: p[2], label, text: t.slice(i + 1, j), unclosed: true }); i = j; }
+    if (j < t.length && t[j] === p[1]) { out.push({ bracket: p[2], label, text: t.slice(i + 1, j), start: i, end: j }); i = j + 1; }
+    else { out.push({ bracket: p[2], label, text: t.slice(i + 1, j), unclosed: true, start: i, end: j }); i = j; }
   }
   return out;
 }
+
+// RQ-007 P-11 (AC34): a phrase "written in Arabic letters" is one whose letters-only form (the
+// same steps the check uses) keeps at least one letter.
+export const hasArabicLetters = (s: string) => lettersOnlyWords(s).length > 0;
 
 export type Result = 'matched_own_ayah' | 'matched_same_surah' | 'matched_elsewhere' | 'unmatched' | 'too_short' | 'fragment';
 export type MatchType = 'exact' | 'edge' | null;
@@ -118,17 +129,71 @@ export type MatchType = 'exact' | 'edge' | null;
 // and only its letters-only form goes into a build (private builds only). While the file is the
 // D-045 development copy, the D-045 caution applies to both forms.
 export type Form = 'uthmani' | 'emlaey';
-type FormIndex = { letters: string[]; surahText: Map<number, string>; all: string };
-export type LettersIndex = { refs: string[]; surah: number[]; at: Map<string, number>; forms: Partial<Record<Form, FormIndex>> };
+// One form of the approved text: an ayah's letters by its index, a surah's letters (' ' + the
+// non-empty ayat joined by ' ' + ' '), and the whole text in the same layout.
+export type FormIndex = { ayah: (i: number) => string; surah: (s: number) => string | undefined; all: string };
+export type LettersIndex = { refs?: string[]; surah?: number[]; at: { get(ref: string): number | undefined }; forms: Partial<Record<Form, FormIndex>> };
 // Kept for callers of the first version: the Uthmani letters per ayah.
-export const uthmaniLetters = (ix: LettersIndex) => ix.forms.uthmani?.letters ?? [];
+export const uthmaniLetters = (ix: LettersIndex) => {
+  const f = ix.forms.uthmani;
+  const out: string[] = [];
+  if (f) for (let i = 0; ; i++) { const l = f.ayah(i); if (l === undefined) break; out.push(l); }
+  return out;
+};
 
 function formIndex(rows: { s: number }[], letters: string[]): FormIndex {
   const bySurah = new Map<number, string[]>();
   rows.forEach((r, i) => { if (!bySurah.has(r.s)) bySurah.set(r.s, []); if (letters[i]) bySurah.get(r.s)!.push(letters[i]); });
   const surahText = new Map<number, string>();
   for (const [s, l] of bySurah) surahText.set(s, ' ' + l.join(' ') + ' ');
-  return { letters, surahText, all: ' ' + letters.filter(Boolean).join(' ') + ' ' };
+  return { ayah: (i) => letters[i] as string, surah: (s) => surahText.get(s), all: ' ' + letters.filter(Boolean).join(' ') + ' ' };
+}
+
+// D-156 A, cold-Worker CPU: the same index, made from a packed form prepared at build time, so a
+// cold Worker does no joining, no flattening and builds no map. For each form, `all` is exactly
+// formIndex's `all`; `off[i]` and `len[i]` place ayah i inside it (off -1 for an empty ayah). A
+// surah's text is a slice of `all` with its spaces, equal to formIndex's surah text (unit-tested).
+export type PackedForm = { all: string; off: number[]; len: number[] };
+export type PackedLetters = { counts: number[]; forms: Partial<Record<Form, PackedForm>> };
+
+export function packLetters(counts: number[], forms: Partial<Record<Form, string[]>>): PackedLetters {
+  const out: PackedLetters = { counts, forms: {} };
+  for (const [k, letters] of Object.entries(forms) as [Form, string[]][]) {
+    if (k === 'emlaey' && !letters.some(Boolean)) continue;
+    let all = ' ';
+    const off: number[] = [], len: number[] = [];
+    for (const l of letters) {
+      if (!l) { off.push(-1); len.push(0); continue; }
+      off.push(all.length); len.push(l.length);
+      all += l + ' ';
+    }
+    out.forms[k] = { all: all.length === 1 ? '  ' : all, off, len };
+  }
+  return out;
+}
+
+export function packedIndex(p: PackedLetters): LettersIndex {
+  // First ayah index of each surah (cum[s]), from the counts (counts[0] is 0).
+  const cum: number[] = [0, 0];
+  for (let s = 1; s < p.counts.length; s++) cum[s + 1] = cum[s] + p.counts[s];
+  const at = { get(ref: string) { const m = /^(\d+):(\d+)$/.exec(ref); if (!m) return undefined; const s = Number(m[1]), a = Number(m[2]); return s >= 1 && s < p.counts.length && a >= 1 && a <= p.counts[s] ? cum[s] + a - 1 : undefined; } };
+  const forms: Partial<Record<Form, FormIndex>> = {};
+  for (const [k, f] of Object.entries(p.forms) as [Form, PackedForm][]) {
+    const cache = new Map<number, string | undefined>();
+    forms[k] = {
+      all: f.all,
+      ayah: (i) => (i < 0 || i >= f.off.length ? (undefined as unknown as string) : f.off[i] < 0 ? '' : f.all.slice(f.off[i], f.off[i] + f.len[i])),
+      surah: (s) => {
+        if (cache.has(s)) return cache.get(s);
+        let first = -1, last = -1;
+        if (s >= 1 && s < p.counts.length) for (let i = cum[s]; i < cum[s] + p.counts[s]; i++) if (f.off[i] >= 0) { if (first < 0) first = i; last = i; }
+        const t = first < 0 ? undefined : f.all.slice(f.off[first] - 1, f.off[last] + f.len[last] + 1);
+        cache.set(s, t);
+        return t;
+      },
+    };
+  }
+  return { at, forms };
 }
 
 export function lettersIndex(rows: { s: number; a: number; letters: string; emlaey?: string }[]): LettersIndex {
@@ -170,11 +235,11 @@ export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; 
   };
   const ownText = (f: FormIndex) => {
     const parts: string[] = [];
-    for (let a = own.from; a <= own.to; a++) { const i = ix.at.get(`${own.s}:${a}`); if (i !== undefined && f.letters[i]) parts.push(f.letters[i]); }
+    for (let a = own.from; a <= own.to; a++) { const i = ix.at.get(`${own.s}:${a}`); const l = i === undefined ? '' : f.ayah(i); if (l) parts.push(l); }
     return ' ' + parts.join(' ') + ' ';
   };
   const levels: [Result, (f: FormIndex) => string | undefined][] = [
-    ['matched_own_ayah', ownText], ['matched_same_surah', (f) => f.surahText.get(own.s)], ['matched_elsewhere', (f) => f.all],
+    ['matched_own_ayah', ownText], ['matched_same_surah', (f) => f.surah(own.s)], ['matched_elsewhere', (f) => f.all],
   ];
   const total = words.reduce((n, w) => n + [...w].length, 0);
   // Whole words of the own ayah range always count, even for a short phrase.

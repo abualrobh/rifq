@@ -2,12 +2,20 @@
 // time, with a pause between surahs, shows the counts and the reviewer list, and offers the list as
 // JSON or CSV made in the browser. Nothing is stored or sent anywhere else. The phrases are Tafseer
 // text exactly as delivered; they are shown as plain text (no markup is ever interpreted).
+//
+// AC31 (RQ-005 v1.1, D-149): the Worker also returns each passage's display classes (one letter per
+// phrase, the same code and index as /api/tafseer). "Compare with the reader display" then asks
+// /api/tafseer for the first ayah of each passage, one request every 1.1 s (under the 60-a-minute
+// limit), and counts the passages whose marks agree. Class letters only are compared and shown.
 import { useRef, useState } from 'react';
 import { reviewCsv, type CsvRow as ReviewItem } from '../../core/review-csv.ts';
 
 // Proposal: 1 second between surahs, as on the text check page.
 const SURAH_PAUSE_MS = 1000;
 const RESULTS = ['matched_own_ayah', 'matched_same_surah', 'matched_elsewhere', 'unmatched', 'too_short', 'fragment'] as const;
+const CLASSES = [['O', 'own ayah: Quran font, green, { }'], ['A', 'another ayah: Quran font, brown, ( )'], ['P', 'plain, ( )'], ['N', 'as delivered (unclosed)']] as const;
+const COMPARE_PAUSE_MS = 1100;
+type Disp = { ref: string; range: string; n: number; c: string };
 
 export default function QuoteCheck({ surahs }: { surahs: number }) {
   const [from, setFrom] = useState('1');
@@ -18,11 +26,35 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
   const [state, setState] = useState('idle');
   const [done, setDone] = useState<number[]>([]);
   const stop = useRef(false);
+  const [display, setDisplay] = useState<Disp[]>([]);
+  const [cmp, setCmp] = useState<{ state: string; done: number; agree: number; differ: { ref: string; check: string; api: string }[]; errors: number }>({ state: 'idle', done: 0, agree: 0, differ: [], errors: 0 });
+
+  async function compare() {
+    stop.current = false;
+    let agree = 0, errors = 0, done = 0;
+    const differ: { ref: string; check: string; api: string }[] = [];
+    setCmp({ state: 'running', done, agree, differ: [], errors });
+    for (const p of display) {
+      if (stop.current) { setCmp({ state: 'stopped', done, agree, differ: [...differ], errors }); return; }
+      const [s, a] = p.ref.split(':').map(Number);
+      try {
+        const r = await fetch('/api/tafseer', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ s, a }) });
+        const d = await r.json();
+        const m = d?.marks;
+        const api = m && typeof m.c === 'string' && m.n === m.c.length ? m.c : d?.status === 'ok' ? '(no marks)' : `(${String(d?.status ?? r.status)})`;
+        if (api === p.c) agree++; else if (api.startsWith('(') && d?.status !== 'ok') errors++; else differ.push({ ref: p.ref, check: p.c, api });
+      } catch { errors++; }
+      done++;
+      setCmp({ state: 'running', done, agree, differ: [...differ], errors });
+      await new Promise((res) => setTimeout(res, COMPARE_PAUSE_MS));
+    }
+    setCmp({ state: 'finished', done, agree, differ: [...differ], errors });
+  }
 
   async function run() {
     const a = Math.max(1, Math.min(surahs, Number(from) || 1)), b = Math.max(a, Math.min(surahs, Number(to) || a));
     stop.current = false;
-    setList([]); setCounts({}); setErrors([]); setDone([]); setState('running');
+    setList([]); setCounts({}); setErrors([]); setDone([]); setDisplay([]); setState('running');
     for (let s = a; s <= b; s++) {
       if (stop.current) { setState('stopped'); return; }
       try {
@@ -37,8 +69,10 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
             n.passages = (n.passages ?? 0) + d.passages;
             n.edge = (n.edge ?? 0) + (d.summary.edgeMatches ?? 0);
             for (const k of RESULTS) n[k] = (n[k] ?? 0) + (d.summary.byResult[k] ?? 0);
+            for (const [k] of CLASSES) n['d' + k] = (n['d' + k] ?? 0) + (d.displayCounts?.[k] ?? 0);
             return n;
           });
+          if (Array.isArray(d.display)) setDisplay((x) => [...x, ...d.display]);
         } else setErrors((x) => [...x, `surah ${s}: ${d.status ?? r.status}${d.kind ? ' (' + d.kind + ')' : ''}${d.missing ? ' ' + d.missing.join(', ') : ''}`]);
       } catch {
         setErrors((x) => [...x, `surah ${s}: network`]);
@@ -76,8 +110,17 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
           <tr><th scope="row">Of the matches: edge matches (D-088)</th><td data-qc-edge>{counts.edge ?? 0}</td></tr>
           <tr><th scope="row">In braces (qiraah_or_quote)</th><td data-qc-braces>{counts.braces ?? 0}</td></tr>
           <tr><th scope="row">Errors</th><td data-qc-errors>{errors.length}</td></tr>
+          {CLASSES.map(([k, label]) => <tr key={k}><th scope="row">Reader display {k}: {label}</th><td data-qc-display={k}>{counts['d' + k] ?? 0}</td></tr>)}
         </tbody>
       </table>
+      <h2>AC31: compare with the reader display</h2>
+      <p>Asks /api/tafseer for the first ayah of each passage checked above, one request every 1.1 seconds, and compares its display classes with the ones worked out here. Each request may fetch from the API.</p>
+      <p>
+        <button type="button" className="btn" data-qc-compare disabled={!display.length || cmp.state === 'running' || state === 'running'} onClick={() => void compare()}>Compare with the reader display</button>{' '}
+        <button type="button" className="btn" disabled={cmp.state !== 'running'} onClick={() => { stop.current = true; }}>Stop comparing</button>
+      </p>
+      <p role="status" data-qc-compare-status>Passages compared: {cmp.done} of {display.length} ({cmp.state}). Agree: <span data-qc-agree>{cmp.agree}</span>. Differ: <span data-qc-differ>{cmp.differ.length}</span>. Errors: <span data-qc-cmp-errors>{cmp.errors}</span>.</p>
+      {cmp.differ.length > 0 && <table data-qc-differ-list><thead><tr><th scope="col">Passage</th><th scope="col">This check</th><th scope="col">/api/tafseer</th></tr></thead><tbody>{cmp.differ.map((x) => <tr key={x.ref}><td dir="ltr">{x.ref}</td><td dir="ltr">{x.check}</td><td dir="ltr">{x.api}</td></tr>)}</tbody></table>}
       {errors.length > 0 && <ul>{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
       {list.length > 0 && (
         <>

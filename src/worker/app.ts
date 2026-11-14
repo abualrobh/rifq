@@ -20,7 +20,9 @@ import type { Lang } from '../core/strings.ts';
 import { authorised, REALM, SignInGuard, type GateEnv, type RateLimit } from './gate.ts';
 import { renderPage, type PageCfg } from './page.ts';
 import { makeVerify, type VerifyHashes } from './verify.ts';
-import { makeQuoteCheck, type LettersQuran } from './quote-check.ts';
+import { makeQuoteCheck } from './quote-check.ts';
+import { makeLetters, type LettersQuran } from './letters.ts';
+import { makeTiming, TIMING_PATH } from './timing.ts';
 import { makeReciters, RECITERS_PATH } from './reciters.ts';
 import { AUDIO_LIMIT_PER_MINUTE, makeAudio, type AudioRecord } from './audio.ts';
 import { AUDIO_ORIGIN } from '../core/audio.ts';
@@ -184,7 +186,11 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   const ix = openIndex(indexBuf);
   const mem = cfg.testMemoryLimits === true ? new MemoryLimiter(cfg.serverLimit ?? SERVER_LIMIT, WINDOW_MS) : null;
   const tfMem = cfg.testMemoryLimits === true ? new MemoryLimiter(cfg.tafseerLimit ?? TAFSEER_LIMIT_PER_MINUTE, WINDOW_MS) : null;
-  const tafseer = cfg.tafseer ? makeTafseer(cfg, deps) : null;
+  // D-156 A, D-157: the letters-only matching data, in this bundle only, shared by the D-149 display
+  // marks (/api/tafseer) and the private quote check page, so both use one index (AC31).
+  const letters = cfg.tafseer && cfg.lettersQuran ? makeLetters(cfg.lettersQuran) : null;
+  const tafseer = cfg.tafseer ? makeTafseer(cfg, { ...deps, letters }) : null;
+  let requests = 0;
   const catalogueOn = !!(tafseer && cfg.dev && cfg.gate);
   // RQ-006 preparation (D-110 to D-118): the reciters and timing check page, on the same terms as
   // the catalogue (development builds behind the gate, with the Tafseer client's credentials).
@@ -195,7 +201,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   // D-081: development builds behind the password gate only.
   const verify = cfg.dev && cfg.gate && cfg.verifyHashes ? makeVerify(cfg.verifyHashes, cfg.dev, deps) : null;
   // D-084 quote check page: development builds behind the gate, with Tafseer on.
-  const quotes = cfg.dev && cfg.gate && tafseer && cfg.lettersQuran ? makeQuoteCheck(cfg.lettersQuran, cfg.dev, deps) : null;
+  const quotes = cfg.dev && cfg.gate && tafseer && letters ? makeQuoteCheck(letters, cfg.dev, deps) : null;
+  // D-156 A timing check page: on the same terms as the quote check page.
+  const timing = quotes && letters && tafseer ? makeTiming(quotes, letters, { started: Date.now(), requests: () => requests, tafseerServed: tafseer.served }) : null;
   const guard = new SignInGuard();
   const assetHeaders = cfg.assetHeaders ? { ...BASE_HEADERS, ...cfg.assetHeaders } : null;
   if (assetHeaders) delete (assetHeaders as Record<string, string>)['cache-control'];
@@ -238,6 +246,15 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
 <pre data-record-shape>${h(JSON.stringify({ env: d.config, reciters: d.reciters.map((r) => ({ id: r.id, catalogue: r.catalogue, surahs: r.surahs.map((x) => ({ s: x.s, ok: x.ok, problems: x.problems, negatives: x.negatives, shape: x.shape ?? null })) })) }, null, 1))}</pre></section>`;
       }
       const c = await reciters.page(env, extra);
+      return html(c.status, c.html);
+    }
+    if (timing && (pathname === TIMING_PATH || pathname === TIMING_PATH.slice(0, -1))) {
+      if (req.method !== 'GET') return json(405, { error: 'method' }, { allow: 'GET' });
+      if (crossSite(req)) return json(403, { error: 'cross_site' });
+      const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
+      if (v === 'unavailable') return unavailable();
+      if (v === 'limited') return json(429, { error: 'rate_limited' }, { 'retry-after': RETRY });
+      const c = await timing.page(env, url.searchParams);
       return html(c.status, c.html);
     }
     if (catalogueOn && tafseer && (pathname === SHAPE_PATH || pathname === SHAPE_PATH.slice(0, -1))) {
@@ -359,6 +376,7 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   return {
     // D-095: any thrown error becomes the fixed 503 with the full header set.
     async fetch(req: Request, env: Env): Promise<Response> {
+      requests++;
       try {
         if (!cfg.gate) return await handle(req, env);
         const v = await guard.check(req, env, netKey(req), authorised);

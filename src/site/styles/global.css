@@ -33,6 +33,7 @@
   --btn-bg: var(--surface); --mark-bg: #F3E3B5; --mark-fg: var(--fg); --banner-bg: #F6ECD2; --banner-fg: #6B4E0F;
   --focus: var(--link); --alert: #9f1239; --target: #E9EFE6; --selected: #E9EFE6;
   --page-w: 48rem;
+  --tfq-own: #174D3C; --tfq-other: #7A5A1E;
   color-scheme: light;
 }
 :root.dark {
@@ -41,6 +42,7 @@
   --control-border: #5E716A;
   --mark-bg: #5A4A1A; --mark-fg: var(--fg); --banner-bg: #3A3016; --banner-fg: #EBD39A;
   --alert: #fda4af; --target: #1D3029; --selected: #1D3029;
+  --tfq-own: #7CC9AC; --tfq-other: #D9AE6E;
   color-scheme: dark;
 }
 body.wide { --page-w: 76rem; }
@@ -311,6 +313,17 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + .5rem); }
 .tf-text { font-family: system-ui, sans-serif; font-size: calc(var(--ayah-size, 1.5rem) * .75); line-height: 1.9; overflow-wrap: anywhere; }
 .tf-text p { margin-block: .5rem; }
 .tf-range { font-weight: 600; margin-block: .5rem; }
+/* D-149 bracket display (RQ-005 v1.1 AC29 to AC36). Own-ayah phrases: Quran font, green, { }.
+   Other-ayah phrases: Quran font, brown, ( ). Plain phrases keep the Tafseer font and text colour;
+   only their brackets change. The phrase stays inline with the words around it and follows the
+   text size (em). The q element adds no quotation marks (D-153 C: no added words or marks). In
+   forced-colours mode the colours give way, and the bracket shape and font still tell the styles
+   apart (AC34). */
+.tfq-own, .tfq-other { font-family: "Noto Naskh Arabic", "Scheherazade New", serif; font-size: 1.1em; line-height: inherit; }
+.tfq-own { color: var(--tfq-own); }
+.tfq-other { color: var(--tfq-other); }
+.tfq q { quotes: none; }
+.tfq q::before, .tfq q::after { content: none; }
 .tf-review, .tf-credit { font-size: .875rem; color: var(--muted); margin-block: .5rem; }
 .tf-source summary { padding-block: .75rem; cursor: pointer; }
 .tf-source dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; font-size: .9rem; }

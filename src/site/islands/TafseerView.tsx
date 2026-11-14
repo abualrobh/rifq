@@ -6,14 +6,22 @@
 // src/core/tafseer-html.ts: plain text and a short list of tags with no attributes. Nothing is ever
 // passed to innerHTML, so no script runs and no outside resource loads.
 // Nothing is stored: no reading history, no Tafseer copy, nothing in browser storage (AC22).
+//
+// D-149 bracket display (RQ-005 v1.1 AC29 to AC37; D-156 A): the Worker sends one class letter per
+// bracketed phrase (`marks`) with the unchanged passage. markedNodes (src/core/tafseer-marks.ts)
+// reads the passage through the same tokenizer and allow-list as sanitize, finds the same phrases
+// and swaps only their two bracket characters; the words go into elements built here with fixed
+// class names. Own-ayah and other-ayah phrases are quotations (q, D-153 C), with no added words.
+// Missing or unfitting marks: the passage as delivered, with no message (AC37).
 import { goReplace } from '../client/nav.ts';
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { sanitize, type Node } from '../../core/tafseer-html.ts';
+import { markedNodes, type MNode } from '../../core/tafseer-marks.ts';
 import { surahPath, t, tafseerPath, type Lang } from '../../core/strings.ts';
 import BidiText from './BidiText.tsx';
 
 type Source = { tafsirId: number; title: string | null; author: string | null; edition: string | null; publisher: string | null; language: string | null; provider: string };
-type Ok = { status: 'ok'; s: number; a: number; range: { s: number; from: number; to: number }; text: string; source: Source; review: { state: 'none' } | { state: 'match'; reviewed: string } };
+type Ok = { status: 'ok'; s: number; a: number; range: { s: number; from: number; to: number }; text: string; source: Source; review: { state: 'none' } | { state: 'match'; reviewed: string }; marks?: unknown };
 type View =
   | { kind: 'loading' }
   | { kind: 'ok'; d: Ok }
@@ -29,8 +37,26 @@ export function parseHash(h: string, count: number): { a: number; from: [number,
   return { a: a >= 1 && a <= count ? a : 1, from: m && m[2] ? [Number(m[2]), Number(m[3])] : null };
 }
 
-function render(nodes: Node[]): ReactNode[] {
-  return nodes.map((n, i) => (typeof n === 'string' ? createElement(Fragment, { key: i }, n) : n.tag === 'br' ? createElement('br', { key: i }) : createElement(n.tag, { key: i }, ...render(n.children))));
+function render(nodes: (Node | MNode)[], arabic = true): ReactNode[] {
+  return nodes.map((n, i) => {
+    if (typeof n === 'string') return createElement(Fragment, { key: i }, n);
+    if ('tfq' in n) {
+      // Plain: only the brackets change. Own and other ayah: Quran font and colour (CSS), and the
+      // words are a quotation for assistive technology (D-153 C). Inside a passage that is not
+      // Arabic, the Arabic phrase keeps its own language and direction.
+      if (n.tfq === 'P') return createElement('span', { key: i, className: 'tfq tfq-plain', 'data-tfq': 'plain' }, n.open, n.text, n.close);
+      const own = n.tfq === 'O';
+      return createElement('span', { key: i, className: own ? 'tfq tfq-own' : 'tfq tfq-other', 'data-tfq': own ? 'own' : 'other', ...(arabic ? {} : { lang: 'ar', dir: 'rtl' }) },
+        n.open, createElement('q', null, n.text), n.close);
+    }
+    return n.tag === 'br' ? createElement('br', { key: i }) : createElement(n.tag, { key: i }, ...render(n.children, arabic));
+  });
+}
+
+// The display nodes of a passage: with the D-149 marks when they fit, otherwise as delivered.
+export function passageNodes(text: string, marks: unknown): { nodes: (Node | MNode)[]; marked: boolean } {
+  const m = marks === undefined ? null : markedNodes(text, marks);
+  return m ? { nodes: m.nodes, marked: true } : { nodes: sanitize(text), marked: false };
 }
 
 export default function TafseerView({ lang, s, count, prevCount, last }: Props) {
@@ -140,10 +166,11 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
   else {
     const d = view.d;
     const arabic = (d.source.language ?? '').trim().toLowerCase() === 'arabic';
+    const shown = passageNodes(d.text, d.marks);
     body = (
       <>
         {d.range.from !== d.range.to && <p className="tf-range" data-tf-range>{t(lang, 'tafseerRange', { s: d.range.s, from: d.range.from, to: d.range.to })}</p>}
-        <div className="tf-text" lang={arabic ? 'ar' : undefined} dir={arabic ? 'rtl' : 'auto'} translate="no" data-tf-text>{render(sanitize(d.text))}</div>
+        <div className="tf-text" lang={arabic ? 'ar' : undefined} dir={arabic ? 'rtl' : 'auto'} translate="no" data-tf-text data-tf-marked={shown.marked ? '1' : '0'}>{render(shown.nodes, arabic)}</div>
         <p className="tf-review" data-tf-review={d.review.state}>{d.review.state === 'match' ? t(lang, 'reviewMatch', { d: d.review.reviewed }) : <BidiText text={t(lang, 'reviewNone')} lang={lang} />}</p>
         {sourceList(d.source)}
       </>
