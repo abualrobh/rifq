@@ -7,7 +7,7 @@ import { synthetic } from '../fixtures/load.ts';
 import { SYN_COUNTS } from '../fixtures/synthetic.ts';
 import { CASE, CLOSE, createMockQf, MOCK_CLIENT_ID, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, OPEN, passageText, quoteFrom } from '../mock/qf-mock.ts';
 import { blockText, sanitize, visibleText } from '../../src/core/tafseer-html.ts';
-import { bareAyah, indexFromSource, lettersIndex, lettersOnly, matchPhrase, findPhrases, packedIndex, packLetters, phrasesAt, type Result } from '../../src/core/tafseer-quotes.ts';
+import { bareAyah, indexFromSource, lettersIndex, lettersOnly, matchPhrase, findPhrases, packedIndex, packLetters, phrasesAt, wordListHas, type Result } from '../../src/core/tafseer-quotes.ts';
 import { blockTextOf, classOf, computeMarks, markedNodes, markedText, MARKS_VERSION, sanitizeViaWalk, validMarks, type MNode } from '../../src/core/tafseer-marks.ts';
 import { makeWorker } from '../../src/worker/app.ts';
 import { CACHE_VERSION, type CacheLike } from '../../src/worker/tafseer.ts';
@@ -293,4 +293,35 @@ test('D-156 A packed index: the build-time packed form gives exactly the same ay
     const ph = w.slice(0, 2).join(' ');
     for (const o of [own(r.a), own(1), { s: 3, from: 1, to: 2 }]) assert.deepEqual(matchPhrase(packed, ph, o), matchPhrase(plain, ph, o));
   }
+});
+
+test('kit v30 reader CPU: the packed word list holds exactly the words of each form, and skipping impossible scans changes no result', () => {
+  const counts = [0, ...SYN_COUNTS.slice(1)];
+  const up = src.list.map((a) => lettersOnly(bareAyah(a.aya_text)));
+  const em = up.map((l, i) => (i % 7 === 3 ? '' : l.split(' ').reverse().join(' ')));
+  const p = packLetters(counts, { uthmani: up, emlaey: em });
+  for (const [f, list] of [['uthmani', up], ['emlaey', em]] as const) {
+    const pf = p.forms[f]!;
+    const want = [...new Set(list.join(' ').split(' ').filter(Boolean))];
+    assert.equal(pf.woff!.length, want.length, f);
+    for (const w of want) assert.equal(wordListHas(pf.words!, pf.woff!, w), true, `${f} has ${w.length}`);
+    for (const w of want.slice(0, 50)) {
+      assert.equal(wordListHas(pf.words!, pf.woff!, w + w[0]), want.includes(w + w[0]));
+      assert.equal(wordListHas(pf.words!, pf.woff!, w.slice(1)), want.includes(w.slice(1)));
+    }
+    assert.equal(wordListHas(pf.words!, pf.woff!, ''), false);
+  }
+  // Results with the word list equal results without it (the v29 packed form) for real word runs,
+  // runs with a made-up word added, and runs across surahs, at every level.
+  const withList = packedIndex(p);
+  const without = packedIndex({ counts, forms: { uthmani: { ...p.forms.uthmani!, words: undefined, woff: undefined }, emlaey: { ...p.forms.emlaey!, words: undefined, woff: undefined } } });
+  const zz = String.fromCodePoint(0x638, 0x638, 0x638);
+  let n = 0;
+  for (const r of src.list.slice(0, 400)) {
+    const w = bareAyah(r.aya_text).split(' ');
+    for (const ph of [w.slice(0, 2).join(' '), w.slice(1, 4).join(' '), `${w[0]} ${zz}`, w[w.length - 1], `${zz} ${w.slice(0, 2).join(' ')}`]) {
+      for (const o of [own(r.aya_no), { s: r.sora, from: r.aya_no, to: r.aya_no }, { s: 5, from: 1, to: 3 }]) { assert.deepEqual(matchPhrase(withList, ph, o), matchPhrase(without, ph, o)); n++; }
+    }
+  }
+  assert.ok(n > 1000, String(n));
 });

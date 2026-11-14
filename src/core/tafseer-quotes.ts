@@ -141,7 +141,9 @@ export type MatchType = 'exact' | 'edge' | null;
 export type Form = 'uthmani' | 'emlaey';
 // One form of the approved text: an ayah's letters by its index, a surah's letters (' ' + the
 // non-empty ayat joined by ' ' + ' '), and the whole text in the same layout.
-export type FormIndex = { ayah: (i: number) => string; surah: (s: number) => string | undefined; all: string };
+// `has` (kit v30, optional): whether a word occurs as a whole word anywhere in this form. It only
+// lets matchPhrase skip a scan that cannot succeed; it never changes a result.
+export type FormIndex = { ayah: (i: number) => string; surah: (s: number) => string | undefined; all: string; has?: (w: string) => boolean };
 export type LettersIndex = { refs?: string[]; surah?: number[]; at: { get(ref: string): number | undefined }; forms: Partial<Record<Form, FormIndex>> };
 // Kept for callers of the first version: the Uthmani letters per ayah.
 export const uthmaniLetters = (ix: LettersIndex) => {
@@ -163,7 +165,12 @@ function formIndex(rows: { s: number }[], letters: string[]): FormIndex {
 // cold Worker does no joining, no flattening and builds no map. For each form, `all` is exactly
 // formIndex's `all`; `off[i]` and `len[i]` place ayah i inside it (off -1 for an empty ayah). A
 // surah's text is a slice of `all` with its spaces, equal to formIndex's surah text (unit-tested).
-export type PackedForm = { all: string; off: number[]; len: number[] };
+// Kit v30 (reader CPU): `words` is every distinct word of `all`, sorted by UTF-16 code units and
+// joined by single spaces, and `woff[i]` the start of word i in it (prepared at build time, so a cold
+// Worker builds nothing). An exact whole-word needle can only be in `all` if each of its words is in
+// this list, so a phrase with a word the Quran text does not have (a gloss) is known to be unmatched
+// without scanning the whole text (about 0.7 ms of CPU per such phrase before).
+export type PackedForm = { all: string; off: number[]; len: number[]; words?: string; woff?: number[] };
 export type PackedLetters = { counts: number[]; forms: Partial<Record<Form, PackedForm>> };
 
 export function packLetters(counts: number[], forms: Partial<Record<Form, string[]>>): PackedLetters {
@@ -177,9 +184,26 @@ export function packLetters(counts: number[], forms: Partial<Record<Form, string
       off.push(all.length); len.push(l.length);
       all += l + ' ';
     }
-    out.forms[k] = { all: all.length === 1 ? '  ' : all, off, len };
+    const dict = [...new Set(letters.filter(Boolean).join(' ').split(' ').filter(Boolean))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const woff: number[] = [];
+    let n = 0;
+    for (const w of dict) { woff.push(n); n += w.length + 1; }
+    out.forms[k] = { all: all.length === 1 ? '  ' : all, off, len, words: dict.join(' '), woff };
   }
   return out;
+}
+
+// Binary search in a packed word list (see PackedForm).
+export function wordListHas(words: string, woff: number[], w: string): boolean {
+  let lo = 0, hi = woff.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const end = mid + 1 < woff.length ? woff[mid + 1] - 1 : words.length;
+    const x = words.slice(woff[mid], end);
+    if (x === w) return true;
+    if (x < w) lo = mid + 1; else hi = mid - 1;
+  }
+  return false;
 }
 
 export function packedIndex(p: PackedLetters): LettersIndex {
@@ -192,6 +216,7 @@ export function packedIndex(p: PackedLetters): LettersIndex {
     const cache = new Map<number, string | undefined>();
     forms[k] = {
       all: f.all,
+      ...(typeof f.words === 'string' && Array.isArray(f.woff) ? { has: (w: string) => wordListHas(f.words!, f.woff!, w) } : {}),
       ayah: (i) => (i < 0 || i >= f.off.length ? (undefined as unknown as string) : f.off[i] < 0 ? '' : f.all.slice(f.off[i], f.off[i] + f.len[i])),
       surah: (s) => {
         if (cache.has(s)) return cache.get(s);
@@ -259,6 +284,14 @@ export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; 
     const hit = forms.filter(([, f]) => (test(f) ?? '').includes(needle)).map(([k]) => k);
     return hit.length === 2 ? 'both' : hit.length === 1 ? hit[0] : null;
   };
+  // Same surah and anywhere: exact whole words only, so a form whose word list lacks one of the
+  // phrase's words cannot match there and is not scanned (kit v30; same results, less CPU).
+  let possible: [Form, FormIndex][] | null = null;
+  const atWhole = (test: (f: FormIndex) => string | undefined, needle: string): MatchedForm => {
+    possible ??= forms.filter(([, f]) => !f.has || words.every((w) => f.has!(w)));
+    const hit = possible.filter(([, f]) => (test(f) ?? '').includes(needle)).map(([k]) => k);
+    return hit.length === 2 ? 'both' : hit.length === 1 ? hit[0] : null;
+  };
   const ownText = (f: FormIndex) => {
     const parts: string[] = [];
     for (let a = own.from; a <= own.to; a++) { const i = ix.at.get(`${own.s}:${a}`); const l = i === undefined ? '' : f.ayah(i); if (l) parts.push(l); }
@@ -289,7 +322,7 @@ export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; 
       if (g) return out(result, g, 'edge');
       continue;
     }
-    const e = at(text, exact);
+    const e = atWhole(text, exact);
     if (e) return out(result, e, 'exact');
   }
   return out('unmatched');
