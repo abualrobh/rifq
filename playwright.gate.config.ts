@@ -6,6 +6,11 @@
 import { defineConfig } from '@playwright/test';
 import { join, resolve } from 'node:path';
 
+// One id per run (the config is read again by the workers, which keep it): it names the local
+// Worker state folders (scripts/serve-local.sh) and the in-place counts file, so a run never reuses
+// the previous run's rate-limit state and nothing has to be removed between runs (QA v26 FIND-J).
+process.env.RIFQ_RUN_ID ??= new Date().toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 18) + '-' + process.pid;
+
 const BUILD = resolve(process.env.RIFQ_BUILD ?? '.out/synthetic');
 const DIR = resolve(process.env.RIFQ_GATE_DIR ?? BUILD);
 const CFG = process.env.RIFQ_GATE_CONFIG ?? 'wrangler.e2e.jsonc';

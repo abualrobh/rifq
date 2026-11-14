@@ -8,7 +8,9 @@
 // browser's back and forward with scroll positions (AC69), and it announces the new title once
 // (AC68). A hand-written router would have to redo all of that. What it does not do the way RIFQ
 // needs is done here:
-// - AC72, AC66: only RIFQ's own reader-facing pages (A1) are placed in the tab. Any other answer
+// - AC72, AC66: only RIFQ's own reader-facing pages (A1) are placed in the tab: a 200 answer with
+//   the A1 marker, or RIFQ's own 404 page (status 404 with the A1 marker and the not-found marker,
+//   QA v26 FIND-G). Any other answer
 //   (the gate's 401, a lock-out, a rate limit, 503 or any error, a non-HTML answer, a page without
 //   the A1 marker, /api/ or /dev/, a redirect away) or a fetch that fails or takes longer than
 //   NAV_TIMEOUT_MS loads the address in full instead, so the browser shows it normally; the
@@ -60,7 +62,8 @@ function onPrep(ev: Event) {
     try {
       const res = await fetch(e.to.href, { signal: ctl.signal, credentials: 'same-origin', headers: { accept: 'text/html' } });
       const type = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
-      if (res.status !== 200 || type !== 'text/html') { e.preventDefault(); return; }
+      const notFound = res.status === 404;
+      if ((res.status !== 200 && !notFound) || type !== 'text/html') { e.preventDefault(); return; }
       if (res.redirected) {
         const r = new URL(res.url);
         if (r.origin !== location.origin || FULL.test(r.pathname)) { e.preventDefault(); return; }
@@ -69,6 +72,8 @@ function onPrep(ev: Event) {
       }
       const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
       if (!doc.querySelector('meta[name="rifq-page"]') || !doc.querySelector('meta[name="astro-view-transitions-enabled"]')) { e.preventDefault(); return; }
+      // A 404 is placed only if it is RIFQ's own 404 page; any other 404 is loaded in full.
+      if (notFound && !doc.querySelector('meta[name="rifq-not-found"]')) { e.preventDefault(); return; }
       doc.querySelectorAll('noscript').forEach((n) => n.remove());
       await preloadStyles(doc);
       e.newDocument = doc;

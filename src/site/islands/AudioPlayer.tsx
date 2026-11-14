@@ -57,6 +57,24 @@ export default function AudioPlayer({ lang, s, count, names, dev = false }: Prop
     return () => list?.removeEventListener('click', onClick);
   }, [engine, s, count]);
 
+  // QA v26 FIND-F (SC 2.4.11, AC43, AC67 d): the sticky player's measured height, as --player-h, so
+  // an ayah control that gets keyboard focus is scrolled clear of the player (and the mini-player
+  // under it; global.css). Updated whenever the player's height changes.
+  useEffect(() => {
+    const box = document.querySelector<HTMLElement>('[data-player]');
+    if (!box) return;
+    const root = document.documentElement;
+    const setH = () => root.style.setProperty('--player-h', Math.ceil(box.getBoundingClientRect().height) + 'px');
+    setH();
+    const ro = new ResizeObserver(setH);
+    ro.observe(box);
+    return () => {
+      ro.disconnect();
+      // Another reader page's player may already have set its own height (in-place change).
+      if (!box.isConnected && !document.querySelector('[data-player]')) root.style.removeProperty('--player-h');
+    };
+  }, []);
+
   const msg = snap.msg && snap.msg.at === s ? snap.msg : null;
   const msgText = msg ? t(lang, msg.key, msg.vars) : '';
   const dead = snap.dead && (snap.dead.kind === 'reciters-empty' || snap.dead.s === s) ? snap.dead.kind : '';

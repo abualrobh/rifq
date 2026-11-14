@@ -39,6 +39,13 @@ type Seen = { url: string; method: string; body: string | null; headers: Record<
 // query, to /api/ or /dev/, or to the page already shown stays a full load. At the end the
 // recitation must still be playing (or have ended by itself) unless the test itself loaded a page
 // in full.
+// QA v26 FIND-L: before each in-place change, if no recitation is playing (the test loaded a page in
+// full, or the primed ayah ended), it is primed again, so every change is made during playback
+// unless the test is listed in NO_REPRIME. The page used for priming is never the page the test
+// asks for (so that goto is still an in-place change). Each test writes its counts (changes in
+// place with and without sound, fall-backs, gotos kept full and why, and whether it ended with the
+// "still playing" check) to reports/inplace-counts-<run>.jsonl; scripts/inplace-summary.ts adds
+// them up.
 const INPLACE = process.env.RIFQ_INPLACE === '1';
 const AUDIO_HOST_NAME = 'download.quranicaudio.com';
 // Tests whose check is about a full load itself, so in-place mode cannot express it. Each reason
@@ -51,14 +58,29 @@ const INPLACE_EXEMPT: [string, string][] = [
   ['D-069', 'asserts the font requests; the fonts were already fetched by the first page of the tab'],
   ['NT-02', 'checks the focus ring after a programmatic focus; Chromium shows it only when the last input was not a pointer, and this mode starts playback with a click'],
 ];
-async function primeAudio(page: Page, goto: Page['goto']) {
-  const { serveAudio } = await import('./audio-helpers.ts');
-  await serveAudio(page, () => 3_600_000);
-  await goto('/1/');
+// Tests where priming again mid-test would change what the test checks. Each reason says why.
+const NO_REPRIME: [string, string][] = [];
+const playingNow = (page: Page) => page.evaluate(() => { const a = document.querySelector('audio[data-audio]') as HTMLAudioElement | null; return !!a && !a.paused && (window as unknown as { __inplace?: number }).__inplace === 1; }).catch(() => false);
+const served = new WeakSet<Page>();
+async function primeAudio(page: Page, goto: Page['goto'], avoid = '') {
+  if (!served.has(page)) {
+    const { serveAudio } = await import('./audio-helpers.ts');
+    await serveAudio(page, () => 3_600_000);
+    served.add(page);
+  }
+  // Ayah 1 of surah 1 (or of surah 2 when the test asks for /1/ itself): a single ayah never moves
+  // the last position.
+  const s = avoid === '/1/' ? 2 : 1;
+  await goto(`/${s}/`);
   await hydrated(page);
   await page.click('button.ap[data-ap="1"]');
   await page.waitForFunction(() => { const a = document.querySelector('audio[data-audio]') as HTMLAudioElement | null; return !!a && !a.paused && a.readyState >= 2; });
   await page.evaluate(() => { (document.querySelector('audio[data-audio]') as HTMLAudioElement).playbackRate = 0.0625; (window as unknown as { __inplace: number }).__inplace = 1; });
+}
+
+function writeCounts(title: string, file: string, o: object) {
+  mkdirSync(join(BUILD, 'reports'), { recursive: true });
+  appendFileSync(join(BUILD, 'reports', `inplace-counts-${process.env.RIFQ_RUN_ID ?? 'run'}.jsonl`), JSON.stringify({ file: file.split('/').pop(), title, ...o }) + '\n');
 }
 
 export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[] }>({
@@ -67,22 +89,28 @@ export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[
   guard: [async ({ page, seen, allowHosts }, use, info) => {
     const errors: string[] = [];
     let primed = false;
+    const count = { primes: 0, inPlacePlaying: 0, inPlaceSilent: 0, fellBack: 0, keptFull: {} as Record<string, number> };
+    const full = (why: string) => { count.keptFull[why] = (count.keptFull[why] ?? 0) + 1; };
+    const noReprime = NO_REPRIME.find(([id]) => info.title.startsWith(id));
     const exempt = INPLACE ? INPLACE_EXEMPT.find(([id]) => info.title.startsWith(id)) : undefined;
     info.skip(!!exempt, exempt ? `in-place mode: ${exempt[1]}` : '');
     if (INPLACE && !/(audio|continuity)\.spec/.test(info.file)) {
       const orig = page.goto.bind(page);
       (page as unknown as { goto: (u: string, o?: unknown) => Promise<unknown> }).goto = async (url: string, opts?: unknown) => {
         const u = new URL(url, 'http://127.0.0.1:8812');
-        if (opts || u.host !== '127.0.0.1:8812' || u.search || /^\/(api|dev)(\/|$)/.test(u.pathname)) return orig(url, opts as never);
-        if (!primed) { await primeAudio(page, orig); primed = true; seen.length = 0; }
+        if (opts || u.host !== '127.0.0.1:8812' || u.search || /^\/(api|dev)(\/|$)/.test(u.pathname)) { full(opts ? 'options' : u.search ? 'query' : 'api-dev-or-other-host'); return orig(url, opts as never); }
+        if (!primed || (!noReprime && !(await playingNow(page)))) { await primeAudio(page, orig, u.pathname); primed = true; count.primes++; if (count.primes === 1) seen.length = 0; }
         const here = await page.evaluate(() => (document.querySelector('meta[name="rifq-page"]') ? location.pathname : '')).catch(() => '');
-        if (!here || here === u.pathname) return orig(url, opts as never);
+        if (!here || here === u.pathname) { full(!here ? 'current-page-not-a1' : 'same-page'); return orig(url, opts as never); }
+        if (await playingNow(page)) count.inPlacePlaying++; else count.inPlaceSilent++;
+        let fell = false;
         try {
           await page.evaluate((href) => new Promise<void>((res) => {
             document.addEventListener('astro:page-load', () => res(), { once: true });
             const a = document.createElement('a'); a.href = href; document.body.append(a); a.click(); a.remove();
           }), u.pathname + u.hash);
-        } catch { await page.waitForLoadState(); } // the change became a full load (AC66, AC72)
+        } catch { fell = true; await page.waitForLoadState(); } // the change became a full load (AC66, AC72)
+        if (fell) count.fellBack++;
         await hydrated(page).catch(() => undefined);
         return null;
       };
@@ -97,8 +125,9 @@ export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[
     await use();
     if (primed) {
       const st = await page.evaluate(() => { const a = document.querySelector('audio[data-audio]') as HTMLAudioElement | null; return { same: (window as unknown as { __inplace?: number }).__inplace === 1, playing: !!a && !a.paused, ended: document.querySelector('[data-mini-player]')?.getAttribute('data-phase') === 'ended' }; }).catch(() => ({ same: false, playing: false, ended: false }));
+      writeCounts(info.title, info.file, { primed: true, ...count, end: st.same ? (st.playing ? 'checked-playing' : st.ended ? 'checked-ended' : 'checked-failed') : 'not-checked-document-replaced' });
       if (st.same) expect(st.playing || st.ended, 'AC70: the recitation kept playing through the in-place changes').toBe(true);
-    }
+    } else if (INPLACE && !/(audio|continuity)\.spec/.test(info.file)) writeCounts(info.title, info.file, { primed: false, ...count, end: exempt ? 'exempt' : 'not-primed-no-page-goto' });
     for (const p of page.context().pages()) {
       const v = await p.evaluate(() => (window as any).__csp ?? []).catch(() => []);
       expect(v, 'no CSP violations').toEqual([]);

@@ -239,6 +239,12 @@ bdi[data-ltr-run] { white-space: nowrap; }
 /* RQ-006 v1.3: the full player sits above the mini-player when both show (D-130, AC63: never
    overlapping). --mini-h is the mini-player's measured height, set only while it is shown. */
 .player { bottom: var(--mini-h, 0px); }
+/* QA v26 FIND-F (SC 2.4.11, AC43, AC67 d): an ayah control that gets keyboard focus is scrolled
+   clear of the sticky player. --player-h is the player's measured height (AudioPlayer); the fallback
+   is its least height plus its margin. The mini-player's height is kept by the page's scroll padding
+   below. On the rows and their controls only, like the header's offset (design review M-1). */
+body:has([data-player]) .ayah-row,
+body:has([data-player]) .ayah-row :is(a, button, [tabindex]) { scroll-margin-bottom: calc(var(--player-h, 8.5rem) + .5rem); }
 /* Mini-player (AC63, AC67): a bar fixed at the bottom of every reader-facing page while a recitation
    is loaded. The page keeps room for it (AC49, AC67 g), so it never covers the last ayah, the footer
    links or the go-to-current control. It reflows at 320 px (SC 1.4.10): parts wrap, nothing scrolls
