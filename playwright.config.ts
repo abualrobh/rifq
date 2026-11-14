@@ -13,7 +13,10 @@ import { join, resolve } from 'node:path';
 process.env.RIFQ_RUN_ID ??= new Date().toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 18) + '-' + process.pid;
 
 const BUILD = resolve(process.env.RIFQ_BUILD ?? '.out/synthetic');
-const OUT = join(BUILD, 'test-results');
+// QA v28 FIND-U: the output folder and the JSON report are named by the run id, so a run never
+// empties or overwrites another run's results (Playwright clears its output folder when it starts).
+// --output still overrides the folder.
+const OUT = join(BUILD, `test-results-${process.env.RIFQ_RUN_ID}`);
 
 export default defineConfig({
   testDir: 'test/e2e',
@@ -21,7 +24,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   timeout: 120_000,
-  reporter: [['list'], ['json', { outputFile: join(BUILD, 'reports', 'e2e-results.json') }]],
+  reporter: [['list'], ['json', { outputFile: join(BUILD, 'reports', `e2e-results-${process.env.RIFQ_RUN_ID}.json`) }]],
   use: {
     baseURL: 'http://127.0.0.1:8812',
     screenshot: 'off', trace: 'off', video: 'off',

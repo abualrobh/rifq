@@ -79,6 +79,9 @@ function create(el: HTMLAudioElement, dev: boolean) {
     meta: null as Meta | null, metaKey: '', rid: null as number | null, ridOutage: false,
     lists: {} as Partial<Record<Lang, Reciter[]>>, target: 0, srcSet: '', seekPending: false, begun: false,
     storage: getStorage(window), loadT: 0, giveT: 0, scrollT: 0, job: 0, raf: 0,
+    // QA v28 FIND-Q: a paused reciter change is loading (held); `wantPlay` is a play press made
+    // during that wait, honoured once the new reciter is ready.
+    holding: false, wantPlay: false,
   };
   const set = (p: Partial<Snap>) => { snap = { ...snap, ...p }; subs.forEach((f) => f()); };
   let seq = 0;
@@ -148,6 +151,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
   function clearTimers() { clearTimeout(x.loadT); clearTimeout(x.giveT); set({ loading: false }); }
 
   function stop(keepMark = false) {
+    x.holding = false; x.wantPlay = false;
     clearTimers();
     stall.stop();
     el.pause();
@@ -250,6 +254,9 @@ function create(el: HTMLAudioElement, dev: boolean) {
     if (!x.srcSet && !hold) void el.play().catch(() => undefined); // iOS: unlock inside the first tap
     stop();
     const job = ++x.job;
+    // FIND-Q: while held, the players show the paused recitation (mode kept), and a play press is
+    // remembered (requestPlay) instead of being lost.
+    if (hold) { x.holding = true; set({ mode: m }); }
     if (x.s !== s) { x.meta = null; x.metaKey = ''; }
     x.s = s; x.count = info.count; x.names = info.names; x.begun = false;
     set({ s, count: info.count, names: info.names, phase: 'active', reason: '', msg: null, current: 0, last: a });
@@ -286,9 +293,15 @@ function create(el: HTMLAudioElement, dev: boolean) {
   }
 
   function begin(m: 'ayah' | 'surah', a: number, md: Meta, hold = false) {
+    // FIND-Q: a play press during the held wait starts the recitation now that it is ready.
+    if (hold && x.wantPlay) hold = false;
+    x.holding = false; x.wantPlay = false;
+    // QA v28 FIND-R: the give-up message of a load that then succeeded late is not left on screen.
+    if (snap.reason === 'timeout-loading') set({ msg: null, reason: '' });
     x.mode = m; x.begun = true;
     x.stopAt = m === 'ayah' ? md.t[a - 1][1] : md.t[md.t.length - 1][1];
     x.follow = true;
+    clearTimeout(x.scrollT); // a pause from before this start no longer applies
     set({ mode: m, follow: true, phase: 'active', dead: snap.dead?.kind === 'surah-not-covered' && snap.dead.s === x.s ? null : snap.dead });
     // Compared with the address set last, not el.src, which the browser may rewrite (normalized).
     const fresh = x.srcSet !== md.url;
@@ -331,7 +344,19 @@ function create(el: HTMLAudioElement, dev: boolean) {
     if (el.paused) void el.play().catch(() => undefined);
   }
 
+  // FIND-Q: play pressed while a paused reciter change is still loading. The press is kept and the
+  // recitation starts as soon as the new reciter is ready; meanwhile the player says it is loading
+  // (the reader now wants it to play, so the loading message is true, unlike FIND-O's held wait).
+  function requestPlay(): boolean {
+    if (!x.holding) return false;
+    x.wantPlay = true;
+    set({ loading: true, playing: false });
+    say('audioLoading');
+    return true;
+  }
+
   function pauseOrResume() {
+    if (requestPlay()) return;
     if (x.mode === 'idle') return;
     if (el.paused) { set({ msg: null }); void el.play().catch((e) => fail('audioUnavailable', `resume-${(e as Error)?.name ?? 'Error'}`)); } else el.pause();
   }
@@ -408,14 +433,37 @@ function create(el: HTMLAudioElement, dev: boolean) {
     fail('audioUnavailable', host === AUDIO_HOST ? 'csp-media-redirect' : `csp-media-${host}`);
   });
   // P-2: the reader's own scrolling pauses automatic scrolling for 5 s (on the playing surah's page).
+  // QA v28 FIND-P: focus moving to another ayah's row or controls (Tab, Shift+Tab, a screen
+  // reader that moves focus) is the reader moving too. While focus stays there, automatic scrolling
+  // stays paused, so the focused control is never scrolled off screen; "go to the playing ayah"
+  // (AC64) turns it back on at once, and it resumes 5 s after focus leaves the other ayah.
+  const focusElsewhere = () => {
+    const f = document.activeElement;
+    const row = f instanceof Element ? f.closest<HTMLElement>('ol.ayat li.ayah-row') : null;
+    return !!row && Number(row.dataset.a) !== x.current;
+  };
+  const resume = () => {
+    if (focusElsewhere() && x.mode === 'surah' && own()) { x.scrollT = window.setTimeout(resume, SCROLL_PAUSE_MS); return; }
+    x.follow = true; set({ follow: true }); if (x.current) scrollToAyah(x.current);
+  };
+  const pauseFollow = () => {
+    x.follow = false; set({ follow: false });
+    clearTimeout(x.scrollT);
+    x.scrollT = window.setTimeout(resume, SCROLL_PAUSE_MS);
+  };
   const onUser = (e: Event) => {
     if (x.mode !== 'surah' || !own()) return;
     if (e instanceof KeyboardEvent && !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) return;
-    x.follow = false; set({ follow: false });
-    clearTimeout(x.scrollT);
-    x.scrollT = window.setTimeout(() => { x.follow = true; set({ follow: true }); if (x.current) scrollToAyah(x.current); }, SCROLL_PAUSE_MS);
+    pauseFollow();
   };
   for (const ev of ['wheel', 'touchmove', 'keydown']) window.addEventListener(ev, onUser, { passive: true });
+  // Only while it plays: when paused nothing scrolls, and showing "go to the playing ayah" then would
+  // change the player's height under the reader's focus (CN-15).
+  document.addEventListener('focusin', (e) => {
+    if (x.mode !== 'surah' || !own() || !x.current || el.paused) return;
+    const row = e.target instanceof Element ? e.target.closest<HTMLElement>('ol.ayat li.ayah-row') : null;
+    if (row && Number(row.dataset.a) !== x.current) pauseFollow();
+  });
   // AC54: after the screen was locked or the tab hidden, catch up at once.
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { onTime(); if (x.follow && x.current && x.mode === 'surah') scrollToAyah(x.current); } });
 
@@ -423,7 +471,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
     const ms = 'mediaSession' in navigator ? navigator.mediaSession : null;
     if (!ms) return;
     const h = (a: MediaSessionAction, f: MediaSessionActionHandler | null) => { try { ms.setActionHandler(a, f); } catch { /* not supported */ } };
-    h('play', () => { if (x.mode !== 'idle') void el.play().catch(() => undefined); });
+    h('play', () => { if (requestPlay()) return; if (x.mode !== 'idle') void el.play().catch(() => undefined); });
     h('pause', () => el.pause());
     h('stop', () => close());
     h('previoustrack', () => seekAyah(x.current - 1));
@@ -443,7 +491,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
     clearTimeout(x.scrollT);
     if (x.mode === 'surah' && own() && navType === 'traverse') {
       x.follow = false; set({ follow: false });
-      x.scrollT = window.setTimeout(() => { x.follow = true; set({ follow: true }); if (x.current) scrollToAyah(x.current); }, SCROLL_PAUSE_MS);
+      x.scrollT = window.setTimeout(resume, SCROLL_PAUSE_MS);
     }
     // D-128: an ended or not-available mini-player goes once the reader moves to another page.
     if (snap.phase === 'ended' || snap.phase === 'failed') { x.begun = false; set({ phase: 'none' }); }

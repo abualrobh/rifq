@@ -20,11 +20,12 @@ const PORT = 8814;
 
 export default defineConfig({
   testDir: 'test/e2e-gate',
-  outputDir: join(BUILD, 'test-results-gate'),
+  // QA v28 FIND-U: named by the run id, so no run empties or overwrites another run's results.
+  outputDir: join(BUILD, `test-results-gate-${process.env.RIFQ_RUN_ID}`),
   fullyParallel: false,
   workers: 1,
   timeout: 120_000,
-  reporter: [['list'], ['json', { outputFile: join(BUILD, 'reports', 'e2e-gate-results.json') }]],
+  reporter: [['list'], ['json', { outputFile: join(BUILD, 'reports', `e2e-gate-results-${process.env.RIFQ_RUN_ID}.json`) }]],
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     httpCredentials: { username: GATE_USER, password: GATE_PASSWORD, send: 'unauthorized' },

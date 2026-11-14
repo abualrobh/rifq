@@ -10,6 +10,13 @@
 // the API environment, the tafsir ID and the ayah only (AC22); nothing about the reader is stored.
 // Responses to the browser are never cacheable (no-store, or private no-store behind the gate).
 //
+// D-149 display marks (D-156 A): on a fetch from the API (a cache miss), the Worker runs the quote
+// check on the passage against its covered range and keeps one class letter per bracketed phrase
+// in the same cache entry, with the same fetch time, so the marks can never outlive the passage.
+// The cache key also holds the check version and the approved file's SHA-256, so marks made by
+// other matching code or another file are never read (AC31). The response gives the passage text
+// unchanged (AC4) plus the marks only; the matching data never leaves the Worker (D-157).
+//
 // Integrity (D-079): when a fingerprint exists for (tafsir ID, ayah), the passage's SHA-256 is
 // compared on every request, from a fresh fetch or a cached copy. On a mismatch the browser gets an
 // "updated since review" notice instead of the passage. Nothing about the reader is recorded.
@@ -21,6 +28,8 @@
 import { escapeHtml } from '../core/highlight.ts';
 import { fingerprintMap, reviewState, type FingerprintFile } from '../core/tafseer-fingerprints.ts';
 import { shapeOf } from './shape.ts';
+import { computeMarks, type Marks } from '../core/tafseer-marks.ts';
+import type { Letters } from './letters.ts';
 import { byAyahPath, byChapterPath, isArabic, LIST_PATH, parseByAyah, parseTafsirList, QfClient, qfConfig, QfError, type Passage, type QfConfig, type QfSecrets, type TafsirListItem } from './qf.ts';
 
 export const MAX_AGE_S = 7 * 24 * 60 * 60; // 604,800 seconds: the D-075 7-day limit
@@ -30,7 +39,7 @@ export const PROVIDER = 'Quran Foundation';
 export const TAFSEER_LIMIT_PER_MINUTE = 60;
 export const CATALOGUE_PATH = '/dev/tafseer-catalogue/';
 export const SHAPE_PATH = '/dev/tafseer-shape/';
-export const CACHE_VERSION = 'v2';
+export const CACHE_VERSION = 'v3';
 const CONTENT_PATH_NOTE = '/content/api/v4';
 // D-076 (2026-11-08): Hamzeh chose Tafsir Ibn Kathir in Arabic. The Quran Foundation docs do not
 // publish its tafsir ID, so no ID is set anywhere: TAFSIR_ID stays a setting, and the catalogue
@@ -46,10 +55,10 @@ export type TafseerCfg = { dev: boolean; gate?: boolean; counts?: number[]; fing
 export type TafseerEnv = QfSecrets & { TAFSIR_ID?: string };
 
 export type CacheLike = { match(key: string): Promise<Response | undefined>; put(key: string, r: Response): Promise<void> };
-type Deps = { fetch?: (u: string, i: RequestInit) => Promise<Response>; now?: () => number; cache?: () => CacheLike | null; timeoutMs?: number };
+type Deps = { fetch?: (u: string, i: RequestInit) => Promise<Response>; now?: () => number; cache?: () => CacheLike | null; timeoutMs?: number; letters?: Letters | null };
 
 type Stored<T> = { v: 1; fetchedAt: number; data: T };
-type PassageResult = { kind: 'ok'; p: Passage } | { kind: 'none' };
+type PassageResult = { kind: 'ok'; p: Passage; marks?: Marks | null } | { kind: 'none' };
 
 function defaultCache(): CacheLike | null {
   const c = (globalThis as { caches?: { default?: CacheLike } }).caches;
@@ -66,11 +75,15 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
   const qf = new QfClient(deps.fetch, now, deps.timeoutMs);
   const getCache = deps.cache ?? defaultCache;
   const prints = fingerprintMap(cfg.fingerprints);
+  const letters = deps.letters ?? null;
+  // Requests handled by this isolate (the timing page reports whether its index was cold).
+  let served = 0;
 
   // Cache API keys must be URLs. They are built on the request's own origin under a path no page
   // uses, and hold the API environment, tafsir ID and ayah only.
   // v2 (2026-11-08): the by_ayah parser changed, so copies made by the old parser (including
   // wrong "no Tafseer" answers) are never read again. They expire on their own within 7 days.
+  // v3 (2026-11-14, D-156 A): entries hold the D-149 marks; v2 entries are never read again.
   const key = (origin: string, parts: (string | number)[]) => `${origin}/__rifq-cache/tafseer/${CACHE_VERSION}/${parts.map((p) => encodeURIComponent(String(p))).join('/')}`;
 
   async function readStored<T>(k: string): Promise<T | null> {
@@ -98,19 +111,29 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
   }
 
   async function passage(origin: string, q: QfConfig, id: number, s: number, a: number): Promise<PassageResult> {
-    const k = key(origin, [q.env, id, `${s}:${a}`]);
+    const k = key(origin, [q.env, id, `${s}:${a}`, letters ? letters.key() : 'nomarks']);
     const hit = await readStored<PassageResult>(k);
     if (hit) return hit;
     let res: PassageResult;
     try {
       const p = parseByAyah(await qf.get(q, byAyahPath(id, s, a), { fields: 'language_name' }), s, a);
-      res = p ? { kind: 'ok', p } : { kind: 'none' };
+      res = p ? { kind: 'ok', p, marks: marksFor(p) } : { kind: 'none' };
     } catch (e) {
       if (e instanceof QfError && e.kind === 'not_found') res = { kind: 'none' };
       else throw e;
     }
     await writeStored(k, res);
     return res;
+  }
+
+  // Once per fetched passage. A work whose language the API does not give is taken as Arabic (the
+  // route serves Arabic works only, D-077). If anything goes wrong, no marks: the browser then shows
+  // the passage as delivered (AC37).
+  function marksFor(p: Passage): Marks | null {
+    if (!letters) return null;
+    try {
+      return computeMarks(letters.index(served), p.text, p.range, p.languageName === null || isArabic(p.languageName));
+    } catch { return null; }
   }
 
   async function list(origin: string, q: QfConfig): Promise<TafsirListItem[]> {
@@ -149,7 +172,7 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     const ref = `${s}:${a}`;
     const review = await reviewState(prints, id, ref, r.p.text);
     if (review.state === 'changed') return { status: 200, data: { status: 'changed', s, a, reviewed: review.reviewed, source } };
-    return { status: 200, data: { status: 'ok', s, a, range: r.p.range, text: r.p.text, source, review } };
+    return { status: 200, data: { status: 'ok', s, a, range: r.p.range, text: r.p.text, source, review, ...(r.marks ? { marks: r.marks } : {}) } };
   }
 
   // Body already read and checked by the caller (size, type, cross-site, rate limit).
@@ -161,6 +184,7 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     const counts = cfg.counts ?? [];
     if (!Number.isInteger(s) || !Number.isInteger(a) || (s as number) < 1 || (a as number) < 1) return { status: 400, data: { status: 'bad_request' } };
     if (counts.length && ((s as number) >= counts.length || (a as number) > counts[s as number])) return { status: 400, data: { status: 'bad_request' } };
+    served++;
     return answer(origin, env, s as number, a as number);
   }
 
@@ -253,5 +277,5 @@ ${arabic.length ? table(arabic) : '<p>None with language "arabic".</p>'}
 ${truncated ? '<p>Only the first 400 paths are shown.</p>' : ''}${foot}` };
   }
 
-  return { api, catalogue, shape, client: qf };
+  return { api, catalogue, shape, client: qf, served: () => served };
 }

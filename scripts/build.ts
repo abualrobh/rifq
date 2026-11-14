@@ -26,8 +26,10 @@ import { gate, type Mode } from '../src/core/source-gate.ts';
 import { writeIndex } from './build-index.ts';
 import { writeHeaders } from './headers.ts';
 import { checkBuilt, extractAyat, READER_ROUTES, sameBytes, scanClientJs, TAFSEER_ROUTES } from './check-bytes.ts';
-import { bareAyah, lettersOnly } from '../src/core/tafseer-quotes.ts';
+import { bareAyah, lettersOnly, packLetters } from '../src/core/tafseer-quotes.ts';
 import { checkFingerprints, type FingerprintFile } from '../src/core/tafseer-fingerprints.ts';
+import { MARKS_VERSION } from '../src/core/tafseer-marks.ts';
+import { checkLettersNotServed } from './letters-scan.ts';
 import { TAFSEER_LIMIT_PER_MINUTE } from '../src/worker/tafseer.ts';
 import { readJson, runTafseerCheck, type TafseerRecord } from './tafseer-release-check.ts';
 import type { QfSecrets } from '../src/worker/qf.ts';
@@ -160,7 +162,10 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
     devBad = !got.length || bad > 0;
     log({ step: 'bytes-font-check', ayat: got.length, mismatches: bad });
   }
-  const bad0 = reports.some((r) => r.mismatches.length || r.refErrors.length || r.equal !== src.list.length) || js.hits > 0;
+  // D-157: no letters-only ayah (either form) in any static file the site serves.
+  const lettersScan = tf.on ? checkLettersNotServed(src.list, join(outDir, 'site')) : null;
+  if (lettersScan) log({ step: 'letters-not-served', files: lettersScan.files, probes: lettersScan.probes, hits: lettersScan.hits.length });
+  const bad0 = (lettersScan?.hits.length ?? 0) > 0 || reports.some((r) => r.mismatches.length || r.refErrors.length || r.equal !== src.list.length) || js.hits > 0;
 
   // 6. Local Worker entry and configs.
   // With the gate on, the Worker runs first for every path and sets the asset headers itself.
@@ -174,9 +179,13 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
     ...(au.on ? { audio: true, counts: [0, ...surahCounts(src.list)], audioRecord: au.record ? readJson<AudioRecord>(au.record) : null } : {}),
     // D-081 (development builds only): two SHA-256 hashes per ayah of the approved file's bytes, as
     // stored and with the D-068 ending cut. Hashes only; no text goes to the Worker.
-    // D-084 quote check page (development builds with Tafseer on): the approved text in
-    // letters-only form, one string per ayah, from aya_text and (D-085) aya_text_emlaey. Never displayed.
-    ...(mode !== 'release' && tf.on ? { lettersQuran: { counts: [0, ...surahCounts(src.list)], letters: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))), emlaey: src.list.map((a) => lettersOnly(a.aya_text_emlaey ?? '')) } } : {}),
+    // D-084 quote check page and (D-156 A) the D-149 display marks, in every build with Tafseer on:
+    // the approved text in letters-only form, one string per ayah, from aya_text and (D-085)
+    // aya_text_emlaey. Never displayed and never served: D-157 counts this Worker bundle as private
+    // storage. The approved file's SHA-256 and the matching code's version go into the cache key.
+    // checkLettersNotServed (below) proves none of it is in the static files.
+    // Packed at build time (packLetters), so a cold Worker joins and maps nothing (D-156 A timing).
+    ...(tf.on ? { lettersQuran: { counts: [0, ...surahCounts(src.list)], packed: packLetters([0, ...surahCounts(src.list)], { uthmani: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))), emlaey: src.list.map((a) => lettersOnly(a.aya_text_emlaey ?? '')) }).forms, sha256: l.sha256, checkVersion: checkVersion() } } : {}),
     ...(mode !== 'release' ? { verifyHashes: {
       counts: [0, ...surahCounts(src.list)],
       full: src.slices.map((b) => sha256(b)),
@@ -215,6 +224,14 @@ export default makeWorker(idx as ArrayBuffer, cfg);
   log({ step: 'done', ok: !bad, seconds: summary.seconds });
   if (bad) { process.exitCode = 3; throw new Error('byte comparison or client JavaScript scan failed'); }
   return summary;
+}
+
+// D-156 A: the version of the matching code. Any change to these files gives new marks a new cache
+// key, so marks made by older code are never read (AC31).
+export const MATCHING_FILES = ['src/core/tafseer-quotes.ts', 'src/core/tafseer-marks.ts', 'src/core/tafseer-html.ts', 'src/core/variants.ts', 'src/core/presentation-forms.ts', 'src/core/search-config.ts'];
+export function checkVersion(): string {
+  const all = Buffer.concat(MATCHING_FILES.map((f) => readFileSync(join(ROOT, f))));
+  return `m${MARKS_VERSION}-${sha256(all).slice(0, 16)}`;
 }
 
 function surahCounts(list: { sora: number; aya_no: number }[]): number[] {
