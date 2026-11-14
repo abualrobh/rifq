@@ -213,6 +213,10 @@ bdi[data-ltr-run] { white-space: nowrap; }
 .reader-search > .search { margin-block: .5rem 1rem; }
 .ayat { list-style: none; padding: 0; margin: 1rem 0; }
 .ayah-row { display: flex; gap: .5rem; align-items: flex-start; padding-block: .5rem; border-bottom: 1px solid var(--line); scroll-margin-top: calc(var(--header-h, 3.75rem) + .5rem); }
+/* QA v27 FIND-N (SC 2.4.11, AC43): the controls inside a row get the same top offset as the row.
+   When focus moves back (Shift+Tab), the browser lines up the focused control itself, not its row,
+   with the top of the window; without this the control ended up under the sticky header. */
+.ayah-row :is(a, button, [tabindex]) { scroll-margin-top: calc(var(--header-h, 3.75rem) + .5rem); }
 .ayah-row:target { background: var(--target); outline: 2px solid var(--focus); border-radius: .75rem; }
 /* D-069 font (self-hosted above), then the fallback. Mushaf accuracy still needs the D-012 reviewer. */
 .ayah { flex: 1; margin: 0; font-family: "Noto Naskh Arabic", "Scheherazade New", serif; font-size: var(--ayah-size, 1.5rem); line-height: 2.2; overflow-wrap: anywhere; }
@@ -239,6 +243,12 @@ bdi[data-ltr-run] { white-space: nowrap; }
 /* RQ-006 v1.3: the full player sits above the mini-player when both show (D-130, AC63: never
    overlapping). --mini-h is the mini-player's measured height, set only while it is shown. */
 .player { bottom: var(--mini-h, 0px); }
+/* QA v26 FIND-F (SC 2.4.11, AC43, AC67 d): an ayah control that gets keyboard focus is scrolled
+   clear of the sticky player. --player-h is the player's measured height (AudioPlayer); the fallback
+   is its least height plus its margin. The mini-player's height is kept by the page's scroll padding
+   below. On the rows and their controls only, like the header's offset (design review M-1). */
+body:has([data-player]) .ayah-row,
+body:has([data-player]) .ayah-row :is(a, button, [tabindex]) { scroll-margin-bottom: calc(var(--player-h, 8.5rem) + .5rem); }
 /* Mini-player (AC63, AC67): a bar fixed at the bottom of every reader-facing page while a recitation
    is loaded. The page keeps room for it (AC49, AC67 g), so it never covers the last ayah, the footer
    links or the go-to-current control. It reflows at 320 px (SC 1.4.10): parts wrap, nothing scrolls

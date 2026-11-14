@@ -9,7 +9,7 @@
 // format, file_size, duration and address (the path as recorded, with the surah number put back),
 // the same number of entries with the recorded first and last timing, and the recorded entry keys.
 // Only the timings between the first and the last entry are made up (evenly spaced, in order); an
-// overlap is placed where the recorded check found one (reciter 2, surah 2, entry 26), and negative
+// overlap is placed at the entry the recorded check names (read from the fixture), and negative
 // per-entry durations as many as recorded. Word segments are empty (no words are known or needed).
 import { existsSync, readFileSync } from 'node:fs';
 

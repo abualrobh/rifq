@@ -61,6 +61,9 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
     document.getElementById('content')?.focus({ preventScroll: true });
   };
 
+  // QA FIND-M (kit v26): a screen reader hears each thing once. The region's name (miniRegion, D-134)
+  // already says "now playing", so the visible label of the same meaning is hidden from it; the
+  // ended or not-available line is read from the status below, so its visible copy is hidden too.
   return (
     <section ref={box} className="mini" aria-label={t(lang, 'miniRegion')} data-mini-player data-phase={snap.phase} data-playing={snap.playing ? '1' : '0'} data-s={s} data-a={a}>
       {!ended && !failed
@@ -73,8 +76,10 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
           </button>
         : null}
       <div className="mini-info" data-mini-info>
-        <p className="mini-now"><span className="mini-label">{t(lang, 'miniNowPlaying')}</span>{' '}<bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-mini-surah>{s}. {name}</bdi>{' · '}<span data-mini-ayah>{t(lang, 'audioNowAyah', { a })}</span></p>
-        <p className="mini-sub">
+        <p className="mini-now"><span className="mini-label" aria-hidden="true" data-mini-label>{t(lang, 'miniNowPlaying')}</span>{' '}<bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-mini-surah>{s}. {name}</bdi>{' · '}<span data-mini-ayah>{t(lang, 'audioNowAyah', { a })}</span></p>
+        {/* QA v27 (Informational): when the line shows a state, the whole paragraph is hidden from
+            screen readers (the status below reads it), so no empty paragraph is exposed. */}
+        <p className="mini-sub" aria-hidden={status ? 'true' : undefined}>
           {status
             ? <span data-mini-state>{status}</span>
             : <>{reciter && <bdi lang={latin ? 'en' : 'ar'} dir={latin ? 'ltr' : 'rtl'} data-mini-reciter>{reciter}</bdi>}{reciter && ' · '}<bdi lang="en" dir="ltr" data-mini-credit>Quran Foundation</bdi></>}
