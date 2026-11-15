@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthetic } from '../fixtures/load.ts';
-import { bareAyah, uthmaniLetters, stripInvisibles, composeHamza, lettersIndex, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
+import { bareAyah, uthmaniLetters, stripInvisibles, composeHamza, isProclitic, lettersIndex, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
 import { checkFingerprints, sha256Hex } from '../../src/core/tafseer-fingerprints.ts';
 import { releaseRecordProblems, runTafseerCheck, TAFSEER_RECORD_FORMAT } from '../../scripts/tafseer-release-check.ts';
 import { fingerprintEntries } from '../../scripts/tafseer-fingerprint.ts';
@@ -219,6 +219,51 @@ test('kit v30 FIND-X: one word of the own ayah after an attached letter matches;
   // 9:3: ba + ta-sad-dad-ta: ba is an attached letter, so this matches (accepted risk: a word whose
   // first root letter is one of the attached letters can match; three letters at least).
   assert.deepEqual(m(A(0x62a, 0x635, 0x636, 0x62a), 3), ['matched_own_ayah', 'edge']);
+});
+
+test('kit v31 FIND-Y (D-163 A): no alef prefix, so neither the article nor a hamza alef of the word is split off', () => {
+  // Made-up "ayat" (arbitrary letters, not Quran words), given with hamza alef where the shape needs
+  // it, so V-14 (D-074) folds it to bare alef exactly as it does in the approved text.
+  const A = (...c: number[]) => cp(...c);
+  const T = A(0x62b, 0x62c, 0x62d), K = A(0x62e, 0x633, 0x634), Z = A(0x637, 0x638, 0x639), Q4 = A(0x642, 0x63a, 0x641, 0x636);
+  const src9 = [
+    // 9:1, shape (a): alef + lam + word (the article). The rest after a bare alef starts with lam.
+    { s: 9, a: 1, t: `${A(0x627, 0x644) + T} ${A(0x627, 0x644, 0x644) + K}` },
+    // 9:2, shape (b): hamza alef + word (form-IV verb, comparative, first-person verb, broken plural).
+    { s: 9, a: 2, t: `${A(0x623) + Z} ${A(0x625) + Q4}` },
+    // 9:3, shape (c): hamza alef + bi/ka + word, and question alef + wa/fa + word.
+    { s: 9, a: 3, t: `${A(0x623, 0x628) + T} ${A(0x623, 0x643) + K} ${A(0x623, 0x648) + Z} ${A(0x623, 0x641) + Q4}` },
+    // 9:4, positive cases that must stay green: wa + word, fa + bi + word, wa + article word, li + word.
+    { s: 9, a: 4, t: `${A(0x648) + T} ${A(0x641, 0x628) + K} ${A(0x648, 0x627, 0x644) + Z} ${A(0x644) + Q4}` },
+  ];
+  const idx = lettersIndex(src9.map((r) => ({ s: r.s, a: r.a, letters: lettersOnly(r.t) })));
+  const m = (t: string, a: number) => { const x = matchPhrase(idx, t, { s: 9, from: a, to: a }); return [x.result, x.match]; };
+  // (a) The article is never split, also not as bare alef + (lam ...): lam + word is not green.
+  assert.deepEqual(m(A(0x644) + T, 1), ['too_short', null], 'alef | lam+word');
+  assert.deepEqual(m(A(0x644, 0x644) + K, 1), ['too_short', null], 'alef | lam+lam+word');
+  assert.deepEqual(m(T, 1), ['too_short', null], 'alef+lam | word (v30 guard, kept)');
+  assert.deepEqual(m(A(0x644) + K, 1), ['too_short', null], 'alef+lam | lam+word');
+  // (b) A hamza alef that belongs to the word is never taken as a question alef.
+  assert.deepEqual(m(Z, 2), ['too_short', null], 'hamza alef above | word');
+  assert.deepEqual(m(Q4, 2), ['too_short', null], 'hamza alef below | word');
+  // (c) No alef prefix at all, also with bi or ka, or before wa or fa.
+  assert.deepEqual(m(T, 3), ['too_short', null], 'alef+bi | word');
+  assert.deepEqual(m(K, 3), ['too_short', null], 'alef+ka | word');
+  assert.deepEqual(m(Z, 3), ['too_short', null], 'alef+wa | word');
+  assert.deepEqual(m(Q4, 3), ['too_short', null], 'alef+fa | word');
+  // Whole words of the own ayah are still exact, with or without the alef.
+  assert.deepEqual(m(A(0x623) + Z, 2), ['matched_own_ayah', 'exact']);
+  assert.deepEqual(m(A(0x627, 0x644) + T, 1), ['matched_own_ayah', 'exact']);
+  // Positive cases (the 2:178, 2:185 and 2:188 shapes and the other attached letters) stay green.
+  assert.deepEqual(m(T, 4), ['matched_own_ayah', 'edge'], 'wa | word');
+  assert.deepEqual(m(K, 4), ['matched_own_ayah', 'edge'], 'fa+bi | word');
+  assert.deepEqual(m(A(0x627, 0x644) + Z, 4), ['matched_own_ayah', 'edge'], 'wa | article word (2:185 shape)');
+  assert.deepEqual(m(Q4, 4), ['matched_own_ayah', 'edge'], 'li | word');
+  // ... but wa + the article is not a prefix: the bare word after wa + alef + lam stays plain.
+  assert.deepEqual(m(Z, 4), ['too_short', null], 'wa+alef+lam | word');
+  // The prefix list itself.
+  for (const p of [A(0x648), A(0x641), A(0x628), A(0x644), A(0x643), A(0x648, 0x628), A(0x641, 0x644)]) assert.equal(isProclitic(p), true);
+  for (const p of ['', A(0x627), A(0x627, 0x644), A(0x627, 0x648), A(0x627, 0x641), A(0x627, 0x628), A(0x627, 0x641, 0x644), A(0x648, 0x627, 0x644), A(0x628, 0x648)]) assert.equal(isProclitic(p), false, JSON.stringify(p));
 });
 
 test('D-084 phrases: ( ), ornate parentheses either way, and { } as qiraah_or_quote, kept as delivered', () => {

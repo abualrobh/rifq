@@ -90,7 +90,7 @@ test('AC11: a copy is used for under 7 days from the fetch, and never at 7 days 
   await ask(w, 2, 25);
   const n0 = mock.state.contentRequests;
   const keys = [...cache.m.keys()];
-  assert.ok(keys.every((k) => /\/__rifq-cache\/tafseer\/v4\/prelive\/(901\/2%3A25\/nomarks|list)$/.test(k)), 'AC22: keyed by environment, work and ayah only');
+  assert.ok(keys.every((k) => /\/__rifq-cache\/tafseer\/v5\/prelive\/(901\/2%3A25\/nomarks|list)$/.test(k)), 'AC22: keyed by environment, work and ayah only');
   for (const e of cache.m.values()) assert.equal(e.headers.get('cache-control'), 'max-age=604800');
   tick(MAX_AGE_MS - 1);
   await ask(w, 2, 25);

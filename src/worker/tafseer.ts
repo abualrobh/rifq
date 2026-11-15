@@ -41,7 +41,9 @@ export const CATALOGUE_PATH = '/dev/tafseer-catalogue/';
 export const SHAPE_PATH = '/dev/tafseer-shape/';
 // v4 (kit v30): the matching code changed (FIND-X one-word own-ayah edge match, 2:72 hamza seat), so
 // no entry with marks from the v3 code is read again; the matching-code hash in the key changes too.
-export const CACHE_VERSION = 'v4';
+// v5 (kit v31): the one-word own-ayah rule changed (QA v30 FIND-Y, D-163 A: no question alef), so
+// no entry with marks from the v4 code is read again.
+export const CACHE_VERSION = 'v5';
 const CONTENT_PATH_NOTE = '/content/api/v4';
 // D-076 (2026-11-08): Hamzeh chose Tafsir Ibn Kathir in Arabic. The Quran Foundation docs do not
 // publish its tafsir ID, so no ID is set anywhere: TAFSIR_ID stays a setting, and the catalogue

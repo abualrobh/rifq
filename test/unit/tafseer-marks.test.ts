@@ -141,7 +141,7 @@ test('D-156 A: the Worker sends the passage unchanged plus marks only, and keeps
   const keys = [...cache.m.keys()].filter((k) => !k.endsWith('/list'));
   assert.equal(keys.length, 1);
   assert.ok(keys[0].includes(`/tafseer/${CACHE_VERSION}/prelive/${MOCK_TAFSIR_ID}/2%3A${CASE.quoteSameSurah}/m1-test-${'a'.repeat(64)}`), keys[0]);
-  assert.equal(CACHE_VERSION, 'v4');
+  assert.equal(CACHE_VERSION, 'v5');
   const stored = JSON.parse(cache.m.get(keys[0])!);
   assert.deepEqual(stored.data.marks, d.marks, 'marks stored with the passage, same fetch time');
   // A second read comes from the cache, with the same marks and no new API call.

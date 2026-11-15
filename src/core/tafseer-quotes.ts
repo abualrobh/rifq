@@ -262,16 +262,23 @@ export const FRAGMENT_MAX_LETTERS = 2;
 // wa + the word) was "too_short", so it showed plain. A one-word phrase now also matches its own
 // ayah range when a whole Quran word there is exactly one of these attached-letter prefixes followed
 // by the phrase's whole word:
-//   an optional question alef, then an optional wa or fa, then an optional bi, li or ka
-//   (at least one letter; never alef + lam, which is also the article).
+//   an optional wa or fa, then an optional bi, li or ka (at least one letter).
+// Kit v31 (QA v30 FIND-Y, D-163 A): the question alef is no longer a prefix. Rule V-14 (D-074)
+// folds alef with hamza to bare alef, so a question alef could not be told from the first letter of
+// a word (form-IV verbs, comparatives, first-person verbs, broken plurals), and a bare alef followed
+// by a word starting with lam split the article (alef + lam) off a word, which the "never alef +
+// lam" guard did not catch. With no alef in any allowed prefix, neither can happen. The real
+// pre-live lists of surahs 1 and 2 have no phrase that needs it (2:178, 2:185 and 2:188 all have wa).
 // Guards, so a gloss is not turned green: own ayah range only (same surah and anywhere still need
 // exact whole words, unchanged); the phrase has at least ONE_WORD_EDGE_MIN_LETTERS letters; only a
 // prefix from that closed list, never an arbitrary start; no suffix and no match inside a word (for
 // a single word D-088's "end of the first word, start of the last word" would allow any piece of
 // any word, so it is not used). Its match type is "edge", as for D-088.
+// Known and accepted (QA v30): a word whose own first letter is wa, fa, ba, lam or kaf can still be
+// split, so a three-letter-or-longer rest of it turns green in that ayah only.
 export const ONE_WORD_EDGE_MIN_LETTERS = 3;
-const PROCLITIC = /^(?:\u0627?(?:\u0648|\u0641)?(?:\u0628|\u0644|\u0643)?)$/u;
-export const isProclitic = (p: string) => p.length > 0 && p !== '\u0627\u0644' && PROCLITIC.test(p);
+const PROCLITIC = /^(?:[\u0648\u0641]?[\u0628\u0644\u0643]?)$/u;
+export const isProclitic = (p: string) => p.length > 0 && PROCLITIC.test(p);
 
 export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; from: number; to: number }): { letters: string; words: number; result: Result; form: MatchedForm; match: MatchType } {
   const words = lettersOnlyWords(phrase);
