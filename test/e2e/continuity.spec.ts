@@ -998,7 +998,10 @@ test('CN-22 (QA v29 FIND-V): after a paused reciter change made offline, play sa
 
 // QA v29 I-2: play pressed during a held reciter change that passes the 15 s give-up is not lost:
 // when the reciter still arrives, it plays (as a plain start that arrives late does).
-test('CN-23 (QA v29 I-2): a play press during a held change that passes the give-up plays when the reciter arrives', async ({ page }) => {
+// D-164 A (kit v31, QA v30 FIND-AC): Hamzeh kept this behaviour. After the 15 s give-up the press is
+// still kept: when the late reciter arrives it starts by itself, with no second press, and the
+// "unavailable" message goes. This test is the record of that decision; no code changed for it.
+test('CN-23 (QA v29 I-2, D-164 A): a play press during a held change that passes the give-up plays when the reciter arrives', async ({ page }) => {
   test.setTimeout(90_000);
   await serveAudio(page, len);
   await page.setViewportSize(MOBILE);
