@@ -3,10 +3,16 @@
 // (scripts/build.ts) call it once at startup, before makeWorker. If the config expects data the
 // module does not hold, it throws, so the Worker does not start (fail closed): it never runs
 // with an empty matching index or without the D-081 hashes.
+// Kit v33 (D-169 A): first, the module must be the one this Worker was built with (build ID, size
+// and section table in the config's `workerData`, src/core/worker-data-stamp.ts); otherwise it
+// throws too, so a module from another build, or with a section missing or changed, never serves.
 import { decodeWorkerData } from '../core/worker-data.ts';
+import { checkWorkerDataStamp, type WorkerDataStamp } from '../core/worker-data-stamp.ts';
 import type { WorkerCfg } from './app.ts';
 
-export function withWorkerData(cfg: WorkerCfg, buf: ArrayBuffer): WorkerCfg {
+export function withWorkerData(cfgIn: WorkerCfg & { workerData?: WorkerDataStamp }, buf: ArrayBuffer): WorkerCfg {
+  const { workerData, ...cfg } = cfgIn;
+  checkWorkerDataStamp(buf, workerData);
   const d = decodeWorkerData(buf);
   const out: WorkerCfg = { ...cfg };
   const lq = cfg.lettersQuran;

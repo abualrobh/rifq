@@ -419,6 +419,10 @@ test('kit v32 CPU: whole-text and same-surah search from the packed word sequenc
 test('kit v32 CPU: the Worker data module round-trips, holds no config, and a Worker without its data does not start', async () => {
   const { encodeWorkerData, decodeWorkerData, hashHex } = await import('../../src/core/worker-data.ts');
   const { withWorkerData } = await import('../../src/worker/bundle-data.ts');
+  const { stampWorkerData } = await import('../../src/core/worker-data-stamp.ts');
+  const { createHash } = await import('node:crypto');
+  // Kit v33 (D-169 A): a module as scripts/build.ts writes it, with its build ID and stamp.
+  const stamped = (b: Uint8Array) => { const r = stampWorkerData(b, createHash('sha256').update(b).digest('hex')); return { buf: r.bin.slice().buffer, workerData: r.stamp }; };
   const counts = [0, ...SYN_COUNTS.slice(1)];
   const forms = packLetters(counts, { uthmani: lettersQuran.letters, emlaey: lettersQuran.letters.map((l) => l.split(' ').reverse().join(' ')) }).forms;
   const full = src.list.map((_a, i) => (i * 7919).toString(16).padStart(64, '0')), bare = src.list.map((_a, i) => (i * 104729).toString(16).padStart(64, 'f'));
@@ -440,11 +444,13 @@ test('kit v32 CPU: the Worker data module round-trips, holds no config, and a Wo
   assert.equal(hashHex(d.hashes!.full, full.length), undefined);
   assert.throws(() => decodeWorkerData(new Uint8Array(16).buffer), /magic/);
   // A config that expects the data, given a module without it: the Worker does not start.
-  const empty = encodeWorkerData({}).slice().buffer;
-  assert.throws(() => withWorkerData({ dev: true, record: { name: 'S', edition: 'e', status: 's' }, lettersQuran: { counts } } as never, empty), /letters expected/);
-  assert.throws(() => withWorkerData({ dev: true, record: { name: 'S', edition: 'e', status: 's' }, verifyHashes: { counts } } as never, empty), /hashes expected/);
+  const empty = stamped(encodeWorkerData({}));
+  assert.throws(() => withWorkerData({ dev: true, record: { name: 'S', edition: 'e', status: 's' }, lettersQuran: { counts }, workerData: empty.workerData } as never, empty.buf), /letters expected/);
+  assert.throws(() => withWorkerData({ dev: true, record: { name: 'S', edition: 'e', status: 's' }, verifyHashes: { counts }, workerData: empty.workerData } as never, empty.buf), /hashes expected/);
   // With the data, a built Worker answers with marks equal to the plain-list Worker's.
-  const cfg = withWorkerData({ testMemoryLimits: true, dev: true, gate: false, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, counts, tafseerLimit: 1000, lettersQuran: { counts, sha256: 'a'.repeat(64), checkVersion: 'm1-test' } } as never, encodeWorkerData({ letters: packLetters(counts, { uthmani: lettersQuran.letters }).forms }).slice().buffer);
+  const good = stamped(encodeWorkerData({ letters: packLetters(counts, { uthmani: lettersQuran.letters }).forms }));
+  const cfg = withWorkerData({ testMemoryLimits: true, dev: true, gate: false, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, counts, tafseerLimit: 1000, lettersQuran: { counts, sha256: 'a'.repeat(64), checkVersion: 'm1-test' }, workerData: good.workerData } as never, good.buf);
+  assert.equal('workerData' in cfg, false, 'the stamp is not passed on to the Worker');
   const mock = createMockQf({ quran: src });
   const w = makeWorker(ab, cfg, { fetch: mock.fetch, cache: () => null, pauseMs: 0 } as never);
   const { w: plain } = worker({ cache: new FakeCache() });
