@@ -357,20 +357,27 @@ test('D-079 store: format, references, hashes, dates and duplicates are checked'
   assert.equal(sha, '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881');
 });
 
-test('AC15: a release needs every record, and production', () => {
+test('AC15: a release needs every record, and production; no D-012 reviewer check for Tafseer (D-146, D-168 A)', () => {
   const all = releaseRecordProblems({}, {});
-  assert.equal(all.length, 8);
+  assert.equal(all.length, 7);
+  assert.ok(!all.some((x) => x.includes('D-012') || /review/i.test(x)), all.join('\n'));
   const ok = {
     format: TAFSEER_RECORD_FORMAT, tafsirId: 5, d076: { status: 'approved', date: '2026-12-01' }, approvedSourcesListed: true,
-    reviewerCheck: { date: '2026-12-02' }, d008Audit: { date: '2026-12-03' }, qfProductionApproval: { date: '2026-12-04', scopes: ['content.tafsirs.read'] },
+    d008Audit: { date: '2026-12-03' }, qfProductionApproval: { date: '2026-12-04', scopes: ['content.tafsirs.read'] },
   };
-  assert.deepEqual(releaseRecordProblems(ok, { QF_ENV: 'production' }), []);
+  assert.deepEqual(releaseRecordProblems(ok, { QF_ENV: 'production' }), [], 'no reviewer check recorded: allowed');
+  assert.deepEqual(releaseRecordProblems({ ...ok, reviewerCheck: { date: '2026-12-02' } }, { QF_ENV: 'production' }), [], 'an old record with one: ignored');
+  assert.deepEqual(releaseRecordProblems({ ...ok, reviewerCheck: null }, { QF_ENV: 'production' }), []);
+  // The other records are still required.
+  for (const k of ['format', 'tafsirId', 'd076', 'approvedSourcesListed', 'd008Audit', 'qfProductionApproval'] as const) {
+    assert.equal(releaseRecordProblems({ ...ok, [k]: undefined }, { QF_ENV: 'production' }).length >= 1, true, k);
+  }
   assert.equal(releaseRecordProblems(ok, { QF_ENV: 'prelive' }).length, 1);
   assert.equal(releaseRecordProblems({ ...ok, qfProductionApproval: { date: '2026-12-04', scopes: ['content.read'] } }, { QF_ENV: 'production' }).length, 1);
   assert.equal(releaseRecordProblems({ ...ok, d076: { status: 'deferred' } }, { QF_ENV: 'production' }).length, 1);
 });
 
-test('release check against the mock: D-084 results are reported, never block; a changed passage still fails (D-079)', async () => {
+test('release check against the mock: D-084 results and D-079 fingerprint mismatches are reported, never block (D-168 A)', async () => {
   const mock = createMockQf({ quran: src });
   const old = await sha256Hex(passageText(MOCK_TAFSIR_ID, 2, CASE.changed, undefined, 1)!);
   const good = await sha256Hex(passageText(MOCK_TAFSIR_ID, 2, CASE.reviewed)!);
@@ -379,8 +386,14 @@ test('release check against the mock: D-084 results are reported, never block; a
     env: ENV, mode: 'dry-run', surahs: [1, 2], fetch: mock.fetch,
   });
   const rep = await run([{ ref: `2:${CASE.changed}`, tafsirId: MOCK_TAFSIR_ID, sha256: old, reviewed: '2026-11-01' }, { ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' }]);
-  assert.equal(rep.ok, false);
-  assert.deepEqual(rep.reasons, ['D-079: 1 passages changed since review'], 'the quote check adds no reason');
+  // D-168 A: the mismatch is reported (count and reference, no text, no hash) and blocks nothing.
+  assert.equal(rep.ok, true);
+  assert.deepEqual(rep.reasons, [], 'neither the quote check nor the fingerprint mismatch adds a reason');
+  assert.deepEqual(rep.fingerprints.changed, [`2:${CASE.changed}`]);
+  assert.equal(rep.fingerprints.checked, 2);
+  assert.equal(rep.fingerprints.matched, 1);
+  assert.deepEqual(rep.notices, [`D-079: 1 of 2 passages differ from their recorded fingerprint (change alarm only, not blocking): 2:${CASE.changed}`]);
+  assert.ok(!rep.notices.join(' ').includes(old) && !rep.notices.join(' ').includes(passageText(MOCK_TAFSIR_ID, 2, CASE.changed)!), 'no hash or text in the notice');
   assert.equal(rep.passages, 7 + 40 - 1, 'every ayah but the one with no passage');
   const r = (ref: number) => rep.reviewerList.filter((x) => x.ref === `2:${ref}`).map((x) => x.result);
   assert.deepEqual(r(CASE.quoteExact), [], 'own words as stored: matched, not listed');
@@ -396,9 +409,10 @@ test('release check against the mock: D-084 results are reported, never block; a
   assert.equal(rep.quotes.phrases, 10);
   assert.deepEqual(r(CASE.apiAlef), [], 'HAIR SPACE + U+0670 + WORD JOINER inside a word: matched, not listed');
   assert.equal(rep.quotes.braces, 2);
-  // Without the changed fingerprint the check passes, whatever the quote results.
+  // Without the changed fingerprint the check passes too, with no notice.
   const ok = await run([{ ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' }]);
   assert.equal(ok.ok, true);
+  assert.deepEqual(ok.notices, []);
   assert.ok(ok.reviewerList.some((x) => x.result === 'unmatched'));
   // In release mode, the AC15 records come first.
   const rel = await runTafseerCheck({ recordPath: syn.recordPath, record: null, fingerprints: null, env: ENV, mode: 'release', surahs: [1], fetch: mock.fetch });
@@ -408,6 +422,16 @@ test('release check against the mock: D-084 results are reported, never block; a
   assert.ok(rel.reasons.some((x) => x.includes('not "production"')));
   assert.ok(rel.reasons.some((x) => x === 'no tafsir ID to check'));
   assert.equal(rel.passages, 0, 'nothing fetched without a recorded work');
+  // Other blocking checks are unchanged: an invalid fingerprint store and API errors still fail.
+  const badStore = await runTafseerCheck({ recordPath: syn.recordPath, record: { tafsirId: MOCK_TAFSIR_ID }, fingerprints: { format: 'x', entries: [] }, env: ENV, mode: 'dry-run', surahs: [1], fetch: mock.fetch });
+  assert.equal(badStore.ok, false);
+  assert.ok(badStore.reasons.some((x) => x.startsWith('fingerprints: format')));
+  const down = await runTafseerCheck({ recordPath: syn.recordPath, record: { tafsirId: MOCK_TAFSIR_ID }, fingerprints: { format: 'rifq-tafseer-fingerprints/1', entries: [] }, env: ENV, mode: 'dry-run', surahs: [1], fetch: async () => new Response('x', { status: 500 }) });
+  assert.equal(down.ok, false);
+  assert.ok(down.reasons.some((x) => /API errors/.test(x)), down.reasons.join('\n'));
+  // A complete record without a reviewer check passes the AC15 records part.
+  const recAll = { format: TAFSEER_RECORD_FORMAT, tafsirId: MOCK_TAFSIR_ID, d076: { status: 'approved', date: '2026-12-01' }, approvedSourcesListed: true, d008Audit: { date: '2026-12-03' }, qfProductionApproval: { date: '2026-12-04', scopes: ['content.tafsirs.read'] } };
+  assert.deepEqual(releaseRecordProblems(recAll, { QF_ENV: 'production' }), []);
 });
 
 test('fingerprint helper prints hashes only, made with the Worker parser', async () => {

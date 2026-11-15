@@ -1,4 +1,4 @@
-// Tafseer release check (RQ-005 AC15, D-078, D-079). scripts/build.ts runs it for any release build
+// Tafseer release check (RQ-005 AC15, D-078, D-079, D-168 A). scripts/build.ts runs it for any release build
 // with Tafseer on, and the build fails unless it passes. It can also be run alone:
 //   node scripts/tafseer-release-check.ts --record <quran source-record.json>
 //        --tafseer-record <tafseer-record.json> --fingerprints <tafseer-fingerprints.json>
@@ -11,15 +11,18 @@
 // Release mode fails unless all of these hold:
 // 1. AC15 records (tafseer-record.json, kept in the private data repository and filled in by
 //    Hamzeh): D-076 approved with the tafsir ID, the work listed as approved in approved-sources.md,
-//    the D-012 reviewer's check, Hamzeh's D-008 audit, and Quran Foundation's production approval
-//    covering content.tafsirs.read. QF_ENV must be "production".
+//    Hamzeh's D-008 audit, and Quran Foundation's production approval covering
+//    content.tafsirs.read. QF_ENV must be "production". No D-012 reviewer check is required for
+//    Tafseer (D-146, D-168 A); a reviewerCheck field in the record is ignored.
 // 2. D-078 as changed by D-084: the quote check runs over every passage and its results are
 //    reported (counts, and a reviewer list of the phrases it could not match to their own ayat),
 //    but it never blocks a release. See src/core/tafseer-quotes.ts for the method and its limits.
 //    The reviewer list holds the phrases as delivered, which are Tafseer text, so the --out file
 //    is private: keep it in the private data area, never in the public repository.
-// 3. D-079: every passage that has a fingerprint still matches it.
-// 4. Every passage was fetched (no API error), and the fingerprint store is valid.
+// 3. Every passage was fetched (no API error), and the fingerprint store is valid.
+// D-079 fingerprints are a change alarm only (D-151 A, D-168 A): a passage whose text differs from
+// its recorded fingerprint is reported (count and "S:A" references in `notices` and
+// `fingerprints.changed`, never text or hashes) but never fails the check or a release build.
 // A dry run (--mode dry-run) skips item 1, for testing against the mock. It is never release evidence.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -34,7 +37,7 @@ export type TafseerRecord = {
   tafsirId?: number | null;
   d076?: { status?: string; date?: string } | null;
   approvedSourcesListed?: boolean;
-  reviewerCheck?: { date?: string } | null;
+  reviewerCheck?: { date?: string } | null; // ignored since D-168 A (D-146: no reviewer step for Tafseer)
   d008Audit?: { date?: string } | null;
   qfProductionApproval?: { date?: string; scopes?: string[] } | null;
   title?: string | null; author?: string | null; edition?: string | null; publisher?: string | null;
@@ -51,7 +54,6 @@ export function releaseRecordProblems(r: TafseerRecord | null, env: QfSecrets): 
   if (!Number.isInteger(r.tafsirId) || (r.tafsirId as number) < 1) out.push('D-076: no tafsir ID recorded');
   if (r.d076?.status !== 'approved' || !DATE.test(r.d076?.date ?? '')) out.push('D-076: not recorded as approved with a date');
   if (r.approvedSourcesListed !== true) out.push('approved-sources.md: the work is not recorded as listed as approved');
-  if (!DATE.test(r.reviewerCheck?.date ?? '')) out.push('D-012: the reviewer check is not recorded');
   if (!DATE.test(r.d008Audit?.date ?? '')) out.push("D-008: Hamzeh's audit is not recorded");
   if (!DATE.test(r.qfProductionApproval?.date ?? '') || !(r.qfProductionApproval?.scopes ?? []).includes(SCOPE)) out.push(`Quran Foundation production approval covering ${SCOPE} is not recorded`);
   if (env.QF_ENV !== 'production') out.push(`QF_ENV is "${env.QF_ENV ?? 'unset'}", not "production"`);
@@ -64,6 +66,8 @@ export type CheckReport = {
   surahs: number; passages: number; passagesWithPhrases: number; quotes: QuoteSummary; reviewerList: ReviewItem[];
   fingerprints: { entries: number; checked: number; matched: number; changed: string[]; notReviewed: number };
   apiErrors: string[];
+  // Reported, never blocking (D-168 A): counts and "S:A" references only.
+  notices: string[];
 };
 
 export async function runTafseerCheck(opts: {
@@ -81,7 +85,7 @@ export async function runTafseerCheck(opts: {
     ok: false, mode: opts.mode, reasons, tafsirId, qfEnv: opts.env.QF_ENV ?? null, quranSha256: src.sha256 as string,
     surahs: 0, passages: 0, passagesWithPhrases: 0, quotes: newSummary(), reviewerList: [],
     fingerprints: { entries: opts.fingerprints?.entries.length ?? 0, checked: 0, matched: 0, changed: [], notReviewed: 0 },
-    apiErrors: [],
+    apiErrors: [], notices: [],
   };
   const q = qfConfig(opts.env, opts.mode === 'dry-run');
   if ('missing' in q) { reasons.push('Quran Foundation settings missing: ' + q.missing.join(', ')); return rep; }
@@ -125,7 +129,8 @@ export async function runTafseerCheck(opts: {
     }
   }
   if (rep.apiErrors.length) reasons.push(`${rep.apiErrors.length} API errors: not every passage was checked`);
-  if (rep.fingerprints.changed.length) reasons.push(`D-079: ${rep.fingerprints.changed.length} passages changed since review`);
+  // D-168 A: a fingerprint mismatch is reported only; it never adds a reason.
+  if (rep.fingerprints.changed.length) rep.notices.push(`D-079: ${rep.fingerprints.changed.length} of ${rep.fingerprints.checked} passages differ from their recorded fingerprint (change alarm only, not blocking): ${rep.fingerprints.changed.join(', ')}`);
   rep.ok = reasons.length === 0;
   return rep;
 }
