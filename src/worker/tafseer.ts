@@ -17,16 +17,18 @@
 // other matching code or another file are never read (AC31). The response gives the passage text
 // unchanged (AC4) plus the marks only; the matching data never leaves the Worker (D-157).
 //
-// Integrity (D-079): when a fingerprint exists for (tafsir ID, ayah), the passage's SHA-256 is
-// compared on every request, from a fresh fetch or a cached copy. On a mismatch the browser gets an
-// "updated since review" notice instead of the passage. Nothing about the reader is recorded.
+// Integrity (D-079, D-151 A, kit v32 FIND-AE): fingerprints are a change alarm only. This route
+// always returns the passage and says nothing about review to readers (RQ-005 v1.1 AC26, AC27:
+// no "matches the reviewed text" line, no "updated since review" notice, and a changed passage is
+// never hidden). Fingerprint mismatches are reported on the development page /dev/quote-check/
+// only (src/worker/quote-check.ts: ayah references and counts, never content).
 //
 // Development page (GET /dev/tafseer-catalogue/): lists the tafsirs the API offers so Hamzeh can
 // decide D-076. It exists only in development builds with the password gate on.
 //
 // No console call exists in this file on purpose: nothing is logged.
 import { escapeHtml } from '../core/highlight.ts';
-import { fingerprintMap, reviewState, type FingerprintFile } from '../core/tafseer-fingerprints.ts';
+import type { FingerprintFile } from '../core/tafseer-fingerprints.ts';
 import { shapeOf } from './shape.ts';
 import { computeMarks, type Marks } from '../core/tafseer-marks.ts';
 import type { Letters } from './letters.ts';
@@ -78,7 +80,6 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
   const now = deps.now ?? Date.now;
   const qf = new QfClient(deps.fetch, now, deps.timeoutMs);
   const getCache = deps.cache ?? defaultCache;
-  const prints = fingerprintMap(cfg.fingerprints);
   const letters = deps.letters ?? null;
   // Requests handled by this isolate (the timing page reports whether its index was cold).
   let served = 0;
@@ -173,10 +174,7 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
       language,
       provider: PROVIDER,
     };
-    const ref = `${s}:${a}`;
-    const review = await reviewState(prints, id, ref, r.p.text);
-    if (review.state === 'changed') return { status: 200, data: { status: 'changed', s, a, reviewed: review.reviewed, source } };
-    return { status: 200, data: { status: 'ok', s, a, range: r.p.range, text: r.p.text, source, review, ...(r.marks ? { marks: r.marks } : {}) } };
+    return { status: 200, data: { status: 'ok', s, a, range: r.p.range, text: r.p.text, source, ...(r.marks ? { marks: r.marks } : {}) } };
   }
 
   // Body already read and checked by the caller (size, type, cross-site, rate limit).

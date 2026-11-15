@@ -136,7 +136,8 @@ test('D-156 A: the Worker sends the passage unchanged plus marks only, and keeps
   assert.equal(d.status, 'ok');
   assert.ok(Buffer.from(d.text, 'utf8').equals(Buffer.from(html(CASE.quoteSameSurah), 'utf8')), 'AC4');
   assert.deepEqual(d.marks, { v: 1, n: 1, c: 'A' });
-  assert.deepEqual(Object.keys(d).sort(), ['a', 'marks', 'range', 'review', 's', 'source', 'status', 'text']);
+  // Kit v32 FIND-AE: no review field for readers (D-151 A, AC26/AC27).
+  assert.deepEqual(Object.keys(d).sort(), ['a', 'marks', 'range', 's', 'source', 'status', 'text']);
   // The key holds the check version and the approved file's SHA-256.
   const keys = [...cache.m.keys()].filter((k) => !k.endsWith('/list'));
   assert.equal(keys.length, 1);

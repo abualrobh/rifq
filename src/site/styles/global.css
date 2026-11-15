@@ -324,7 +324,7 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + .5rem); }
 .tfq-other { color: var(--tfq-other); }
 .tfq q { quotes: none; }
 .tfq q::before, .tfq q::after { content: none; }
-.tf-review, .tf-credit { font-size: .875rem; color: var(--muted); margin-block: .5rem; }
+.tf-credit { font-size: .875rem; color: var(--muted); margin-block: .5rem; }
 .tf-source summary { padding-block: .75rem; cursor: pointer; }
 .tf-source dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; font-size: .9rem; }
 .tf-source dd { margin: 0; }

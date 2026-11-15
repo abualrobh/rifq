@@ -204,7 +204,7 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   // D-081: development builds behind the password gate only.
   const verify = cfg.dev && cfg.gate && cfg.verifyHashes ? makeVerify(cfg.verifyHashes, cfg.dev, deps) : null;
   // D-084 quote check page: development builds behind the gate, with Tafseer on.
-  const quotes = cfg.dev && cfg.gate && tafseer && letters ? makeQuoteCheck(letters, cfg.dev, deps) : null;
+  const quotes = cfg.dev && cfg.gate && tafseer && letters ? makeQuoteCheck(letters, cfg.dev, { ...deps, fingerprints: cfg.fingerprints ?? null }) : null;
   // D-156 A timing check page: on the same terms as the quote check page.
   const timing = quotes && letters && tafseer ? makeTiming(quotes, letters, { all: () => requests, signedIn: () => signedIn, tafseerServed: tafseer.served }) : null;
   const guard = new SignInGuard();

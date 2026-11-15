@@ -20,15 +20,21 @@
 // The approved Quran text is bundled by the build in letters-only form only (no displayed text).
 // Nothing is stored or logged. The reviewer list holds the phrases as delivered, which are Tafseer
 // text shown to Hamzeh inside the app; the page offers it as JSON or CSV made in the browser.
+//
+// Kit v32 (FIND-AE, D-151 A, RQ-005 v1.1 AC27): the D-079 fingerprint check is reported here, not to
+// readers. For every ayah a passage covers that has a fingerprint for this tafsir, the SHA-256 of the
+// passage text as delivered by by_chapter is compared with it. A part answers with counts and the
+// references that differ only (`fingerprints`), never with any text or hash.
 import { chapterPassages, checkPassage, newSummary, type ReviewItem } from '../core/tafseer-quotes.ts';
 import { classOf } from '../core/tafseer-marks.ts';
+import { fingerprintMap, sha256Hex, type FingerprintFile } from '../core/tafseer-fingerprints.ts';
 import { makeLetters, type Letters, type LettersQuran } from './letters.ts';
 import { byChapterPath, parseByChapter, QfClient, qfConfig, QfError, type QfSecrets } from './qf.ts';
 import { PAGE_PAUSE_MS } from './verify.ts';
 
 export type { LettersQuran } from './letters.ts';
 
-type Deps = { fetch?: (u: string, i: RequestInit) => Promise<Response>; now?: () => number; pauseMs?: number; timeoutMs?: number };
+type Deps = { fetch?: (u: string, i: RequestInit) => Promise<Response>; now?: () => number; pauseMs?: number; timeoutMs?: number; fingerprints?: FingerprintFile | null };
 
 export const QC_PER_PAGE = 10;
 // The most API pages one request reads (its own page and the look-ahead for a long passage).
@@ -47,6 +53,7 @@ export function makeQuoteCheck(src: LettersQuran | Letters, devAllowed: boolean,
   const L: Letters = 'index' in src ? src : makeLetters(src);
   const q = L.q;
   const index = () => L.index('/api/dev/quote-check');
+  const prints = fingerprintMap(deps.fingerprints);
   type Err = { status: number; data: Record<string, unknown> };
   type Chunk = { id: number; page: number; fetched: number; records: number; passages: ReturnType<typeof chapterPassages>; next: { page: number; skip: number } | null };
 
@@ -93,13 +100,25 @@ export function makeQuoteCheck(src: LettersQuran | Letters, devAllowed: boolean,
     const display: { ref: string; range: string; n: number; c: string }[] = [];
     const byClass = { O: 0, A: 0, P: 0, N: 0 };
     const ix = index();
+    // D-079 change alarm (kit v32): counts and differing references only.
+    const fp = { checked: 0, same: 0, differ: [] as string[] };
+    for (const p of got.passages) {
+      let hash: string | null = null;
+      for (let a = p.from; a <= p.to; a++) {
+        const e = prints.get(`${got.id}|${p.s}:${a}`);
+        if (!e) continue;
+        hash ??= await sha256Hex(p.text);
+        fp.checked++;
+        if (hash === e.sha256) fp.same++; else fp.differ.push(`${p.s}:${a}`);
+      }
+    }
     for (const p of got.passages) {
       let c = '';
       checkPassage(ix, p.text, { s: p.s, from: p.from, to: p.to }, p.ref, sum, list, (ph, result) => { c += classOf(result, ph, true); });
       for (const ch of c) byClass[ch as keyof typeof byClass]++;
       display.push({ ref: p.ref, range: `${p.s}:${p.from}-${p.to}`, n: c.length, c });
     }
-    return { status: 200, data: { status: 'ok', s, tafsirId: got.id, page: got.page, pages: got.fetched, records: got.records, passages: got.passages.length, summary: sum, list, display, displayCounts: byClass, next: got.next } };
+    return { status: 200, data: { status: 'ok', s, tafsirId: got.id, page: got.page, pages: got.fetched, records: got.records, passages: got.passages.length, summary: sum, list, display, displayCounts: byClass, fingerprints: fp, next: got.next } };
   }
   return { part, chunk, letters: L, client: qf };
 }

@@ -8,6 +8,9 @@
 // phrase, the same code and index as /api/tafseer). "Compare with the reader display" then asks
 // /api/tafseer for the first ayah of each passage, one request every 1.1 s (under the 60-a-minute
 // limit), and counts the passages whose marks agree. Class letters only are compared and shown.
+//
+// Kit v32 (FIND-AE, D-151 A): the D-079 fingerprint change alarm is shown here, and only here
+// (readers never see review notices): counts, and the ayah references whose fingerprint differs.
 import { useRef, useState } from 'react';
 import { reviewCsv, type CsvRow as ReviewItem } from '../../core/review-csv.ts';
 
@@ -29,6 +32,7 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
   const [done, setDone] = useState<number[]>([]);
   const stop = useRef(false);
   const [display, setDisplay] = useState<Disp[]>([]);
+  const [fpDiffer, setFpDiffer] = useState<string[]>([]);
   const [cmp, setCmp] = useState<{ state: string; done: number; agree: number; differ: { ref: string; check: string; api: string }[]; errors: number }>({ state: 'idle', done: 0, agree: 0, differ: [], errors: 0 });
 
   async function compare() {
@@ -56,7 +60,7 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
   async function run() {
     const a = Math.max(1, Math.min(surahs, Number(from) || 1)), b = Math.max(a, Math.min(surahs, Number(to) || a));
     stop.current = false;
-    setList([]); setCounts({}); setErrors([]); setDone([]); setDisplay([]); setState('running');
+    setList([]); setCounts({}); setErrors([]); setDone([]); setDisplay([]); setFpDiffer([]); setState('running');
     for (let s = a; s <= b; s++) {
       let part: { page: number; skip: number } | null = { page: 1, skip: 0 };
       let parts = 0;
@@ -78,8 +82,11 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
               n.requests = (n.requests ?? 0) + 1;
               for (const k of RESULTS) n[k] = (n[k] ?? 0) + (d.summary.byResult[k] ?? 0);
               for (const [k] of CLASSES) n['d' + k] = (n['d' + k] ?? 0) + (d.displayCounts?.[k] ?? 0);
+              n.fpChecked = (n.fpChecked ?? 0) + (Number(d.fingerprints?.checked) || 0);
+              n.fpSame = (n.fpSame ?? 0) + (Number(d.fingerprints?.same) || 0);
               return n;
             });
+            if (Array.isArray(d.fingerprints?.differ)) setFpDiffer((x) => [...x, ...d.fingerprints.differ.filter((r: unknown) => typeof r === 'string')]);
             if (Array.isArray(d.display)) setDisplay((x) => [...x, ...d.display]);
             part = d.next && Number.isInteger(d.next.page) && Number.isInteger(d.next.skip) ? { page: d.next.page, skip: d.next.skip } : null;
           } else {
@@ -125,8 +132,12 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
           <tr><th scope="row">In braces (qiraah_or_quote)</th><td data-qc-braces>{counts.braces ?? 0}</td></tr>
           <tr><th scope="row">Errors</th><td data-qc-errors>{errors.length}</td></tr>
           {CLASSES.map(([k, label]) => <tr key={k}><th scope="row">Reader display {k}: {label}</th><td data-qc-display={k}>{counts['d' + k] ?? 0}</td></tr>)}
+          <tr><th scope="row">D-079 fingerprints checked</th><td data-qc-fp-checked>{counts.fpChecked ?? 0}</td></tr>
+          <tr><th scope="row">D-079 fingerprint same</th><td data-qc-fp-same>{counts.fpSame ?? 0}</td></tr>
+          <tr><th scope="row">D-079 fingerprint differs (still shown to readers)</th><td data-qc-fp-differ>{fpDiffer.length}</td></tr>
         </tbody>
       </table>
+      {fpDiffer.length > 0 && <p data-qc-fp-list>Fingerprint differs at: <span dir="ltr">{fpDiffer.join(', ')}</span></p>}
       <h2>AC31: compare with the reader display</h2>
       <p>Asks /api/tafseer for the first ayah of each passage checked above, one request every 1.1 seconds, and compares its display classes with the ones worked out here. Each request may fetch from the API.</p>
       <p>
