@@ -235,15 +235,23 @@ export function packLetters(counts: number[], forms: Partial<Record<Form, string
 }
 
 // Binary search in a packed word list (see PackedForm): the word's number, or -1.
-export const wordIndex = (words: string, woff: Nums, w: string): number => wordIndexIn((a, b) => words.slice(a, b), words.length, woff, w);
-function wordIndexIn(piece: (a: number, b: number) => string, total: number, woff: Nums, w: string): number {
+export const wordIndex = (words: string, woff: Nums, w: string): number => wordIndexIn((a, b) => { const x = words.slice(a, b); return x === w ? 0 : x < w ? -1 : 1; }, words.length, woff);
+// The same search on UTF-16 code units, comparing in place (no string is made per probe). JavaScript
+// compares strings by UTF-16 code units, so the order is the same as for the string list.
+const wordIndexUnits = (u: Nums, woff: Nums, w: string): number => wordIndexIn((a, b) => {
+  const n = Math.min(b - a, w.length);
+  for (let i = 0; i < n; i++) { const d = u[a + i] - w.charCodeAt(i); if (d) return d < 0 ? -1 : 1; }
+  return b - a === w.length ? 0 : b - a < w.length ? -1 : 1;
+}, u.length, woff);
+// cmp(a, b): word at code units a .. b-1 compared with the word looked for (-1 before, 0 equal, 1 after).
+function wordIndexIn(cmp: (a: number, b: number) => number, total: number, woff: Nums): number {
   let lo = 0, hi = woff.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
     const end = mid + 1 < woff.length ? woff[mid + 1] - 1 : total;
-    const x = piece(woff[mid], end);
-    if (x === w) return mid;
-    if (x < w) lo = mid + 1; else hi = mid - 1;
+    const c = cmp(woff[mid], end);
+    if (c === 0) return mid;
+    if (c < 0) lo = mid + 1; else hi = mid - 1;
   }
   return -1;
 }
@@ -278,10 +286,8 @@ export function packedIndex(p: PackedLetters): LettersIndex {
     const piece = (a: number, b: number) => (allText !== null ? allText.slice(a, b) : allU ? fromUnits(allU, a, b) : '');
     let whole = allText;
     const wordsU = isNums(f.wordsU16) ? f.wordsU16 : null;
-    const wordPiece = typeof f.words === 'string' ? (a: number, b: number) => f.words!.slice(a, b) : wordsU ? (a: number, b: number) => fromUnits(wordsU, a, b) : null;
-    const wordsTotal = typeof f.words === 'string' ? f.words.length : wordsU ? wordsU.length : 0;
     const woff = isNums(f.woff) ? f.woff : null;
-    const idOf = wordPiece && woff ? (w: string) => wordIndexIn(wordPiece, wordsTotal, woff, w) : null;
+    const idOf = !woff ? null : typeof f.words === 'string' ? (w: string) => wordIndex(f.words!, woff, w) : wordsU ? (w: string) => wordIndexUnits(wordsU, woff, w) : null;
     const sq = idOf && isNums(f.seq) && isNums(f.pstart) && isNums(f.plist) && isNums(f.wpos) ? { seq: f.seq, pstart: f.pstart, plist: f.plist, wpos: f.wpos } : null;
     forms[k] = {
       // The whole text as one string, made on first use only (the fallback scans; not used when
