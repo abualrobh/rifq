@@ -7,7 +7,7 @@ import { synthetic } from '../fixtures/load.ts';
 import { SYN_COUNTS } from '../fixtures/synthetic.ts';
 import { CASE, CLOSE, createMockQf, MOCK_CLIENT_ID, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, OPEN, passageText, quoteFrom } from '../mock/qf-mock.ts';
 import { blockText, sanitize, visibleText } from '../../src/core/tafseer-html.ts';
-import { bareAyah, indexFromSource, lettersIndex, lettersOnly, matchPhrase, findPhrases, packedIndex, packLetters, phrasesAt, wordListHas, type Result } from '../../src/core/tafseer-quotes.ts';
+import { bareAyah, indexFromSource, lettersIndex, lettersOnly, matchPhrase, findPhrases, packedIndex, packLetters, phraseMatcher, phrasesAt, wordListHas, type Result } from '../../src/core/tafseer-quotes.ts';
 import { blockTextOf, classOf, computeMarks, markedNodes, markedText, MARKS_VERSION, sanitizeViaWalk, validMarks, type MNode } from '../../src/core/tafseer-marks.ts';
 import { makeWorker } from '../../src/worker/app.ts';
 import { CACHE_VERSION, type CacheLike } from '../../src/worker/tafseer.ts';
@@ -331,7 +331,46 @@ test('kit v30 reader CPU: the startup warm-up runs the matching code on made-up 
   const before = computeMarks(ix, html(CASE.quoteExact), own(CASE.quoteExact), true);
   assert.equal(warmUp(), undefined);
   assert.deepEqual(computeMarks(ix, html(CASE.quoteExact), own(CASE.quoteExact), true), before);
+  // Kit v31: with packed letters data it also runs on a throwaway packed index; the Worker's own
+  // index is not built by it, results do not change, and bad data is ignored.
+  const packed = { counts: lettersQuran.counts, packed: packLetters(lettersQuran.counts, { uthmani: lettersQuran.letters }).forms };
+  const L = makeLetters(packed);
+  assert.equal(warmUp(packed), undefined);
+  assert.equal(L.built(), false);
+  assert.deepEqual(computeMarks(L.index('test'), html(CASE.quoteExact), own(CASE.quoteExact), true), before);
+  assert.equal(warmUp({ counts: [0], packed: {} }), undefined);
+  assert.equal(warmUp({ counts: [0, 1], packed: { uthmani: { all: 'x', off: [0], len: [1] } } } as never), undefined);
   // A Worker with Tafseer warms up at startup and still starts and answers.
   const w = makeWorker(ab, { testMemoryLimits: true, dev: true, gate: false, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, counts: [0, ...SYN_COUNTS.slice(1)], lettersQuran }, {} as never);
   assert.ok(w && typeof w.fetch === 'function');
+});
+
+test('kit v31 reader CPU: one matcher per passage, and its display group equals the full result class for every phrase', () => {
+  // Synthetic data only. Phrases: word runs of many ayat (own, same surah, other surahs), runs
+  // with the first or last letter cut (D-088 edges), one-word pieces, made-up letters, against
+  // single-ayah and multi-ayah own ranges, in the unpacked and the packed index.
+  const pk = packedIndex(packLetters([0, ...SYN_COUNTS.slice(1)], { uthmani: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))) }));
+  const groupOf = (r: Result) => (r === 'matched_own_ayah' ? 'own' : r === 'matched_same_surah' || r === 'matched_elsewhere' ? 'other' : 'none');
+  let n = 0;
+  const seen = new Set<string>();
+  for (let k = 0; k < src.list.length; k += 7) {
+    const a = src.list[k];
+    const w = bareAyah(a.aya_text).split(' ');
+    const phrases = [w.slice(0, 2).join(' '), w.slice(1, 4).join(' '), w[0], w[w.length - 1], w.slice(0, 2).join(' ').slice(1), w.slice(0, 3).join(' ').slice(0, -1), w[0].slice(1), 'zz qq', ''];
+    const other = a.aya_no === 1 ? 2 : 1;
+    for (const own of [{ s: a.sora, from: a.aya_no, to: a.aya_no }, { s: a.sora, from: Math.max(1, a.aya_no - 2), to: a.aya_no }, { s: a.sora, from: other, to: other }, { s: a.sora === 1 ? 2 : 1, from: 1, to: 1 }]) {
+      for (const I of [ix, pk]) {
+        const mm = phraseMatcher(I, own);
+        for (const p of phrases) {
+          const full = matchPhrase(I, p, own);
+          assert.deepEqual(mm.match(p), full, 'the per-passage matcher gives the same full result');
+          assert.equal(mm.kind(p), groupOf(full.result), `group of ${full.result}`);
+          seen.add(full.result);
+          n++;
+        }
+      }
+    }
+  }
+  assert.ok(n > 1000, String(n));
+  for (const r of ['matched_own_ayah', 'matched_same_surah', 'matched_elsewhere', 'unmatched', 'too_short', 'fragment']) assert.ok(seen.has(r), `covers ${r}`);
 });

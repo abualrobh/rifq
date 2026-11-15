@@ -280,59 +280,92 @@ export const ONE_WORD_EDGE_MIN_LETTERS = 3;
 const PROCLITIC = /^(?:[\u0648\u0641]?[\u0628\u0644\u0643]?)$/u;
 export const isProclitic = (p: string) => p.length > 0 && PROCLITIC.test(p);
 
-export function matchPhrase(ix: LettersIndex, phrase: string, own: { s: number; from: number; to: number }): { letters: string; words: number; result: Result; form: MatchedForm; match: MatchType } {
-  const words = lettersOnlyWords(phrase);
-  const letters = words.join(' ');
-  const out = (result: Result, form: MatchedForm = null, match: MatchType = null) => ({ letters, words: words.length, result, form, match });
-  if (!words.length) return out('too_short');
-  const exact = ' ' + letters + ' ';
+// Kit v31 (reader CPU): a matcher for one passage's own ayah range. The letters of the own range
+// (per form) and their words are made once per passage, not again for every phrase and level, as
+// the v30 matchPhrase did. Results are exactly those of the v30 code (unit-tested against it).
+export type OwnRange = { s: number; from: number; to: number };
+export type MatchOut = { letters: string; words: number; result: Result; form: MatchedForm; match: MatchType };
+export function phraseMatcher(ix: LettersIndex, own: OwnRange) {
   const forms = (Object.entries(ix.forms) as [Form, FormIndex][]);
-  const at = (test: (f: FormIndex) => string | undefined, needle: string): MatchedForm => {
-    const hit = forms.filter(([, f]) => (test(f) ?? '').includes(needle)).map(([k]) => k);
-    return hit.length === 2 ? 'both' : hit.length === 1 ? hit[0] : null;
+  const ownTexts = new Map<Form, string>();
+  const ownWordLists = new Map<Form, string[]>();
+  const ownText = (k: Form, f: FormIndex) => {
+    let t = ownTexts.get(k);
+    if (t === undefined) {
+      const parts: string[] = [];
+      for (let a = own.from; a <= own.to; a++) { const i = ix.at.get(`${own.s}:${a}`); const l = i === undefined ? '' : f.ayah(i); if (l) parts.push(l); }
+      t = ' ' + parts.join(' ') + ' ';
+      ownTexts.set(k, t);
+    }
+    return t;
   };
+  const ownWords = (k: Form, f: FormIndex) => {
+    let w = ownWordLists.get(k);
+    if (!w) { w = ownText(k, f).split(' '); ownWordLists.set(k, w); }
+    return w;
+  };
+  const formOf = (hit: Form[]): MatchedForm => (hit.length === 2 ? 'both' : hit.length === 1 ? hit[0] : null);
+  // Steps up to and including the own-ayah level, shared by match() and kind(). Returns the final
+  // result when one of these steps decides it, else null (go on to the same surah and anywhere).
+  function ownLevel(words: string[], letters: string): { result: Result; form: MatchedForm; match: MatchType } | null {
+    if (!words.length) return { result: 'too_short', form: null, match: null };
+    const exact = ' ' + letters + ' ';
+    // Whole words of the own ayah range always count, even for a short phrase.
+    const ownExact = formOf(forms.filter(([k, f]) => ownText(k, f).includes(exact)).map(([k]) => k));
+    if (ownExact) return { result: 'matched_own_ayah', form: ownExact, match: 'exact' };
+    const total = words.reduce((n, w) => n + [...w].length, 0);
+    if (total <= FRAGMENT_MAX_LETTERS) return { result: 'fragment', form: null, match: null };
+    if (words.length === 1 && total >= ONE_WORD_EDGE_MIN_LETTERS) {
+      const w = words[0];
+      const hit = formOf(forms.filter(([k, f]) => ownWords(k, f).some((q) => q.length > w.length && q.endsWith(w) && isProclitic(q.slice(0, q.length - w.length)))).map(([k]) => k));
+      if (hit) return { result: 'matched_own_ayah', form: hit, match: 'edge' };
+    }
+    if (words.length < 2) return { result: 'too_short', form: null, match: null };
+    // Edge needle: no space before the first word or after the last, so the first word may be the
+    // end of a Quran word and the last word the start of one; inner spaces keep every other word whole.
+    // Edge matches only at the own-ayah level; the same surah and anywhere need exact whole words,
+    // so a different letter at a word edge (as in a reading with ta for ya) cannot be matched to some
+    // other word elsewhere.
+    const g = formOf(forms.filter(([k, f]) => ownText(k, f).includes(letters)).map(([k]) => k));
+    if (g) return { result: 'matched_own_ayah', form: g, match: 'edge' };
+    return null;
+  }
   // Same surah and anywhere: exact whole words only, so a form whose word list lacks one of the
   // phrase's words cannot match there and is not scanned (kit v30; same results, less CPU).
-  let possible: [Form, FormIndex][] | null = null;
-  const atWhole = (test: (f: FormIndex) => string | undefined, needle: string): MatchedForm => {
-    possible ??= forms.filter(([, f]) => !f.has || words.every((w) => f.has!(w)));
-    const hit = possible.filter(([, f]) => (test(f) ?? '').includes(needle)).map(([k]) => k);
-    return hit.length === 2 ? 'both' : hit.length === 1 ? hit[0] : null;
+  const possibleFor = (words: string[]) => forms.filter(([, f]) => !f.has || words.every((w) => f.has!(w)));
+  return {
+    // The full result, with the form(s) and match type (the quote check, D-084).
+    match(phrase: string): MatchOut {
+      const words = lettersOnlyWords(phrase);
+      const letters = words.join(' ');
+      const o = ownLevel(words, letters);
+      if (o) return { letters, words: words.length, ...o };
+      const exact = ' ' + letters + ' ';
+      const possible = possibleFor(words);
+      const s = formOf(possible.filter(([, f]) => (f.surah(own.s) ?? '').includes(exact)).map(([k]) => k));
+      if (s) return { letters, words: words.length, result: 'matched_same_surah', form: s, match: 'exact' };
+      const e = formOf(possible.filter(([, f]) => f.all.includes(exact)).map(([k]) => k));
+      if (e) return { letters, words: words.length, result: 'matched_elsewhere', form: e, match: 'exact' };
+      return { letters, words: words.length, result: 'unmatched', form: null, match: null };
+    },
+    // Only the display group of the result (D-149, AC29), for the marks: "own" (matched_own_ayah),
+    // "other" (matched_same_surah or matched_elsewhere) or "none" (unmatched, too_short, fragment).
+    // A surah's letters are a slice of the whole text in the same layout (see FormIndex), so a
+    // phrase is in the same surah or elsewhere exactly when it is in the whole text: one scan of
+    // the whole text, stopping at the first form that has it, gives the same group.
+    kind(phrase: string): 'own' | 'other' | 'none' {
+      const words = lettersOnlyWords(phrase);
+      const letters = words.join(' ');
+      const o = ownLevel(words, letters);
+      if (o) return o.result === 'matched_own_ayah' ? 'own' : 'none';
+      const exact = ' ' + letters + ' ';
+      return possibleFor(words).some(([, f]) => f.all.includes(exact)) ? 'other' : 'none';
+    },
   };
-  const ownText = (f: FormIndex) => {
-    const parts: string[] = [];
-    for (let a = own.from; a <= own.to; a++) { const i = ix.at.get(`${own.s}:${a}`); const l = i === undefined ? '' : f.ayah(i); if (l) parts.push(l); }
-    return ' ' + parts.join(' ') + ' ';
-  };
-  const levels: [Result, (f: FormIndex) => string | undefined][] = [
-    ['matched_own_ayah', ownText], ['matched_same_surah', (f) => f.surah(own.s)], ['matched_elsewhere', (f) => f.all],
-  ];
-  const total = words.reduce((n, w) => n + [...w].length, 0);
-  // Whole words of the own ayah range always count, even for a short phrase.
-  const ownExact = at(ownText, exact);
-  if (ownExact) return out('matched_own_ayah', ownExact, 'exact');
-  if (total <= FRAGMENT_MAX_LETTERS) return out('fragment');
-  if (words.length === 1 && total >= ONE_WORD_EDGE_MIN_LETTERS) {
-    const w = words[0];
-    const hit = forms.filter(([, f]) => ownText(f).split(' ').some((q) => q.length > w.length && q.endsWith(w) && isProclitic(q.slice(0, q.length - w.length)))).map(([k]) => k);
-    if (hit.length) return out('matched_own_ayah', hit.length === 2 ? 'both' : hit[0], 'edge');
-  }
-  if (words.length < 2) return out('too_short');
-  // Edge needle: no space before the first word or after the last, so the first word may be the
-  // end of a Quran word and the last word the start of one; inner spaces keep every other word whole.
-  // Edge matches only at the own-ayah level; the same surah and anywhere need exact whole words,
-  // so a different letter at a word edge (as in a reading with ta for ya) cannot be matched to some
-  // other word elsewhere.
-  for (const [result, text] of levels) {
-    if (result === 'matched_own_ayah') {
-      const g = at(text, letters);
-      if (g) return out(result, g, 'edge');
-      continue;
-    }
-    const e = atWhole(text, exact);
-    if (e) return out(result, e, 'exact');
-  }
-  return out('unmatched');
+}
+
+export function matchPhrase(ix: LettersIndex, phrase: string, own: OwnRange): MatchOut {
+  return phraseMatcher(ix, own).match(phrase);
 }
 
 export type ReviewItem = { ref: string; range: string; bracket: Bracket; label: Phrase['label']; phrase: string; letters: string; result: Result; form: MatchedForm; match: MatchType; unclosed?: boolean };
@@ -346,8 +379,9 @@ export const emptyCounts = (): Record<Result, number> => ({ matched_own_ayah: 0,
 // `each` (kit v30) receives every phrase with its result, so a caller that also needs the display
 // class (the quote check page, AC31) does not match each phrase a second time.
 export function checkPassage(ix: LettersIndex, html: string, own: { s: number; from: number; to: number }, ref: string, sum: QuoteSummary, list: ReviewItem[], each?: (p: Phrase, result: Result) => void) {
+  const matcher = phraseMatcher(ix, own);
   for (const p of findPhrases(html)) {
-    const m = matchPhrase(ix, p.text, own);
+    const m = matcher.match(p.text);
     each?.(p, m.result);
     sum.phrases++;
     sum.byResult[m.result]++;

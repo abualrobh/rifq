@@ -3,7 +3,7 @@
 // public repository or the static files, counts as private storage under D-039, D-049 and D-085.
 // It is used for matching only: /dev/quote-check/ (D-084) and the D-149 display marks (D-156 A).
 // Nothing here is ever put into a response.
-import { lettersIndex, packedIndex, type LettersIndex, type PackedLetters } from '../core/tafseer-quotes.ts';
+import { lettersIndex, packedIndex, phraseMatcher, type LettersIndex, type PackedLetters } from '../core/tafseer-quotes.ts';
 import { computeMarks } from '../core/tafseer-marks.ts';
 
 // Letters-only text per ayah, in source order: Uthmani (aya_text) and, under D-085, plain spelling
@@ -22,8 +22,31 @@ export type IndexTiming = { builtBy: string | null };
 // code on the next use; the functions are compiled too). Measured locally (Node 22): about 1 to 3 ms
 // for the first phrases. warmUp() runs the same code twice on made-up letters (no Quran text) when
 // the Worker starts, so that cost is paid at startup rather than inside a reader's first
-// /api/tafseer request. It touches no real data and changes no result; any error is ignored.
-export function warmUp(): void {
+// /api/tafseer request. This part touches no real data and changes no result; any error is ignored.
+// Kit v31 (reader CPU): given the Worker's letters data, it also classifies two probes with the
+// passage matcher on a throwaway copy of the packed index (same strings, nothing copied): the first
+// word of 1:1 and that word without its first letter, both read from the index itself. That
+// compiles the packed-index paths a reader's first passage uses (ayah slices, the own-ayah steps, the
+// one-word rule). Nothing leaves the function, the Worker's own index is not built by it (the timing
+// page still says which route built that), and no result can change. Measured locally (Node 22,
+// not Cloudflare): about +0.5 ms at startup and about -0.5 ms on the first passage. Probes that
+// scan the whole text were tried and left out: they cost more at startup than they saved.
+export function warmUp(q?: LettersQuran | null): void {
+  warmMadeUp();
+  try {
+    if (!q?.packed) return;
+    const ix = packedIndex({ counts: q.counts, forms: q.packed });
+    const first = ix.at.get('1:1');
+    const f = ix.forms.uthmani ?? ix.forms.emlaey;
+    if (first === undefined || !f) return;
+    const w = f.ayah(first).split(' ')[0];
+    if (!w) return;
+    const m = phraseMatcher(ix, { s: 1, from: 1, to: 1 });
+    m.kind(w); m.kind(w.slice(1));
+  } catch { /* warm-up only */ }
+}
+
+function warmMadeUp(): void {
   try {
     const cp = (...c: number[]) => String.fromCodePoint(...c);
     // Made-up words: letters, marks, a hair space + superscript alef + word joiner, a hamza seat.

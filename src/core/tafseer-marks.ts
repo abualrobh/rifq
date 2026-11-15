@@ -20,7 +20,7 @@
 // island builds itself with fixed class names. If the marks are missing or do not fit the passage
 // (version, count, letters), nothing is styled and the passage is shown as delivered (AC37).
 import { ALLOWED_TAGS, BLOCK_TAGS, blockText, DROP_WITH_CONTENT, tokenize, type Node } from './tafseer-html.ts';
-import { hasArabicLetters, matchPhrase, phrasesAt, type LettersIndex, type PlacedPhrase, type Result } from './tafseer-quotes.ts';
+import { hasArabicLetters, phraseMatcher, phrasesAt, type LettersIndex, type PlacedPhrase, type Result } from './tafseer-quotes.ts';
 
 export const MARKS_VERSION = 1;
 export type MarkClass = 'O' | 'A' | 'P' | 'N';
@@ -38,10 +38,19 @@ export function classOf(result: Result, p: { text: string; unclosed?: boolean },
 
 // Worker side: the marks of one passage against its covered range (P-1). The phrases are read with
 // blockText, exactly as findPhrases reads them for /dev/quote-check/ (AC31).
+// The same class from the matcher's display group (kit v31 reader CPU, see phraseMatcher.kind):
+// equal to classOf on the full result for every phrase (unit-tested).
+export function classOfKind(kind: 'own' | 'other' | 'none', p: { text: string; unclosed?: boolean }, arabicWork: boolean): MarkClass {
+  if (p.unclosed) return 'N';
+  if (!arabicWork && !hasArabicLetters(p.text)) return 'N';
+  return kind === 'own' ? 'O' : kind === 'other' ? 'A' : 'P';
+}
+
 export function computeMarks(ix: LettersIndex, html: string, own: { s: number; from: number; to: number }, arabicWork: boolean): Marks {
   const ps = phrasesAt(blockText(html));
+  const m = phraseMatcher(ix, own);
   let c = '';
-  for (const p of ps) c += p.unclosed ? 'N' : classOf(matchPhrase(ix, p.text, own).result, p, arabicWork);
+  for (const p of ps) c += p.unclosed ? 'N' : classOfKind(m.kind(p.text), p, arabicWork);
   return { v: MARKS_VERSION, n: ps.length, c };
 }
 

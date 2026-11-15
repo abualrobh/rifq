@@ -189,7 +189,7 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   // D-156 A, D-157: the letters-only matching data, in this bundle only, shared by the D-149 display
   // marks (/api/tafseer) and the private quote check page, so both use one index (AC31).
   const letters = cfg.tafseer && cfg.lettersQuran ? makeLetters(cfg.lettersQuran) : null;
-  if (letters) warmUp(); // at Worker startup, not in a request (kit v30 reader CPU)
+  if (letters) warmUp(cfg.lettersQuran); // at Worker startup, not in a request (kit v30, v31 reader CPU)
   const tafseer = cfg.tafseer ? makeTafseer(cfg, { ...deps, letters }) : null;
   // Requests this isolate received: all of them, and those past the password gate (kit v30, QA v29
   // FIND-W: the 401 challenge a browser gets first is not a signed-in request).
