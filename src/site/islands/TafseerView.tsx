@@ -171,7 +171,8 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
       <>
         {d.range.from !== d.range.to && <p className="tf-range" data-tf-range>{t(lang, 'tafseerRange', { s: d.range.s, from: d.range.from, to: d.range.to })}</p>}
         <div className="tf-text" lang={arabic ? 'ar' : undefined} dir={arabic ? 'rtl' : 'auto'} translate="no" data-tf-text data-tf-marked={shown.marked ? '1' : '0'}>{render(shown.nodes, arabic)}</div>
-        <p className="tf-review" data-tf-review={d.review.state}>{d.review.state === 'match' ? t(lang, 'reviewMatch', { d: d.review.reviewed }) : <BidiText text={t(lang, 'reviewNone')} lang={lang} />}</p>
+        {/* RQ-005 v1.1 AC26 (D-146, D-147): no "not reviewed" note; the line shows only when a D-079 fingerprint matches. */}
+        {d.review.state === 'match' && <p className="tf-review" data-tf-review={d.review.state}>{t(lang, 'reviewMatch', { d: d.review.reviewed })}</p>}
         {sourceList(d.source)}
       </>
     );

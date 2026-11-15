@@ -68,7 +68,16 @@ test('AC7: source details show the API fields and "not stated" for the rest', as
   await expect(page.locator('[data-tf-src-edition]')).toHaveText(STRINGS.ar.notStated);
   await expect(page.locator('[data-tf-src-publisher]')).toHaveText(STRINGS.ar.notStated);
   await expect(page.locator('[data-tf-src-provider]')).toHaveText('Quran Foundation');
-  await expect(page.locator('[data-tf-review]')).toHaveAttribute('data-tf-review', 'none');
+  // RQ-005 v1.1 AC26 (D-146, D-147): without a matching fingerprint there is no review line at all.
+  await expect(page.locator('[data-tf-review]')).toHaveCount(0);
+  await expect(page.locator('[data-tf-status]')).not.toContainText('D-012');
+  // The same on the English interface (RQ-007).
+  await page.goto('/en/tafseer/2/#a21');
+  await ready(page);
+  await expect(page.locator('[data-tf-source]')).toHaveCount(1);
+  await expect(page.locator('[data-tf-review]')).toHaveCount(0);
+  await expect(page.locator('[data-tf-status]')).not.toContainText('not been reviewed');
+  await expect(page.locator('[data-tafseer-dev]')).toHaveText(STRINGS.en.tafseerDevNote);
 });
 
 test('AC3: a passage covering several ayat states its range, and stays the same inside it', async ({ page, seen }) => {

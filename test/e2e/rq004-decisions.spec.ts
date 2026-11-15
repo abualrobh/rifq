@@ -123,9 +123,10 @@ test('BIDI-01: decision IDs in Arabic text are isolated left to right and keep t
   const note = page.locator('[data-tafseer-dev]');
   await expect(note).toHaveText(t('ar', 'tafseerDevNote'));
   const runs = await note.locator('bdi[dir="ltr"]').evaluateAll((bs) => bs.map((b) => [b.textContent, b.getBoundingClientRect().left]));
-  expect(runs.map((r) => r[0])).toEqual(['D-076', 'D-012', 'D-008']);
+  // RQ-005 v1.1 AC26 (D-146, D-147): the note names D-076 only.
+  expect(runs.map((r) => r[0])).toEqual(['D-076']);
   // Each ID stays whole on one line (it was split at its hyphen at 390 px before nowrap).
-  expect(await note.locator('bdi[dir="ltr"]').evaluateAll((bs) => bs.map((b) => b.getClientRects().length))).toEqual([1, 1, 1]);
+  expect(await note.locator('bdi[dir="ltr"]').evaluateAll((bs) => bs.map((b) => b.getClientRects().length))).toEqual([1]);
   // Right to left: each ID is to the left of the one before it, or on a later line.
   const tops = await note.locator('bdi[dir="ltr"]').evaluateAll((bs) => bs.map((b) => b.getBoundingClientRect().top));
   for (let i = 1; i < runs.length; i++) if (tops[i] === tops[i - 1]) expect(runs[i][1] as number).toBeLessThan(runs[i - 1][1] as number);

@@ -111,13 +111,12 @@ const ar = {
   notStated: 'غير مذكور',
   tafseerCredit: 'التفسير مقدَّم من Quran Foundation.',
   reviewMatch: 'يطابق هذا النص النصَّ الذي رُوجع بتاريخ {d}.',
-  reviewNone: 'لم تتم مراجعة هذا النص بعد (D-012).',
   prevAyah: 'الآية السابقة',
   nextAyah: 'الآية التالية',
   ayahNavLabel: 'التنقل بين الآيات',
   backToReading: 'العودة إلى القراءة',
   tafseerNoScript: 'يحتاج عرض التفسير إلى تفعيل جافاسكربت. نص الآية معروض أعلاه.',
-  tafseerDevNote: 'نسخة تطوير: ميزة التفسير غير معتمدة للإصدار بعد (D-076، D-012، D-008).',
+  tafseerDevNote: 'نسخة تطوير: ميزة التفسير غير معتمدة للإصدار بعد (D-076).',
   // RQ-004 surah index page (draft v0.1; D-089 B, D-093 A; D-090, D-091, D-092 and D-094 use
   // option A pending Hamzeh). New strings, added after the B-09 review (D-104); provisional until
   // Hamzeh's follow-up review.
@@ -317,13 +316,12 @@ const en: typeof ar = {
   notStated: 'not stated',
   tafseerCredit: 'Tafseer provided by Quran Foundation.',
   reviewMatch: 'This text matches the text reviewed on {d}.',
-  reviewNone: 'This text has not been reviewed yet (D-012).',
   prevAyah: 'Previous ayah',
   nextAyah: 'Next ayah',
   ayahNavLabel: 'Ayah navigation',
   backToReading: 'Back to reading',
   tafseerNoScript: 'Showing the Tafseer needs JavaScript. The ayah text is shown above.',
-  tafseerDevNote: 'Development build: Tafseer is not approved for release yet (D-076, D-012, D-008).',
+  tafseerDevNote: 'Development build: Tafseer is not approved for release yet (D-076).',
   // RQ-004 surah index (see the Arabic block).
   surahIndex: 'Surah index',
   surahIndexOpen: 'Open the surah index',
