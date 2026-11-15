@@ -1,7 +1,7 @@
 // D-157 proof: the letters-only Quran matching data (D-084, D-085) lives only in the Worker bundle.
 // This scan reads every file under a folder (the static site, or a deploy kit's site/) and reports
 // any file that holds the letters-only form of an ayah, in either form (aya_text or
-// aya_text_emlaey). Text is read as UTF-8, and JavaScript \uXXXX escapes and HTML numeric
+// aya_text_emlaey). Text is read as UTF-8 and as UTF-16LE (kit v32), and JavaScript \uXXXX escapes and HTML numeric
 // character references are decoded first, so escaped copies are found too.
 //
 // Probes: every ayah whose letters-only form has at least PROBE_MIN_WORDS words (shorter ones are
@@ -70,7 +70,10 @@ export function scanFolder(dir: string, p: Probes): { files: number; hits: { fil
       const f = join(d, n);
       if (statSync(f).isDirectory()) { walk(f); continue; }
       files++;
-      const k = hitsIn(readFileSync(f).toString('utf8'), p);
+      // Kit v32: each file is also read as UTF-16LE (the Worker's data module holds the letters as
+      // UTF-16 code units), so a copy in either encoding is found.
+      const b = readFileSync(f);
+      const k = Math.max(hitsIn(b.toString('utf8'), p), hitsIn(b.toString('utf16le'), p), b.length > 1 ? hitsIn(b.subarray(1).toString('utf16le'), p) : 0);
       if (k) hits.push({ file: relative(dir, f), n: k });
     }
   };

@@ -100,6 +100,9 @@ export const lettersOnly = (s: string) => lettersOnlyWords(s).join(' ');
 export type Bracket = '()' | '\ufd3f\ufd3e' | '{}';
 export type Phrase = { bracket: Bracket; label: 'quote' | 'qiraah_or_quote'; text: string; unclosed?: boolean };
 const PAIRS: [string, string, Bracket][] = [['(', ')', '()'], ['\ufd3f', '\ufd3e', '\ufd3f\ufd3e'], ['\ufd3e', '\ufd3f', '\ufd3f\ufd3e'], ['{', '}', '{}']];
+// Kit v32 (reader CPU): the same pairs looked up by opening character (each opens one pair only),
+// instead of a search of PAIRS at every character of the passage.
+const OPENS = new Map(PAIRS.map((p) => [p[0], p]));
 
 // Bracketed phrases of one passage in reading order, read from its displayed text (markup
 // removed, entities decoded), never across a paragraph. The text is kept exactly as delivered.
@@ -115,7 +118,7 @@ export function phrasesAt(t: string): PlacedPhrase[] {
   const out: PlacedPhrase[] = [];
   let i = 0;
   while (i < t.length) {
-    const p = PAIRS.find(([o]) => o === t[i]);
+    const p = OPENS.get(t[i]);
     if (!p) { i++; continue; }
     let j = i + 1;
     while (j < t.length && t[j] !== p[1] && t[j] !== '\n') j++;
@@ -143,7 +146,11 @@ export type Form = 'uthmani' | 'emlaey';
 // non-empty ayat joined by ' ' + ' '), and the whole text in the same layout.
 // `has` (kit v30, optional): whether a word occurs as a whole word anywhere in this form. It only
 // lets matchPhrase skip a scan that cannot succeed; it never changes a result.
-export type FormIndex = { ayah: (i: number) => string; surah: (s: number) => string | undefined; all: string; has?: (w: string) => boolean };
+// `findIn` (kit v32, optional): whether the whole words `words` occur consecutively in this form's
+// whole text (s omitted) or in surah s's text, from the packed word sequence. It gives exactly what
+// `all.includes(' ' + words.join(' ') + ' ')` and `surah(s).includes(...)` give (unit-tested and
+// checked on the approved file); it only avoids scanning the whole text.
+export type FormIndex = { ayah: (i: number) => string; surah: (s: number) => string | undefined; all: string; has?: (w: string) => boolean; findIn?: (words: string[], s?: number) => boolean };
 export type LettersIndex = { refs?: string[]; surah?: number[]; at: { get(ref: string): number | undefined }; forms: Partial<Record<Form, FormIndex>> };
 // Kept for callers of the first version: the Uthmani letters per ayah.
 export const uthmaniLetters = (ix: LettersIndex) => {
@@ -170,7 +177,32 @@ function formIndex(rows: { s: number }[], letters: string[]): FormIndex {
 // Worker builds nothing). An exact whole-word needle can only be in `all` if each of its words is in
 // this list, so a phrase with a word the Quran text does not have (a gloss) is known to be unmatched
 // without scanning the whole text (about 0.7 ms of CPU per such phrase before).
-export type PackedForm = { all: string; off: number[]; len: number[]; words?: string; woff?: number[] };
+// Kit v32 (Cloudflare CPU after kit v31): the whole text as a word sequence, so "do these whole
+// words occur consecutively in the whole text / in surah s" no longer scans the whole string
+// (about 0.25 ms per form per phrase locally, which made a /dev/quote-check/ part cost several ms):
+//   seq[p]    the word number (index in the sorted `words` list) of the p-th word of `all`;
+//   pstart/plist  for each word number w, the positions p where it occurs, ascending:
+//                 plist[pstart[w]] .. plist[pstart[w + 1] - 1];
+//   wpos[i]   the position in seq of ayah i's first word (an empty ayah has no words), and
+//             wpos[ayat] the number of words, so surah s's words are wpos[first] .. wpos[last + 1] - 1.
+// All are prepared at build time (packLetters); nothing is built in a Worker. The numbers can be
+// plain arrays (tests) or Int32Array views on the Worker's binary data module (scripts/build.ts).
+// The two strings can also come as UTF-16 code units (`allU16`, `wordsU16`: Uint16Array views on the
+// Worker's data module), read a piece at a time, so a cold Worker decodes no large string: an
+// ayah's letters, a surah's letters or a dictionary word are made only when a phrase needs them.
+type Nums = ArrayLike<number>;
+export type PackedForm = { all?: string; allU16?: Nums; off: Nums; len: Nums; words?: string; wordsU16?: Nums; woff?: Nums; seq?: Nums; pstart?: Nums; plist?: Nums; wpos?: Nums };
+const isNums = (x: unknown): x is Nums => Array.isArray(x) || ArrayBuffer.isView(x);
+// UTF-16 code units a .. b-1 as a string (in pieces, so a long range stays under argument limits).
+function fromUnits(u: Nums, a: number, b: number): string {
+  let s = '';
+  const sub = (u as Uint16Array).subarray;
+  for (let i = a; i < b; i += 8192) {
+    const j = Math.min(b, i + 8192);
+    s += String.fromCharCode.apply(null, (typeof sub === 'function' ? (u as Uint16Array).subarray(i, j) : Array.prototype.slice.call(u, i, j)) as unknown as number[]);
+  }
+  return s;
+}
 export type PackedLetters = { counts: number[]; forms: Partial<Record<Form, PackedForm>> };
 
 export function packLetters(counts: number[], forms: Partial<Record<Form, string[]>>): PackedLetters {
@@ -188,20 +220,47 @@ export function packLetters(counts: number[], forms: Partial<Record<Form, string
     const woff: number[] = [];
     let n = 0;
     for (const w of dict) { woff.push(n); n += w.length + 1; }
-    out.forms[k] = { all: all.length === 1 ? '  ' : all, off, len, words: dict.join(' '), woff };
+    const id = new Map(dict.map((w, i) => [w, i]));
+    const seq: number[] = [], wpos: number[] = [];
+    for (const l of letters) { wpos.push(seq.length); if (l) for (const w of l.split(' ')) if (w) seq.push(id.get(w)!); }
+    wpos.push(seq.length);
+    const cnt = new Array<number>(dict.length + 1).fill(0);
+    for (const w of seq) cnt[w + 1]++;
+    for (let i = 1; i <= dict.length; i++) cnt[i] += cnt[i - 1];
+    const pstart = cnt.slice(), plist = new Array<number>(seq.length), fill = cnt.slice(0, dict.length);
+    seq.forEach((w, p) => { plist[fill[w]++] = p; });
+    out.forms[k] = { all: all.length === 1 ? '  ' : all, off, len, words: dict.join(' '), woff, seq, pstart, plist, wpos };
   }
   return out;
 }
 
-// Binary search in a packed word list (see PackedForm).
-export function wordListHas(words: string, woff: number[], w: string): boolean {
+// Binary search in a packed word list (see PackedForm): the word's number, or -1.
+export const wordIndex = (words: string, woff: Nums, w: string): number => wordIndexIn((a, b) => words.slice(a, b), words.length, woff, w);
+function wordIndexIn(piece: (a: number, b: number) => string, total: number, woff: Nums, w: string): number {
   let lo = 0, hi = woff.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    const end = mid + 1 < woff.length ? woff[mid + 1] - 1 : words.length;
-    const x = words.slice(woff[mid], end);
-    if (x === w) return true;
+    const end = mid + 1 < woff.length ? woff[mid + 1] - 1 : total;
+    const x = piece(woff[mid], end);
+    if (x === w) return mid;
     if (x < w) lo = mid + 1; else hi = mid - 1;
+  }
+  return -1;
+}
+export const wordListHas = (words: string, woff: Nums, w: string): boolean => wordIndex(words, woff, w) >= 0;
+
+// Whether the word numbers `ids` occur consecutively in seq at a position p with lo <= p and
+// p + ids.length <= hi. Walks the positions of the rarest of the words only.
+function seqHas(f: Required<Pick<PackedForm, 'seq' | 'pstart' | 'plist'>>, ids: number[], lo: number, hi: number): boolean {
+  let j = 0;
+  for (let i = 1; i < ids.length; i++) if (f.pstart[ids[i] + 1] - f.pstart[ids[i]] < f.pstart[ids[j] + 1] - f.pstart[ids[j]]) j = i;
+  const end = f.pstart[ids[j] + 1];
+  for (let q = f.pstart[ids[j]]; q < end; q++) {
+    const p = f.plist[q] - j;
+    if (p < lo || p + ids.length > hi) continue;
+    let ok = true;
+    for (let i = 0; i < ids.length; i++) if (f.seq[p + i] !== ids[i]) { ok = false; break; }
+    if (ok) return true;
   }
   return false;
 }
@@ -214,15 +273,37 @@ export function packedIndex(p: PackedLetters): LettersIndex {
   const forms: Partial<Record<Form, FormIndex>> = {};
   for (const [k, f] of Object.entries(p.forms) as [Form, PackedForm][]) {
     const cache = new Map<number, string | undefined>();
+    const allText = typeof f.all === 'string' ? f.all : null;
+    const allU = isNums(f.allU16) ? f.allU16 : null;
+    const piece = (a: number, b: number) => (allText !== null ? allText.slice(a, b) : allU ? fromUnits(allU, a, b) : '');
+    let whole = allText;
+    const wordsU = isNums(f.wordsU16) ? f.wordsU16 : null;
+    const wordPiece = typeof f.words === 'string' ? (a: number, b: number) => f.words!.slice(a, b) : wordsU ? (a: number, b: number) => fromUnits(wordsU, a, b) : null;
+    const wordsTotal = typeof f.words === 'string' ? f.words.length : wordsU ? wordsU.length : 0;
+    const woff = isNums(f.woff) ? f.woff : null;
+    const idOf = wordPiece && woff ? (w: string) => wordIndexIn(wordPiece, wordsTotal, woff, w) : null;
+    const sq = idOf && isNums(f.seq) && isNums(f.pstart) && isNums(f.plist) && isNums(f.wpos) ? { seq: f.seq, pstart: f.pstart, plist: f.plist, wpos: f.wpos } : null;
     forms[k] = {
-      all: f.all,
-      ...(typeof f.words === 'string' && Array.isArray(f.woff) ? { has: (w: string) => wordListHas(f.words!, f.woff!, w) } : {}),
-      ayah: (i) => (i < 0 || i >= f.off.length ? (undefined as unknown as string) : f.off[i] < 0 ? '' : f.all.slice(f.off[i], f.off[i] + f.len[i])),
+      // The whole text as one string, made on first use only (the fallback scans; not used when
+      // findIn is there).
+      get all() { return whole ?? (whole = allU ? fromUnits(allU, 0, allU.length) : '  '); },
+      ...(idOf ? { has: (w: string) => idOf(w) >= 0 } : {}),
+      ...(sq && idOf ? {
+        findIn: (words: string[], s?: number) => {
+          if (!words.length) return false;
+          const ids: number[] = [];
+          for (const w of words) { const i = idOf(w); if (i < 0) return false; ids.push(i); }
+          if (s === undefined) return seqHas(sq, ids, 0, sq.seq.length);
+          if (!(s >= 1 && s < p.counts.length)) return false;
+          return seqHas(sq, ids, sq.wpos[cum[s]], sq.wpos[cum[s] + p.counts[s]]);
+        },
+      } : {}),
+      ayah: (i) => (i < 0 || i >= f.off.length ? (undefined as unknown as string) : f.off[i] < 0 ? '' : piece(f.off[i], f.off[i] + f.len[i])),
       surah: (s) => {
         if (cache.has(s)) return cache.get(s);
         let first = -1, last = -1;
         if (s >= 1 && s < p.counts.length) for (let i = cum[s]; i < cum[s] + p.counts[s]; i++) if (f.off[i] >= 0) { if (first < 0) first = i; last = i; }
-        const t = first < 0 ? undefined : f.all.slice(f.off[first] - 1, f.off[last] + f.len[last] + 1);
+        const t = first < 0 ? undefined : piece(f.off[first] - 1, f.off[last] + f.len[last] + 1);
         cache.set(s, t);
         return t;
       },
@@ -333,6 +414,9 @@ export function phraseMatcher(ix: LettersIndex, own: OwnRange) {
   // Same surah and anywhere: exact whole words only, so a form whose word list lacks one of the
   // phrase's words cannot match there and is not scanned (kit v30; same results, less CPU).
   const possibleFor = (words: string[]) => forms.filter(([, f]) => !f.has || words.every((w) => f.has!(w)));
+  // Kit v32: from the packed word sequence when the index has it (same answer, no whole-text scan).
+  const inSurah = (f: FormIndex, words: string[], exact: string) => (f.findIn ? f.findIn(words, own.s) : (f.surah(own.s) ?? '').includes(exact));
+  const inAll = (f: FormIndex, words: string[], exact: string) => (f.findIn ? f.findIn(words) : f.all.includes(exact));
   return {
     // The full result, with the form(s) and match type (the quote check, D-084).
     match(phrase: string): MatchOut {
@@ -342,9 +426,9 @@ export function phraseMatcher(ix: LettersIndex, own: OwnRange) {
       if (o) return { letters, words: words.length, ...o };
       const exact = ' ' + letters + ' ';
       const possible = possibleFor(words);
-      const s = formOf(possible.filter(([, f]) => (f.surah(own.s) ?? '').includes(exact)).map(([k]) => k));
+      const s = formOf(possible.filter(([, f]) => inSurah(f, words, exact)).map(([k]) => k));
       if (s) return { letters, words: words.length, result: 'matched_same_surah', form: s, match: 'exact' };
-      const e = formOf(possible.filter(([, f]) => f.all.includes(exact)).map(([k]) => k));
+      const e = formOf(possible.filter(([, f]) => inAll(f, words, exact)).map(([k]) => k));
       if (e) return { letters, words: words.length, result: 'matched_elsewhere', form: e, match: 'exact' };
       return { letters, words: words.length, result: 'unmatched', form: null, match: null };
     },
@@ -359,7 +443,7 @@ export function phraseMatcher(ix: LettersIndex, own: OwnRange) {
       const o = ownLevel(words, letters);
       if (o) return o.result === 'matched_own_ayah' ? 'own' : 'none';
       const exact = ' ' + letters + ' ';
-      return possibleFor(words).some(([, f]) => f.all.includes(exact)) ? 'other' : 'none';
+      return possibleFor(words).some(([, f]) => inAll(f, words, exact)) ? 'other' : 'none';
     },
   };
 }

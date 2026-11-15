@@ -357,13 +357,15 @@ test('TB-04 (AC37): missing, broken, wrong-version or wrong-count marks show the
   }
 });
 
-test('TB-05 (D-157): no static file of the build holds the letters-only matching data; the Worker config does', async () => {
+test('TB-05 (D-157): no static file of the build holds the letters-only matching data; the Worker data module does', async () => {
   const p = probesFrom(src.list);
   const site = scanFolder(join(BUILD, 'site'), p);
   expect(site.files).toBeGreaterThan(100);
   expect(site.hits).toEqual([]);
-  // Positive control: the scan finds the data where it is meant to be, in the Worker's own config.
-  expect(hitsIn(readFileSync(join(BUILD, 'worker-config.json'), 'utf8'), p)).toBeGreaterThan(1000);
+  // Positive control: the scan finds the data where it is meant to be, in the Worker's own data
+  // module (kit v32: worker-data.bin, letters as UTF-16 code units; read as UTF-16 for the scan).
+  expect(hitsIn(readFileSync(join(BUILD, 'worker-data.bin')).toString('utf16le'), p)).toBeGreaterThan(1000);
+  expect(hitsIn(readFileSync(join(BUILD, 'worker-config.json'), 'utf8'), p)).toBe(0);
 });
 
 test('TB-06 (AC4, AC30): every pre-live passage on screen equals the delivered text except for swapped bracket marks, character by character', async ({ page, request }) => {

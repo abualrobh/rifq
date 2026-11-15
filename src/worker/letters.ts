@@ -3,8 +3,8 @@
 // public repository or the static files, counts as private storage under D-039, D-049 and D-085.
 // It is used for matching only: /dev/quote-check/ (D-084) and the D-149 display marks (D-156 A).
 // Nothing here is ever put into a response.
-import { lettersIndex, packedIndex, phraseMatcher, type LettersIndex, type PackedLetters } from '../core/tafseer-quotes.ts';
-import { computeMarks } from '../core/tafseer-marks.ts';
+import { chapterPassages, checkPassage, lettersIndex, newSummary, packedIndex, phraseMatcher, type LettersIndex, type PackedLetters } from '../core/tafseer-quotes.ts';
+import { classOf, computeMarks } from '../core/tafseer-marks.ts';
 
 // Letters-only text per ayah, in source order: Uthmani (aya_text) and, under D-085, plain spelling
 // (aya_text_emlaey). Builds give it packed (`packed`, see packLetters), so a cold Worker only wraps
@@ -31,6 +31,9 @@ export type IndexTiming = { builtBy: string | null };
 // page still says which route built that), and no result can change. Measured locally (Node 22,
 // not Cloudflare): about +0.5 ms at startup and about -0.5 ms on the first passage. Probes that
 // scan the whole text were tried and left out: they cost more at startup than they saved.
+// Kit v32: the whole text is no longer scanned (findIn, the packed word sequence), so the probes
+// also run the same-surah and whole-text steps of both the display path (kind) and the quote
+// check (match): the first two words of 1:1, classified against 1:2 as the own range.
 export function warmUp(q?: LettersQuran | null): void {
   warmMadeUp();
   try {
@@ -39,10 +42,15 @@ export function warmUp(q?: LettersQuran | null): void {
     const first = ix.at.get('1:1');
     const f = ix.forms.uthmani ?? ix.forms.emlaey;
     if (first === undefined || !f) return;
-    const w = f.ayah(first).split(' ')[0];
+    const ws = f.ayah(first).split(' ');
+    const w = ws[0];
     if (!w) return;
     const m = phraseMatcher(ix, { s: 1, from: 1, to: 1 });
     m.kind(w); m.kind(w.slice(1));
+    if (ws.length < 2) return;
+    const m2 = phraseMatcher(ix, { s: 1, from: 2, to: 2 });
+    const two = ws.slice(0, 2).join(' ');
+    m2.kind(two); m2.match(two);
   } catch { /* warm-up only */ }
 }
 
@@ -54,6 +62,11 @@ function warmMadeUp(): void {
     const ix = lettersIndex([{ s: 1, a: 1, letters: `${cp(0x628, 0x62a)} ${cp(0x633, 0x644, 0x626)} ${w3}` }, { s: 1, a: 2, letters: cp(0x641, 0x642, 0x643) }]);
     const html = `<p>x (${w1} ${w2}) y {${cp(0x62f, 0x631, 0x632)}} z (${cp(0x641, 0x642, 0x643)} ${w1}) (${cp(0x637, 0x638, 0x639)} ${cp(0x63a, 0x63a)})</p>`;
     for (let i = 0; i < 3; i++) computeMarks(ix, html, { s: 1, from: 1, to: 1 }, true);
+    // Kit v32: the quote check's own steps too (passages from records, the full result per phrase,
+    // its display class), on the same made-up passage; the counts and list are thrown away.
+    for (const p of chapterPassages([{ verse_key: '1:1', text: html }, { verse_key: '1:2', text: html }])) {
+      checkPassage(ix, p.text, { s: p.s, from: p.from, to: p.to }, p.ref, newSummary(), [], (ph, r) => { classOf(r, ph, true); });
+    }
   } catch { /* warm-up only */ }
 }
 

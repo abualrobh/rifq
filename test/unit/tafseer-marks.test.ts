@@ -374,3 +374,84 @@ test('kit v31 reader CPU: one matcher per passage, and its display group equals 
   assert.ok(n > 1000, String(n));
   for (const r of ['matched_own_ayah', 'matched_same_surah', 'matched_elsewhere', 'unmatched', 'too_short', 'fragment']) assert.ok(seen.has(r), `covers ${r}`);
 });
+
+test('kit v32 CPU: whole-text and same-surah search from the packed word sequence gives exactly the scan results', async () => {
+  // Synthetic data only. Phrases: runs inside one ayah, runs across an ayah end (the end of one
+  // ayah and the start of the next, in the same surah and across a surah end), single words, words
+  // missing from the text, and edge pieces; against own ranges in the same and in other surahs.
+  const { encodeWorkerData, decodeWorkerData } = await import('../../src/core/worker-data.ts');
+  const counts = [0, ...SYN_COUNTS.slice(1)];
+  const forms = packLetters(counts, { uthmani: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))) }).forms;
+  const withSeq = packedIndex({ counts, forms });
+  const noSeq = packedIndex({ counts, forms: { uthmani: { ...forms.uthmani!, seq: undefined, pstart: undefined, plist: undefined, wpos: undefined } } });
+  const fromBin = packedIndex({ counts, forms: decodeWorkerData(encodeWorkerData({ letters: forms }).slice().buffer).letters! });
+  assert.ok(withSeq.forms.uthmani!.findIn && fromBin.forms.uthmani!.findIn && !noSeq.forms.uthmani!.findIn);
+  const L = src.list.map((a) => bareAyah(a.aya_text).split(' '));
+  let n = 0;
+  const seen = new Set<string>();
+  for (let k = 0; k < src.list.length; k += 2) {
+    const w = L[k], next = L[k + 1] ?? [];
+    const phrases = [w.slice(0, 2).join(' '), w.slice(-2).join(' '), [...w.slice(-1), ...next.slice(0, 1)].join(' '), [...w.slice(-2), ...next.slice(0, 2)].join(' '), w[0], `${w[0]} zz`, w.slice(1, 3).join(' ').slice(1)];
+    const a = src.list[k];
+    for (const own of [{ s: a.sora, from: a.aya_no, to: a.aya_no }, { s: a.sora, from: a.aya_no === 1 ? 2 : 1, to: a.aya_no === 1 ? 2 : 1 }, { s: a.sora === 1 ? 2 : 1, from: 1, to: 1 }, { s: 999, from: 1, to: 1 }]) {
+      const m0 = phraseMatcher(noSeq, own), m1 = phraseMatcher(withSeq, own), m2 = phraseMatcher(fromBin, own);
+      for (const p of phrases) {
+        const r0 = m0.match(p);
+        assert.deepEqual(m1.match(p), r0); assert.deepEqual(m2.match(p), r0);
+        assert.equal(m1.kind(p), m0.kind(p)); assert.equal(m2.kind(p), m0.kind(p));
+        seen.add(r0.result); n++;
+      }
+    }
+    // findIn itself against the string scans, for the whole text and every surah.
+    for (const p of phrases.slice(0, 4)) {
+      const words = lettersOnly(p).split(' ').filter(Boolean);
+      const exact = ' ' + words.join(' ') + ' ';
+      const f = withSeq.forms.uthmani!;
+      assert.equal(f.findIn!(words), f.all.includes(exact));
+      for (const s of [a.sora, a.sora === 1 ? 2 : 1, 0, counts.length]) assert.equal(f.findIn!(words, s), (f.surah(s) ?? '').includes(exact));
+    }
+  }
+  assert.ok(n > 2000, String(n));
+  for (const r of ['matched_own_ayah', 'matched_same_surah', 'matched_elsewhere', 'unmatched']) assert.ok(seen.has(r), `covers ${r}`);
+});
+
+test('kit v32 CPU: the Worker data module round-trips, holds no config, and a Worker without its data does not start', async () => {
+  const { encodeWorkerData, decodeWorkerData, hashHex } = await import('../../src/core/worker-data.ts');
+  const { withWorkerData } = await import('../../src/worker/bundle-data.ts');
+  const counts = [0, ...SYN_COUNTS.slice(1)];
+  const forms = packLetters(counts, { uthmani: lettersQuran.letters, emlaey: lettersQuran.letters.map((l) => l.split(' ').reverse().join(' ')) }).forms;
+  const full = src.list.map((_a, i) => (i * 7919).toString(16).padStart(64, '0')), bare = src.list.map((_a, i) => (i * 104729).toString(16).padStart(64, 'f'));
+  const bin = encodeWorkerData({ letters: forms, hashes: { full, bare } });
+  const d = decodeWorkerData(bin.slice().buffer);
+  for (const k of ['uthmani', 'emlaey'] as const) {
+    // The text comes back as UTF-16 code units, read a piece at a time by the packed index.
+    const units = (u: ArrayLike<number> | undefined) => String.fromCharCode(...Array.from(u ?? []));
+    assert.equal(units(d.letters![k]!.allU16), forms[k]!.all);
+    assert.equal(units(d.letters![k]!.wordsU16), forms[k]!.words);
+    const a = packedIndex({ counts, forms: d.letters! }).forms[k]!, b = packedIndex({ counts, forms }).forms[k]!;
+    assert.equal(a.all, b.all);
+    for (let i = 0; i < src.list.length; i++) assert.equal(a.ayah(i), b.ayah(i));
+    for (let x = 0; x <= counts.length; x++) assert.equal(a.surah(x), b.surah(x));
+    for (const w of forms[k]!.words!.split(' ').slice(0, 300)) { assert.equal(a.has!(w), true); assert.equal(a.has!(w + 'z'), false); }
+    for (const x of ['off', 'len', 'woff', 'seq', 'pstart', 'plist', 'wpos'] as const) assert.deepEqual(Array.from(d.letters![k]![x]!), Array.from(forms[k]![x]!), `${k}.${x}`);
+  }
+  for (let i = 0; i < full.length; i++) { assert.equal(hashHex(d.hashes!.full, i), full[i]); assert.equal(hashHex(d.hashes!.bare, i), bare[i]); }
+  assert.equal(hashHex(d.hashes!.full, full.length), undefined);
+  assert.throws(() => decodeWorkerData(new Uint8Array(16).buffer), /magic/);
+  // A config that expects the data, given a module without it: the Worker does not start.
+  const empty = encodeWorkerData({}).slice().buffer;
+  assert.throws(() => withWorkerData({ dev: true, record: { name: 'S', edition: 'e', status: 's' }, lettersQuran: { counts } } as never, empty), /letters expected/);
+  assert.throws(() => withWorkerData({ dev: true, record: { name: 'S', edition: 'e', status: 's' }, verifyHashes: { counts } } as never, empty), /hashes expected/);
+  // With the data, a built Worker answers with marks equal to the plain-list Worker's.
+  const cfg = withWorkerData({ testMemoryLimits: true, dev: true, gate: false, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, counts, tafseerLimit: 1000, lettersQuran: { counts, sha256: 'a'.repeat(64), checkVersion: 'm1-test' } } as never, encodeWorkerData({ letters: packLetters(counts, { uthmani: lettersQuran.letters }).forms }).slice().buffer);
+  const mock = createMockQf({ quran: src });
+  const w = makeWorker(ab, cfg, { fetch: mock.fetch, cache: () => null, pauseMs: 0 } as never);
+  const { w: plain } = worker({ cache: new FakeCache() });
+  for (const a of [CASE.quoteExact, CASE.quoteSameSurah, CASE.quoteElsewhere, CASE.braces]) {
+    const body = JSON.stringify({ s: 2, a });
+    const r1 = await (await w.fetch(new Request(BASE.replace('9993', '9994') + '/api/tafseer', { method: 'POST', headers: { 'content-type': 'application/json' }, body }), ENV as never)).json() as { marks?: unknown };
+    const r2 = await (await plain.fetch(new Request(BASE.replace('9993', '9994') + '/api/tafseer', { method: 'POST', headers: { 'content-type': 'application/json' }, body }), ENV as never)).json() as { marks?: unknown };
+    assert.ok(r1.marks, `marks for 2:${a}`);
+    assert.deepEqual(r1.marks, r2.marks, `2:${a}`);
+  }
+});
