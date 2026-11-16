@@ -109,13 +109,61 @@ test('D-084 page route: behind the gate, one surah via by_chapter, counts and re
   const env = { ...ENV, TAFSIR_ID: String(MOCK_TAFSIR_ID) };
   const post = (body: string, h: Record<string, string> = { ...auth, 'content-type': 'application/json' }) => w.fetch(new Request('http://127.0.0.1/api/dev/quote-check', { method: 'POST', headers: h, body }), env as never);
   assert.equal((await post('{"s":2}', { 'content-type': 'application/json' })).status, 401);
-  const d = await (await post('{"s":2}')).json();
-  assert.equal(d.status, 'ok');
+  // Kit v30: one small part per request; the parts together give the whole surah.
+  const first = await (await post('{"s":2}')).json();
+  assert.equal(first.status, 'ok');
+  assert.ok(first.passages <= 12 && first.next !== null, 'one small part, then the next');
+  const d = { summary: { phrases: 0, byResult: { unmatched: 0 } }, list: [] as { ref: string; result: string }[], passages: 0, requests: 0 };
+  let part: { page: number; skip: number } | null = { page: 1, skip: 0 };
+  while (part) {
+    const x = await (await post(JSON.stringify({ s: 2, ...part }))).json();
+    assert.equal(x.status, 'ok');
+    d.summary.phrases += x.summary.phrases; d.summary.byResult.unmatched += x.summary.byResult.unmatched; d.list.push(...x.list); d.passages += x.passages; d.requests++;
+    part = x.next;
+  }
   assert.equal(d.summary.phrases, 10);
   assert.equal(d.summary.byResult.unmatched >= 1, true);
   assert.ok(d.list.some((x: { ref: string; result: string }) => x.ref === `2:${CASE.quoteElsewhere}` && x.result === 'matched_elsewhere'));
+  assert.ok(d.requests >= 4);
+  assert.equal((await post('{"s":2,"page":1,"skip":10}')).status, 400);
+  assert.equal((await post('{"s":2,"page":0}')).status, 400);
   assert.ok(mock.state.paths.every((p) => p.startsWith(`/content/api/v4/tafsirs/${MOCK_TAFSIR_ID}/by_chapter/2?`)));
   assert.equal((await post('{"s":0}')).status, 400);
   const off = makeWorker(ab, { testMemoryLimits: true, dev: true, gate: false, tafseer: true, record: { name: 'S', edition: 'e', status: 's' }, lettersQuran }, { fetch: mock.fetch });
   assert.equal((await off.fetch(new Request('http://127.0.0.1/api/dev/quote-check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"s":2}' }), env as never)).status, 404);
+});
+
+test('kit v30: the quote check in small parts gives the same passages as one whole-surah read, also across page ends', async () => {
+  const { makeQuoteCheck, QC_PER_PAGE } = await import('../../src/worker/quote-check.ts');
+  const { chapterPassages } = await import('../../src/core/tafseer-quotes.ts');
+  const mock = createMockQf({ quran: src });
+  // Made-up records for surah 2 (40 ayat): passages that run over page ends (9-12, 20-21), one
+  // longer than a page (25-37), and one that ends exactly at a page end (39-40).
+  const group = (a: number) => (a >= 9 && a <= 12 ? 'g9' : a >= 20 && a <= 21 ? 'g20' : a >= 25 && a <= 37 ? 'g25' : a >= 39 ? 'g39' : `a${a}`);
+  const all = Array.from({ length: 40 }, (_, i) => ({ verse_key: `2:${i + 1}`, text: `<p>made-up ${group(i + 1)} (x y)</p>` }));
+  const fetch = async (u: string, i: RequestInit) => {
+    const url = new URL(u);
+    const m = /\/tafsirs\/\d+\/by_chapter\/2$/.exec(url.pathname);
+    if (!m) return mock.fetch(u, i);
+    const per = Number(url.searchParams.get('per_page')), page = Number(url.searchParams.get('page'));
+    const total = Math.ceil(all.length / per);
+    return new Response(JSON.stringify({ tafsirs: all.slice((page - 1) * per, page * per), pagination: { per_page: per, current_page: page, next_page: page < total ? page + 1 : null } }), { headers: { 'content-type': 'application/json' } });
+  };
+  const lettersQuran = { counts: [0, ...SYN_COUNTS.slice(1)], letters: src.list.map(() => '') };
+  const qc = makeQuoteCheck(lettersQuran, true, { fetch, pauseMs: 0 });
+  const env = { ...ENV, TAFSIR_ID: String(MOCK_TAFSIR_ID) };
+  const got: { ref: string; from: number; to: number }[] = [];
+  let part: { page: number; skip: number } | null = { page: 1, skip: 0 };
+  let requests = 0;
+  while (part) {
+    const c = await qc.chunk(env as never, 2, part.page, part.skip);
+    assert.ok(!('status' in c), JSON.stringify(c));
+    if ('status' in c) break;
+    got.push(...c.passages.map((p) => ({ ref: p.ref, from: p.from, to: p.to })));
+    part = c.next;
+    requests++;
+    assert.ok(requests < 20);
+  }
+  assert.equal(QC_PER_PAGE, 10);
+  assert.deepEqual(got, chapterPassages(all).map((p) => ({ ref: p.ref, from: p.from, to: p.to })));
 });

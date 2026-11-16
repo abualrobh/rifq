@@ -90,7 +90,7 @@ test('AC11: a copy is used for under 7 days from the fetch, and never at 7 days 
   await ask(w, 2, 25);
   const n0 = mock.state.contentRequests;
   const keys = [...cache.m.keys()];
-  assert.ok(keys.every((k) => /\/__rifq-cache\/tafseer\/v3\/prelive\/(901\/2%3A25\/nomarks|list)$/.test(k)), 'AC22: keyed by environment, work and ayah only');
+  assert.ok(keys.every((k) => /\/__rifq-cache\/tafseer\/v5\/prelive\/(901\/2%3A25\/nomarks|list)$/.test(k)), 'AC22: keyed by environment, work and ayah only');
   for (const e of cache.m.values()) assert.equal(e.headers.get('cache-control'), 'max-age=604800');
   tick(MAX_AGE_MS - 1);
   await ask(w, 2, 25);
@@ -130,26 +130,43 @@ test('AC3: a passage covering several ayat reports its range', async () => {
   }
 });
 
-test('D-079: a matching fingerprint is reported, a changed passage is replaced by a notice', async () => {
+test('D-079, D-151 A (kit v32 FIND-AE): readers always get the passage and nothing about review; mismatches show on the quote check only', async () => {
   const good = await sha256Hex(passageText(MOCK_TAFSIR_ID, 2, CASE.reviewed)!);
   const old = await sha256Hex(passageText(MOCK_TAFSIR_ID, 2, CASE.changed, undefined, 1)!);
-  const { w } = await setup({ fingerprints: [
+  const entries = [
     { ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' },
     { ref: `2:${CASE.changed}`, tafsirId: MOCK_TAFSIR_ID, sha256: old, reviewed: '2026-11-02' },
     { ref: '2:30', tafsirId: 999, sha256: old, reviewed: '2026-11-02' },
-  ] });
-  const m = await (await ask(w, 2, CASE.reviewed)).json();
-  assert.deepEqual(m.review, { state: 'match', reviewed: '2026-11-01' });
-  const c = await ask(w, 2, CASE.changed);
-  const cd = await c.json();
-  assert.equal(cd.status, 'changed');
-  assert.equal(cd.reviewed, '2026-11-02');
-  assert.equal(cd.text, undefined, 'no passage text in a changed answer');
-  const o = await (await ask(w, 2, 30)).json();
-  assert.deepEqual(o.review, { state: 'none' }, 'a fingerprint for another work does not apply');
-  // Cached copies are checked too.
-  const again = await (await ask(w, 2, CASE.changed)).json();
-  assert.equal(again.status, 'changed');
+  ];
+  const { w } = await setup({ fingerprints: entries });
+  for (const a of [CASE.reviewed, CASE.changed, 30, CASE.changed]) { // the last one from the cache
+    const r = await ask(w, 2, a);
+    const raw = await r.text();
+    const d = JSON.parse(raw);
+    assert.equal(r.status, 200);
+    assert.equal(d.status, 'ok', `2:${a} is shown`);
+    assert.equal(d.text, passageText(MOCK_TAFSIR_ID, 2, a), `2:${a} byte for byte`);
+    assert.equal('review' in d, false, 'no review field');
+    assert.equal('reviewed' in d, false, 'no review date');
+    assert.ok(!raw.includes('2026-11-0'), 'no review date anywhere in the answer');
+  }
+  // The development page's part answer: counts and references only.
+  const { makeQuoteCheck } = await import('../../src/worker/quote-check.ts');
+  const { bareAyah, lettersOnly } = await import('../../src/core/tafseer-quotes.ts');
+  const mock = createMockQf({ quran: src });
+  const qc = makeQuoteCheck({ counts: [0, ...SYN_COUNTS.slice(1)], letters: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))) }, true,
+    { fetch: mock.fetch, pauseMs: 0, fingerprints: { format: 'rifq-tafseer-fingerprints/1', entries } });
+  let part: { page: number; skip: number } | null = { page: 1, skip: 0 };
+  const fp = { checked: 0, same: 0, differ: [] as string[] };
+  while (part) {
+    const r = await qc.part(ENV as never, 2, part.page, part.skip);
+    assert.equal(r.status, 200);
+    const f = r.data.fingerprints as typeof fp;
+    assert.deepEqual(Object.keys(f).sort(), ['checked', 'differ', 'same']);
+    fp.checked += f.checked; fp.same += f.same; fp.differ.push(...f.differ);
+    part = r.data.next as typeof part;
+  }
+  assert.deepEqual(fp, { checked: 2, same: 1, differ: [`2:${CASE.changed}`] }, 'the other work\'s fingerprint does not apply');
 });
 
 test('D-076, D-077: no work set, missing secrets, or a non-Arabic work: nothing is shown', async () => {

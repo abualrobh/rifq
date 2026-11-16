@@ -82,6 +82,9 @@ function create(el: HTMLAudioElement, dev: boolean) {
     // QA v28 FIND-Q: a paused reciter change is loading (held); `wantPlay` is a play press made
     // during that wait, honoured once the new reciter is ready.
     holding: false, wantPlay: false,
+    // QA v29 FIND-V: a held reciter change that could not load because the device was offline. The
+    // next play press starts it (at the same ayah, new reciter) instead of doing nothing.
+    retry: null as null | { m: 'ayah' | 'surah'; s: number; a: number; info: { count: number; names: Names } },
   };
   const set = (p: Partial<Snap>) => { snap = { ...snap, ...p }; subs.forEach((f) => f()); };
   let seq = 0;
@@ -151,7 +154,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
   function clearTimers() { clearTimeout(x.loadT); clearTimeout(x.giveT); set({ loading: false }); }
 
   function stop(keepMark = false) {
-    x.holding = false; x.wantPlay = false;
+    x.holding = false; x.wantPlay = false; x.retry = null;
     clearTimers();
     stall.stop();
     el.pause();
@@ -172,7 +175,11 @@ function create(el: HTMLAudioElement, dev: boolean) {
 
   function fail(key: Key, code: string) {
     const was = x.begun;
+    // QA v29 I-2: a play press made during a held reciter change that then passed the 15 s give-up
+    // is kept, so the recitation starts if the reciter still arrives (as a plain start does, FIND-R).
+    const want = code === 'timeout-loading' && x.wantPlay;
     stop(true); // AC24: the mark stays on the ayah being played
+    x.wantPlay = want;
     why(code);
     set({ phase: was ? 'failed' : 'none' });
     say(key, true, code);
@@ -260,7 +267,13 @@ function create(el: HTMLAudioElement, dev: boolean) {
     if (x.s !== s) { x.meta = null; x.metaKey = ''; }
     x.s = s; x.count = info.count; x.names = info.names; x.begun = false;
     set({ s, count: info.count, names: info.names, phase: 'active', reason: '', msg: null, current: 0, last: a });
-    if (!navigator.onLine) { why('offline'); set({ phase: 'none' }); say('audioOffline', true); return; } // AC22
+    if (!navigator.onLine) {
+      // QA v29 FIND-V: a held change is not loading any more, so play presses are not swallowed as
+      // "loading"; the next press tries again (the normal offline message if still offline).
+      x.holding = false; x.wantPlay = false;
+      if (hold) x.retry = { m, s, a, info };
+      why('offline'); set({ phase: 'none' }); say('audioOffline', true); return; // AC22
+    }
     clearTimers();
     // QA v27 FIND-O: while held paused nothing is meant to play, so no "loading" message is shown.
     if (!hold) x.loadT = window.setTimeout(() => { set({ loading: true }); say('audioLoading'); }, LOADING_MS);
@@ -355,8 +368,20 @@ function create(el: HTMLAudioElement, dev: boolean) {
     return true;
   }
 
+  // FIND-V: play after a held change that failed offline starts that change, playing.
+  function retryHeld(): boolean {
+    const r = x.retry;
+    if (!r) return false;
+    x.retry = null;
+    start(r.m, r.s, r.a, r.info);
+    // Still offline: the offline message again, and the paused player stays as it was for the next press.
+    if (!navigator.onLine && x.mode === 'idle') { x.retry = r; set({ mode: r.m }); }
+    return true;
+  }
+
   function pauseOrResume() {
     if (requestPlay()) return;
+    if (retryHeld()) return;
     if (x.mode === 'idle') return;
     if (el.paused) { set({ msg: null }); void el.play().catch((e) => fail('audioUnavailable', `resume-${(e as Error)?.name ?? 'Error'}`)); } else el.pause();
   }
@@ -471,7 +496,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
     const ms = 'mediaSession' in navigator ? navigator.mediaSession : null;
     if (!ms) return;
     const h = (a: MediaSessionAction, f: MediaSessionActionHandler | null) => { try { ms.setActionHandler(a, f); } catch { /* not supported */ } };
-    h('play', () => { if (requestPlay()) return; if (x.mode !== 'idle') void el.play().catch(() => undefined); });
+    h('play', () => { if (requestPlay() || retryHeld()) return; if (x.mode !== 'idle') void el.play().catch(() => undefined); });
     h('pause', () => el.pause());
     h('stop', () => close());
     h('previoustrack', () => seekAyah(x.current - 1));

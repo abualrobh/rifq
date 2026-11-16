@@ -68,15 +68,3 @@ export async function sha256Hex(text: string): Promise<string> {
   for (const b of d) s += b.toString(16).padStart(2, '0');
   return s;
 }
-
-export type ReviewState =
-  | { state: 'none' }
-  | { state: 'match'; reviewed: string }
-  | { state: 'changed'; reviewed: string };
-
-// Compares a delivered passage with its fingerprint, when one exists.
-export async function reviewState(map: Map<string, FingerprintEntry>, tafsirId: number, ref: string, text: string): Promise<ReviewState> {
-  const e = map.get(`${tafsirId}|${ref}`);
-  if (!e) return { state: 'none' };
-  return (await sha256Hex(text)) === e.sha256 ? { state: 'match', reviewed: e.reviewed } : { state: 'changed', reviewed: e.reviewed };
-}

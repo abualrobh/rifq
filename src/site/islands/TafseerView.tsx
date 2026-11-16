@@ -21,11 +21,10 @@ import { surahPath, t, tafseerPath, type Lang } from '../../core/strings.ts';
 import BidiText from './BidiText.tsx';
 
 type Source = { tafsirId: number; title: string | null; author: string | null; edition: string | null; publisher: string | null; language: string | null; provider: string };
-type Ok = { status: 'ok'; s: number; a: number; range: { s: number; from: number; to: number }; text: string; source: Source; review: { state: 'none' } | { state: 'match'; reviewed: string }; marks?: unknown };
+type Ok = { status: 'ok'; s: number; a: number; range: { s: number; from: number; to: number }; text: string; source: Source; marks?: unknown };
 type View =
   | { kind: 'loading' }
   | { kind: 'ok'; d: Ok }
-  | { kind: 'changed'; reviewed: string; source: Source | null }
   | { kind: 'none' } | { kind: 'unavailable' } | { kind: 'not_configured' } | { kind: 'auth' };
 
 type Props = { lang: Lang; s: number; count: number; prevCount: number; last: number };
@@ -101,14 +100,13 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
       try { d = await r.json(); } catch { d = {}; }
       if (r.status === 401) next = { kind: 'auth' };
       else if (r.status === 200 && d.status === 'ok' && typeof d.text === 'string') next = { kind: 'ok', d: d as unknown as Ok };
-      else if (r.status === 200 && d.status === 'changed') next = { kind: 'changed', reviewed: String(d.reviewed ?? ''), source: (d.source as Source) ?? null };
       else if (r.status === 404 && d.status === 'none') next = { kind: 'none' };
       else if (d.status === 'not_configured') next = { kind: 'not_configured' };
       else next = { kind: 'unavailable' };
     } catch {
       next = { kind: 'unavailable' };
     }
-    if (next.kind === 'ok' || next.kind === 'none' || next.kind === 'changed') seen.current.set(key, next);
+    if (next.kind === 'ok' || next.kind === 'none') seen.current.set(key, next);
     if (id === seq.current) setView(next);
   }, [s]);
 
@@ -162,7 +160,6 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
   else if (view.kind === 'unavailable') body = <p className="msg alert" data-tf-msg="unavailable">{t(lang, 'tafseerUnavailable')}</p>;
   else if (view.kind === 'not_configured') body = <p className="msg alert" data-tf-msg="not_configured"><BidiText text={t(lang, 'tafseerNotConfigured')} lang={lang} /></p>;
   else if (view.kind === 'auth') body = <p className="msg alert" data-tf-msg="auth">{t(lang, 'tafseerAuthAgain')}</p>;
-  else if (view.kind === 'changed') body = <><p className="msg alert" data-tf-msg="changed">{t(lang, 'tafseerChanged', { d: view.reviewed })}</p>{sourceList(view.source)}</>;
   else {
     const d = view.d;
     const arabic = (d.source.language ?? '').trim().toLowerCase() === 'arabic';
@@ -171,7 +168,7 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
       <>
         {d.range.from !== d.range.to && <p className="tf-range" data-tf-range>{t(lang, 'tafseerRange', { s: d.range.s, from: d.range.from, to: d.range.to })}</p>}
         <div className="tf-text" lang={arabic ? 'ar' : undefined} dir={arabic ? 'rtl' : 'auto'} translate="no" data-tf-text data-tf-marked={shown.marked ? '1' : '0'}>{render(shown.nodes, arabic)}</div>
-        <p className="tf-review" data-tf-review={d.review.state}>{d.review.state === 'match' ? t(lang, 'reviewMatch', { d: d.review.reviewed }) : <BidiText text={t(lang, 'reviewNone')} lang={lang} />}</p>
+        {/* RQ-005 v1.1 AC26/AC27 (D-146, D-151 A, kit v32 FIND-AE): readers see no review line or notice at all; a D-079 fingerprint mismatch shows on /dev/quote-check/ only. */}
         {sourceList(d.source)}
       </>
     );

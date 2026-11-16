@@ -8,7 +8,8 @@
 // --tafseer turns on RQ-005 (the Tafseer screen, the per-ayah links and /api/tafseer). It is on by
 // default in development builds and off by default in release builds. A release build with
 // Tafseer on runs the Tafseer release check first (scripts/tafseer-release-check.ts: AC15 records,
-// D-079 fingerprints; the D-084 quote check is reported but never blocks) and stops unless it passes. No Tafseer is fetched by any other
+// fingerprint store and API errors; the D-084 quote check and, since D-168 A, D-079 fingerprint
+// mismatches are reported but never block) and stops unless it passes. No Tafseer is fetched by any other
 // build, and none is ever written into a build (AC14).
 // --audio turns on RQ-006 (the reader page player, /api/audio and /api/audio/reciters, and
 // media-src for the approved audio host on every page a reader can open, AC39 v1.3). On by default in development builds,
@@ -27,6 +28,8 @@ import { writeIndex } from './build-index.ts';
 import { writeHeaders } from './headers.ts';
 import { checkBuilt, extractAyat, READER_ROUTES, sameBytes, scanClientJs, TAFSEER_ROUTES } from './check-bytes.ts';
 import { bareAyah, lettersOnly, packLetters } from '../src/core/tafseer-quotes.ts';
+import { encodeWorkerData } from '../src/core/worker-data.ts';
+import { stampWorkerData } from '../src/core/worker-data-stamp.ts';
 import { checkFingerprints, type FingerprintFile } from '../src/core/tafseer-fingerprints.ts';
 import { MARKS_VERSION } from '../src/core/tafseer-marks.ts';
 import { checkLettersNotServed } from './letters-scan.ts';
@@ -168,6 +171,17 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   const bad0 = (lettersScan?.hits.length ?? 0) > 0 || reports.some((r) => r.mismatches.length || r.refErrors.length || r.equal !== src.list.length) || js.hits > 0;
 
   // 6. Local Worker entry and configs.
+  // Kit v32 (Cloudflare CPU): the letters-only matching data (D-157, Worker bundle only) and the
+  // D-081 hashes as one binary Data module next to search-index.bin (src/core/worker-data.ts), so the
+  // Worker's startup no longer parses them as a 6.9 MB object literal. Never written into site/.
+  // Kit v33 (D-169 A): the module gets a build ID (SHA-256 of its content) in its header, and the
+  // same ID, its size and its section table go into the Worker config (workerData), so the Worker
+  // refuses to start with a module from another build (src/core/worker-data-stamp.ts).
+  const data0 = encodeWorkerData({
+    letters: tf.on ? packLetters([0, ...surahCounts(src.list)], { uthmani: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))), emlaey: src.list.map((a) => lettersOnly(a.aya_text_emlaey ?? '')) }).forms : null,
+    hashes: mode !== 'release' ? { full: src.slices.map((b) => sha256(b)), bare: src.list.map((a) => sha256(Buffer.from(bareAyah(a.aya_text), 'utf8'))) } : null,
+  });
+  const { bin: data, stamp: workerData } = stampWorkerData(data0, sha256(Buffer.from(data0)));
   // With the gate on, the Worker runs first for every path and sets the asset headers itself.
   const cfg = {
     dev: mode !== 'release', gate: gateOn,
@@ -185,26 +199,28 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
     // storage. The approved file's SHA-256 and the matching code's version go into the cache key.
     // checkLettersNotServed (below) proves none of it is in the static files.
     // Packed at build time (packLetters), so a cold Worker joins and maps nothing (D-156 A timing).
-    ...(tf.on ? { lettersQuran: { counts: [0, ...surahCounts(src.list)], packed: packLetters([0, ...surahCounts(src.list)], { uthmani: src.list.map((a) => lettersOnly(bareAyah(a.aya_text))), emlaey: src.list.map((a) => lettersOnly(a.aya_text_emlaey ?? '')) }).forms, sha256: l.sha256, checkVersion: checkVersion() } } : {}),
-    ...(mode !== 'release' ? { verifyHashes: {
-      counts: [0, ...surahCounts(src.list)],
-      full: src.slices.map((b) => sha256(b)),
-      bare: src.list.map((a) => sha256(Buffer.from(bareAyah(a.aya_text), 'utf8'))),
-    } } : {}),
+    // Kit v32: the packed data itself goes into worker-data.bin (below), not into this config.
+    ...(tf.on ? { lettersQuran: { counts: [0, ...surahCounts(src.list)], sha256: l.sha256, checkVersion: checkVersion() } } : {}),
+    ...(mode !== 'release' ? { verifyHashes: { counts: [0, ...surahCounts(src.list)] } } : {}),
     ...(tf.on ? {
       counts: [0, ...surahCounts(src.list)],
       fingerprints: fingerprints ?? { format: 'rifq-tafseer-fingerprints/1', entries: [] },
       // AC7: edition and publisher come only from the record approved by Hamzeh, never from an agent.
       tafseerSource: tRecord ? { title: tRecord.title ?? undefined, author: tRecord.author ?? undefined, edition: tRecord.edition ?? undefined, publisher: tRecord.publisher ?? undefined } : null,
     } : {}),
+    workerData,
   };
   log({ step: 'gate-flag', gate: gateOn });
   writeFileSync(join(outDir, 'worker-config.json'), JSON.stringify(cfg, null, 2));
+  writeFileSync(join(outDir, 'worker-data.bin'), data);
+  log({ step: 'worker-data', bytes: data.length, sha256: sha256(Buffer.from(data)), buildId: workerData.id, sections: Object.keys(workerData.sections).length });
   writeFileSync(join(outDir, 'entry.ts'), `// Generated by scripts/build.ts. Local use only.
 import idx from './search-index.bin';
+import data from './worker-data.bin';
 import cfg from './worker-config.json';
 import { makeWorker } from ${JSON.stringify(join(ROOT, 'src/worker/app.ts'))};
-export default makeWorker(idx as ArrayBuffer, cfg);
+import { withWorkerData } from ${JSON.stringify(join(ROOT, 'src/worker/bundle-data.ts'))};
+export default makeWorker(idx as ArrayBuffer, withWorkerData(cfg, data as ArrayBuffer));
 `);
   // The e2e config has high limits so tests that send many refused requests are not locked out;
   // wrangler.jsonc has the real limits (120 searches, 10 failed sign-ins per minute).
@@ -228,7 +244,7 @@ export default makeWorker(idx as ArrayBuffer, cfg);
 
 // D-156 A: the version of the matching code. Any change to these files gives new marks a new cache
 // key, so marks made by older code are never read (AC31).
-export const MATCHING_FILES = ['src/core/tafseer-quotes.ts', 'src/core/tafseer-marks.ts', 'src/core/tafseer-html.ts', 'src/core/variants.ts', 'src/core/presentation-forms.ts', 'src/core/search-config.ts'];
+export const MATCHING_FILES = ['src/core/tafseer-quotes.ts', 'src/core/tafseer-marks.ts', 'src/core/tafseer-html.ts', 'src/core/variants.ts', 'src/core/presentation-forms.ts', 'src/core/search-config.ts', 'src/core/worker-data.ts'];
 export function checkVersion(): string {
   const all = Buffer.concat(MATCHING_FILES.map((f) => readFileSync(join(ROOT, f))));
   return `m${MARKS_VERSION}-${sha256(all).slice(0, 16)}`;

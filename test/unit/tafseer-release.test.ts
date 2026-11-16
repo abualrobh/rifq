@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { synthetic } from '../fixtures/load.ts';
-import { bareAyah, uthmaniLetters, stripInvisibles, composeHamza, lettersIndex, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
+import { bareAyah, uthmaniLetters, stripInvisibles, composeHamza, isProclitic, lettersIndex, chapterPassages, checkPassage, findPhrases, indexFromSource, lettersOnly, lettersOnlyWords, matchPhrase, newSummary, reviewCsv, type ReviewItem } from '../../src/core/tafseer-quotes.ts';
 import { checkFingerprints, sha256Hex } from '../../src/core/tafseer-fingerprints.ts';
 import { releaseRecordProblems, runTafseerCheck, TAFSEER_RECORD_FORMAT } from '../../scripts/tafseer-release-check.ts';
 import { fingerprintEntries } from '../../scripts/tafseer-fingerprint.ts';
@@ -176,15 +176,94 @@ test('D-088: split-off letters at the edges; fragments; middle words exact; 2:72
   assert.ok(reviewCsv(list).includes('"fragment","","",""'));
   // 2:72 style: HAIR SPACE + superscript alef + hamza mark + sukun-like mark + HAIR SPACE + WORD
   // JOINER inside one word. Made-up letters ra and ta.
-  // The API writes the hamza after the superscript alef as a mark (U+0654), which is removed; the
-  // file writes U+0621, a letter. They differ (accepted: 2:72 goes to the reviewers), but the
-  // narrow spaces no longer split the API word.
+  // The API writes the hamza after the superscript alef as a mark (U+0654) on that superscript
+  // alef; the file writes U+0621, a letter. Kit v30: step 1b reads the hamza mark on a superscript
+  // alef as U+0621, so the two now agree (v29 lost the hamza and 2:72 was unmatched).
   const api72 = A(0x631, 0x64e, 0x200a, 0x670, 0x654, 0x6e1, 0x200a, 0x2060, 0x62a);
   const file72 = A(0x631, 0x64e, 0x670, 0x621, 0x6e1, 0x62a);
-  assert.deepEqual(lettersOnlyWords(api72), [A(0x631, 0x62a)]);
-  assert.notEqual(lettersOnly(api72), lettersOnly(file72));
+  assert.deepEqual(lettersOnlyWords(api72), [A(0x631, 0x621, 0x62a)]);
+  assert.equal(lettersOnly(api72), lettersOnly(file72));
+  // Only that seat: a hamza mark after tatweel is still removed (the madda alef case above), and a
+  // superscript alef without a hamza mark stays a mark.
+  assert.deepEqual(lettersOnlyWords(A(0x631, 0x640, 0x654, 0x62a)), [A(0x631, 0x62a)]);
+  assert.deepEqual(lettersOnlyWords(A(0x631, 0x670, 0x62a)), [A(0x631, 0x62a)]);
   assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x2060, 0x62a)), [A(0x631, 0x62a)]);
   assert.deepEqual(lettersOnlyWords(A(0x631, 0x200a, 0x62a)), [A(0x631), A(0x62a)], 'a narrow space between letters still splits');
+});
+
+test('kit v30 FIND-X: one word of the own ayah after an attached letter matches; guards keep glosses plain', () => {
+  // Made-up "ayat" (arbitrary letters, not Quran words). 9:1 = [wa+dal-ra-zain, fa+ba+kha-sin-sheen,
+  // alef-lam+tha-jim-ha, qaf-ta-ghain-ya]; 9:2 = [ta-ghain-ya]; 9:3 = [ba-ta-sad-dad-ta].
+  const A = (...c: number[]) => cp(...c);
+  const W = { drz: A(0x62f, 0x631, 0x632), ksh: A(0x62e, 0x633, 0x634), tjh: A(0x62b, 0x62c, 0x62d), qtgy: A(0x642, 0x62a, 0x63a, 0x64a) };
+  const r1 = [A(0x648) + W.drz, A(0x641, 0x628) + W.ksh, A(0x627, 0x644) + W.tjh, W.qtgy];
+  const idx = lettersIndex([{ s: 9, a: 1, letters: r1.join(' ') }, { s: 9, a: 2, letters: A(0x62a, 0x63a, 0x64a) }, { s: 9, a: 3, letters: A(0x628, 0x62a, 0x635, 0x636, 0x62a) }]);
+  const m = (t: string, a: number) => { const x = matchPhrase(idx, t, { s: 9, from: a, to: a }); return [x.result, x.match]; };
+  // The three real shapes (2:178, 2:185, 2:188): the Quran word is wa + the quoted word.
+  assert.deepEqual(m(W.drz, 1), ['matched_own_ayah', 'edge']);
+  // Two attached letters (fa + bi), with marks on the phrase.
+  assert.deepEqual(m(A(0x62e, 0x64e, 0x633, 0x652, 0x634, 0x64f), 1), ['matched_own_ayah', 'edge']);
+  // Never alef + lam (the article): the bare word is a different word.
+  assert.deepEqual(m(W.tjh, 1), ['too_short', null]);
+  // Never a piece inside a word, and no suffix: the end or the start of a longer word does not count.
+  assert.deepEqual(m(A(0x62a, 0x63a, 0x64a), 1), ['too_short', null], 'end of qaf-ta-ghain-ya: qaf is not an attached letter');
+  assert.deepEqual(m(A(0x642, 0x62a, 0x63a), 1), ['too_short', null], 'start of a word');
+  // Own ayah range only: in 9:2 the same word with an attached letter elsewhere stays too short.
+  assert.deepEqual(m(W.drz, 2), ['too_short', null]);
+  // At least 3 letters: a two-letter piece is a fragment as before (D-088).
+  assert.deepEqual(m(A(0x62f, 0x631), 1), ['fragment', null]);
+  // A whole word is still exact.
+  assert.deepEqual(m(W.qtgy, 1), ['matched_own_ayah', 'exact']);
+  // Two-word phrases are unchanged (D-088 edge rules).
+  assert.deepEqual(m(`${W.drz} ${A(0x648, 0x648)}`, 1), ['unmatched', null]);
+  // 9:3: ba + ta-sad-dad-ta: ba is an attached letter, so this matches (accepted risk: a word whose
+  // first root letter is one of the attached letters can match; three letters at least).
+  assert.deepEqual(m(A(0x62a, 0x635, 0x636, 0x62a), 3), ['matched_own_ayah', 'edge']);
+});
+
+test('kit v31 FIND-Y (D-163 A): no alef prefix, so neither the article nor a hamza alef of the word is split off', () => {
+  // Made-up "ayat" (arbitrary letters, not Quran words), given with hamza alef where the shape needs
+  // it, so V-14 (D-074) folds it to bare alef exactly as it does in the approved text.
+  const A = (...c: number[]) => cp(...c);
+  const T = A(0x62b, 0x62c, 0x62d), K = A(0x62e, 0x633, 0x634), Z = A(0x637, 0x638, 0x639), Q4 = A(0x642, 0x63a, 0x641, 0x636);
+  const src9 = [
+    // 9:1, shape (a): alef + lam + word (the article). The rest after a bare alef starts with lam.
+    { s: 9, a: 1, t: `${A(0x627, 0x644) + T} ${A(0x627, 0x644, 0x644) + K}` },
+    // 9:2, shape (b): hamza alef + word (form-IV verb, comparative, first-person verb, broken plural).
+    { s: 9, a: 2, t: `${A(0x623) + Z} ${A(0x625) + Q4}` },
+    // 9:3, shape (c): hamza alef + bi/ka + word, and question alef + wa/fa + word.
+    { s: 9, a: 3, t: `${A(0x623, 0x628) + T} ${A(0x623, 0x643) + K} ${A(0x623, 0x648) + Z} ${A(0x623, 0x641) + Q4}` },
+    // 9:4, positive cases that must stay green: wa + word, fa + bi + word, wa + article word, li + word.
+    { s: 9, a: 4, t: `${A(0x648) + T} ${A(0x641, 0x628) + K} ${A(0x648, 0x627, 0x644) + Z} ${A(0x644) + Q4}` },
+  ];
+  const idx = lettersIndex(src9.map((r) => ({ s: r.s, a: r.a, letters: lettersOnly(r.t) })));
+  const m = (t: string, a: number) => { const x = matchPhrase(idx, t, { s: 9, from: a, to: a }); return [x.result, x.match]; };
+  // (a) The article is never split, also not as bare alef + (lam ...): lam + word is not green.
+  assert.deepEqual(m(A(0x644) + T, 1), ['too_short', null], 'alef | lam+word');
+  assert.deepEqual(m(A(0x644, 0x644) + K, 1), ['too_short', null], 'alef | lam+lam+word');
+  assert.deepEqual(m(T, 1), ['too_short', null], 'alef+lam | word (v30 guard, kept)');
+  assert.deepEqual(m(A(0x644) + K, 1), ['too_short', null], 'alef+lam | lam+word');
+  // (b) A hamza alef that belongs to the word is never taken as a question alef.
+  assert.deepEqual(m(Z, 2), ['too_short', null], 'hamza alef above | word');
+  assert.deepEqual(m(Q4, 2), ['too_short', null], 'hamza alef below | word');
+  // (c) No alef prefix at all, also with bi or ka, or before wa or fa.
+  assert.deepEqual(m(T, 3), ['too_short', null], 'alef+bi | word');
+  assert.deepEqual(m(K, 3), ['too_short', null], 'alef+ka | word');
+  assert.deepEqual(m(Z, 3), ['too_short', null], 'alef+wa | word');
+  assert.deepEqual(m(Q4, 3), ['too_short', null], 'alef+fa | word');
+  // Whole words of the own ayah are still exact, with or without the alef.
+  assert.deepEqual(m(A(0x623) + Z, 2), ['matched_own_ayah', 'exact']);
+  assert.deepEqual(m(A(0x627, 0x644) + T, 1), ['matched_own_ayah', 'exact']);
+  // Positive cases (the 2:178, 2:185 and 2:188 shapes and the other attached letters) stay green.
+  assert.deepEqual(m(T, 4), ['matched_own_ayah', 'edge'], 'wa | word');
+  assert.deepEqual(m(K, 4), ['matched_own_ayah', 'edge'], 'fa+bi | word');
+  assert.deepEqual(m(A(0x627, 0x644) + Z, 4), ['matched_own_ayah', 'edge'], 'wa | article word (2:185 shape)');
+  assert.deepEqual(m(Q4, 4), ['matched_own_ayah', 'edge'], 'li | word');
+  // ... but wa + the article is not a prefix: the bare word after wa + alef + lam stays plain.
+  assert.deepEqual(m(Z, 4), ['too_short', null], 'wa+alef+lam | word');
+  // The prefix list itself.
+  for (const p of [A(0x648), A(0x641), A(0x628), A(0x644), A(0x643), A(0x648, 0x628), A(0x641, 0x644)]) assert.equal(isProclitic(p), true);
+  for (const p of ['', A(0x627), A(0x627, 0x644), A(0x627, 0x648), A(0x627, 0x641), A(0x627, 0x628), A(0x627, 0x641, 0x644), A(0x648, 0x627, 0x644), A(0x628, 0x648)]) assert.equal(isProclitic(p), false, JSON.stringify(p));
 });
 
 test('D-084 phrases: ( ), ornate parentheses either way, and { } as qiraah_or_quote, kept as delivered', () => {
@@ -278,20 +357,27 @@ test('D-079 store: format, references, hashes, dates and duplicates are checked'
   assert.equal(sha, '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881');
 });
 
-test('AC15: a release needs every record, and production', () => {
+test('AC15: a release needs every record, and production; no D-012 reviewer check for Tafseer (D-146, D-168 A)', () => {
   const all = releaseRecordProblems({}, {});
-  assert.equal(all.length, 8);
+  assert.equal(all.length, 7);
+  assert.ok(!all.some((x) => x.includes('D-012') || /review/i.test(x)), all.join('\n'));
   const ok = {
     format: TAFSEER_RECORD_FORMAT, tafsirId: 5, d076: { status: 'approved', date: '2026-12-01' }, approvedSourcesListed: true,
-    reviewerCheck: { date: '2026-12-02' }, d008Audit: { date: '2026-12-03' }, qfProductionApproval: { date: '2026-12-04', scopes: ['content.tafsirs.read'] },
+    d008Audit: { date: '2026-12-03' }, qfProductionApproval: { date: '2026-12-04', scopes: ['content.tafsirs.read'] },
   };
-  assert.deepEqual(releaseRecordProblems(ok, { QF_ENV: 'production' }), []);
+  assert.deepEqual(releaseRecordProblems(ok, { QF_ENV: 'production' }), [], 'no reviewer check recorded: allowed');
+  assert.deepEqual(releaseRecordProblems({ ...ok, reviewerCheck: { date: '2026-12-02' } }, { QF_ENV: 'production' }), [], 'an old record with one: ignored');
+  assert.deepEqual(releaseRecordProblems({ ...ok, reviewerCheck: null }, { QF_ENV: 'production' }), []);
+  // The other records are still required.
+  for (const k of ['format', 'tafsirId', 'd076', 'approvedSourcesListed', 'd008Audit', 'qfProductionApproval'] as const) {
+    assert.equal(releaseRecordProblems({ ...ok, [k]: undefined }, { QF_ENV: 'production' }).length >= 1, true, k);
+  }
   assert.equal(releaseRecordProblems(ok, { QF_ENV: 'prelive' }).length, 1);
   assert.equal(releaseRecordProblems({ ...ok, qfProductionApproval: { date: '2026-12-04', scopes: ['content.read'] } }, { QF_ENV: 'production' }).length, 1);
   assert.equal(releaseRecordProblems({ ...ok, d076: { status: 'deferred' } }, { QF_ENV: 'production' }).length, 1);
 });
 
-test('release check against the mock: D-084 results are reported, never block; a changed passage still fails (D-079)', async () => {
+test('release check against the mock: D-084 results and D-079 fingerprint mismatches are reported, never block (D-168 A)', async () => {
   const mock = createMockQf({ quran: src });
   const old = await sha256Hex(passageText(MOCK_TAFSIR_ID, 2, CASE.changed, undefined, 1)!);
   const good = await sha256Hex(passageText(MOCK_TAFSIR_ID, 2, CASE.reviewed)!);
@@ -300,8 +386,14 @@ test('release check against the mock: D-084 results are reported, never block; a
     env: ENV, mode: 'dry-run', surahs: [1, 2], fetch: mock.fetch,
   });
   const rep = await run([{ ref: `2:${CASE.changed}`, tafsirId: MOCK_TAFSIR_ID, sha256: old, reviewed: '2026-11-01' }, { ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' }]);
-  assert.equal(rep.ok, false);
-  assert.deepEqual(rep.reasons, ['D-079: 1 passages changed since review'], 'the quote check adds no reason');
+  // D-168 A: the mismatch is reported (count and reference, no text, no hash) and blocks nothing.
+  assert.equal(rep.ok, true);
+  assert.deepEqual(rep.reasons, [], 'neither the quote check nor the fingerprint mismatch adds a reason');
+  assert.deepEqual(rep.fingerprints.changed, [`2:${CASE.changed}`]);
+  assert.equal(rep.fingerprints.checked, 2);
+  assert.equal(rep.fingerprints.matched, 1);
+  assert.deepEqual(rep.notices, [`D-079: 1 of 2 passages differ from their recorded fingerprint (change alarm only, not blocking): 2:${CASE.changed}`]);
+  assert.ok(!rep.notices.join(' ').includes(old) && !rep.notices.join(' ').includes(passageText(MOCK_TAFSIR_ID, 2, CASE.changed)!), 'no hash or text in the notice');
   assert.equal(rep.passages, 7 + 40 - 1, 'every ayah but the one with no passage');
   const r = (ref: number) => rep.reviewerList.filter((x) => x.ref === `2:${ref}`).map((x) => x.result);
   assert.deepEqual(r(CASE.quoteExact), [], 'own words as stored: matched, not listed');
@@ -317,9 +409,10 @@ test('release check against the mock: D-084 results are reported, never block; a
   assert.equal(rep.quotes.phrases, 10);
   assert.deepEqual(r(CASE.apiAlef), [], 'HAIR SPACE + U+0670 + WORD JOINER inside a word: matched, not listed');
   assert.equal(rep.quotes.braces, 2);
-  // Without the changed fingerprint the check passes, whatever the quote results.
+  // Without the changed fingerprint the check passes too, with no notice.
   const ok = await run([{ ref: `2:${CASE.reviewed}`, tafsirId: MOCK_TAFSIR_ID, sha256: good, reviewed: '2026-11-01' }]);
   assert.equal(ok.ok, true);
+  assert.deepEqual(ok.notices, []);
   assert.ok(ok.reviewerList.some((x) => x.result === 'unmatched'));
   // In release mode, the AC15 records come first.
   const rel = await runTafseerCheck({ recordPath: syn.recordPath, record: null, fingerprints: null, env: ENV, mode: 'release', surahs: [1], fetch: mock.fetch });
@@ -329,6 +422,16 @@ test('release check against the mock: D-084 results are reported, never block; a
   assert.ok(rel.reasons.some((x) => x.includes('not "production"')));
   assert.ok(rel.reasons.some((x) => x === 'no tafsir ID to check'));
   assert.equal(rel.passages, 0, 'nothing fetched without a recorded work');
+  // Other blocking checks are unchanged: an invalid fingerprint store and API errors still fail.
+  const badStore = await runTafseerCheck({ recordPath: syn.recordPath, record: { tafsirId: MOCK_TAFSIR_ID }, fingerprints: { format: 'x', entries: [] }, env: ENV, mode: 'dry-run', surahs: [1], fetch: mock.fetch });
+  assert.equal(badStore.ok, false);
+  assert.ok(badStore.reasons.some((x) => x.startsWith('fingerprints: format')));
+  const down = await runTafseerCheck({ recordPath: syn.recordPath, record: { tafsirId: MOCK_TAFSIR_ID }, fingerprints: { format: 'rifq-tafseer-fingerprints/1', entries: [] }, env: ENV, mode: 'dry-run', surahs: [1], fetch: async () => new Response('x', { status: 500 }) });
+  assert.equal(down.ok, false);
+  assert.ok(down.reasons.some((x) => /API errors/.test(x)), down.reasons.join('\n'));
+  // A complete record without a reviewer check passes the AC15 records part.
+  const recAll = { format: TAFSEER_RECORD_FORMAT, tafsirId: MOCK_TAFSIR_ID, d076: { status: 'approved', date: '2026-12-01' }, approvedSourcesListed: true, d008Audit: { date: '2026-12-03' }, qfProductionApproval: { date: '2026-12-04', scopes: ['content.tafsirs.read'] } };
+  assert.deepEqual(releaseRecordProblems(recAll, { QF_ENV: 'production' }), []);
 });
 
 test('fingerprint helper prints hashes only, made with the Worker parser', async () => {

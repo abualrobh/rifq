@@ -21,9 +21,12 @@
 //   missing              the API gave no text_qpc_hafs for this ayah
 // Nothing is stored or logged. The answer holds references, categories and hashes only.
 import { sha256Hex } from '../core/tafseer-fingerprints.ts';
+import { hashHex, type HashBytes } from '../core/worker-data.ts';
 import { parseVersesByChapter, QfClient, qfConfig, QPC_FIELD, QURAN_SCOPE, versesByChapterPath, type QfSecrets } from './qf.ts';
 
-export type VerifyHashes = { counts: number[]; full: string[]; bare: string[] }; // in source order
+// In source order. Kit v32: in a build, full and bare come as bytes from the Worker's data module
+// (src/core/worker-data.ts) and are written as hex only for the surah this page checks.
+export type VerifyHashes = { counts: number[]; full: string[] | HashBytes; bare: string[] | HashBytes };
 export type VerifyRow = { ref: string; result: 'same_with_number' | 'same_without_number' | 'same_text_number_form' | 'differs' | 'missing'; api: string | null; full: string; bare: string };
 
 // Proposal: 250 ms between pages inside one surah. The docs publish no rate limit, and the
@@ -62,15 +65,16 @@ export function makeVerify(h: VerifyHashes, devAllowed: boolean, deps: Deps = {}
     for (let a = 1; a <= h.counts[s]; a++) {
       const i = offset[s] + a - 1;
       const ref = `${s}:${a}`;
+      const full = hashHex(h.full, i) as string, bare = hashHex(h.bare, i) as string;
       const t = got.get(ref);
       got.delete(ref);
-      if (typeof t !== 'string') { rows.push({ ref, result: 'missing', api: null, full: h.full[i], bare: h.bare[i] }); continue; }
+      if (typeof t !== 'string') { rows.push({ ref, result: 'missing', api: null, full: full, bare: bare }); continue; }
       const api = await sha256Hex(t);
       let result: VerifyRow['result'] = 'differs';
-      if (api === h.full[i]) result = 'same_with_number';
-      else if (api === h.bare[i]) result = 'same_without_number';
-      else if (NUMBER_END.test(t) && (await sha256Hex(t.replace(NUMBER_END, ''))) === h.bare[i]) result = 'same_text_number_form';
-      rows.push({ ref, result, api, full: h.full[i], bare: h.bare[i] });
+      if (api === full) result = 'same_with_number';
+      else if (api === bare) result = 'same_without_number';
+      else if (NUMBER_END.test(t) && (await sha256Hex(t.replace(NUMBER_END, ''))) === bare) result = 'same_text_number_form';
+      rows.push({ ref, result, api, full: full, bare: bare });
     }
     extra.push(...got.keys());
     return { status: 200, data: { status: 'ok', s, pages, rows, extra } };

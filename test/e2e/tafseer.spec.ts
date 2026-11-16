@@ -52,7 +52,9 @@ test('AC4, AC13: every pre-live ayah is delivered byte for byte, with no credent
     const d = JSON.parse(raw);
     if (want === null) { expect(d.status).toBe('none'); continue; }
     if (a.sora === 2 && [CASE.error500, CASE.rate429, CASE.slow].includes(a.aya_no as never)) { expect(d.status).toBe('unavailable'); continue; }
-    if (a.sora === 2 && a.aya_no === CASE.changed) { expect(d.status).toBe('changed'); continue; }
+    // Kit v32 FIND-AE (D-151 A): a passage whose fingerprint differs is delivered like any other.
+    expect(d.status, `${a.sora}:${a.aya_no}`).toBe('ok');
+    expect('review' in d, `${a.sora}:${a.aya_no} has no review field`).toBe(false);
     expect(Buffer.from(d.text, 'utf8').equals(Buffer.from(want, 'utf8')), `${a.sora}:${a.aya_no}`).toBe(true);
     n++;
   }
@@ -68,7 +70,16 @@ test('AC7: source details show the API fields and "not stated" for the rest', as
   await expect(page.locator('[data-tf-src-edition]')).toHaveText(STRINGS.ar.notStated);
   await expect(page.locator('[data-tf-src-publisher]')).toHaveText(STRINGS.ar.notStated);
   await expect(page.locator('[data-tf-src-provider]')).toHaveText('Quran Foundation');
-  await expect(page.locator('[data-tf-review]')).toHaveAttribute('data-tf-review', 'none');
+  // RQ-005 v1.1 AC26 (D-146, D-147): without a matching fingerprint there is no review line at all.
+  await expect(page.locator('[data-tf-review]')).toHaveCount(0);
+  await expect(page.locator('[data-tf-status]')).not.toContainText('D-012');
+  // The same on the English interface (RQ-007).
+  await page.goto('/en/tafseer/2/#a21');
+  await ready(page);
+  await expect(page.locator('[data-tf-source]')).toHaveCount(1);
+  await expect(page.locator('[data-tf-review]')).toHaveCount(0);
+  await expect(page.locator('[data-tf-status]')).not.toContainText('not been reviewed');
+  await expect(page.locator('[data-tafseer-dev]')).toHaveText(STRINGS.en.tafseerDevNote);
 });
 
 test('AC3: a passage covering several ayat states its range, and stays the same inside it', async ({ page, seen }) => {
@@ -202,14 +213,27 @@ test('AC23: hostile markup runs no script and loads nothing; the words still mat
   expect(await el.evaluate((x) => x.textContent)).toBe(want);
 });
 
-test('D-079: a passage changed since review shows the notice; a matching one says so', async ({ page }) => {
-  await page.goto(`/en/tafseer/2/#a${CASE.changed}`);
-  await ready(page);
-  await expect(page.locator('[data-tf-msg="changed"]')).toContainText('updated since it was reviewed on 2026-11-02');
-  await expect(page.locator('[data-tf-text]')).toHaveCount(0);
-  await page.locator('[data-tf-next]').click();
-  await ready(page);
-  await expect(page.locator('[data-tf-review]')).toHaveText('This text matches the text reviewed on 2026-11-01.');
+test('D-079, D-151 A, AC26/AC27 (kit v32 FIND-AE): a passage whose fingerprint differs is shown; no review line or notice for a differing or a matching one', async ({ page }) => {
+  // e2e fingerprints: 2:13 (CASE.changed) differs, 2:14 (CASE.reviewed) matches. Both languages.
+  for (const lang of ['en', 'ar'] as const) {
+    await page.goto(`${lang === 'en' ? '/en' : ''}/tafseer/2/#a${CASE.changed}`);
+    await ready(page);
+    const el = page.locator('[data-tf-text]');
+    await expect(el).toHaveCount(1);
+    expect(await el.evaluate((x) => x.textContent)).toBe(visibleText(sanitize(passageText(MOCK_TAFSIR_ID, 2, CASE.changed, src)!)));
+    await expect(page.locator('[data-tf-msg]')).toHaveCount(0);
+    await expect(page.locator('[data-tf-review]')).toHaveCount(0);
+    await page.locator('[data-tf-next]').click();
+    await ready(page);
+    await expect(page.locator('[data-tf-text]')).toHaveCount(1);
+    await expect(page.locator('[data-tf-review]')).toHaveCount(0);
+    await expect(page.locator('[data-tf-msg]')).toHaveCount(0);
+    const body = await page.locator('main').innerText();
+    // No review date and no review wording (English "reviewed"; Arabic stems of the removed
+    // reviewMatch and tafseerChanged strings, written as code points).
+    const stems = ['reviewed', String.fromCodePoint(0x631, 0x648, 0x62c), String.fromCodePoint(0x645, 0x631, 0x627, 0x62c)];
+    for (const x of ['2026-11-01', '2026-11-02', ...stems]) expect(body.includes(x), `${lang}: ${x}`).toBe(false);
+  }
 });
 
 test('AC14: no passage from the API is in the build output', async () => {
@@ -348,13 +372,15 @@ test('TB-04 (AC37): missing, broken, wrong-version or wrong-count marks show the
   }
 });
 
-test('TB-05 (D-157): no static file of the build holds the letters-only matching data; the Worker config does', async () => {
+test('TB-05 (D-157): no static file of the build holds the letters-only matching data; the Worker data module does', async () => {
   const p = probesFrom(src.list);
   const site = scanFolder(join(BUILD, 'site'), p);
   expect(site.files).toBeGreaterThan(100);
   expect(site.hits).toEqual([]);
-  // Positive control: the scan finds the data where it is meant to be, in the Worker's own config.
-  expect(hitsIn(readFileSync(join(BUILD, 'worker-config.json'), 'utf8'), p)).toBeGreaterThan(1000);
+  // Positive control: the scan finds the data where it is meant to be, in the Worker's own data
+  // module (kit v32: worker-data.bin, letters as UTF-16 code units; read as UTF-16 for the scan).
+  expect(hitsIn(readFileSync(join(BUILD, 'worker-data.bin')).toString('utf16le'), p)).toBeGreaterThan(1000);
+  expect(hitsIn(readFileSync(join(BUILD, 'worker-config.json'), 'utf8'), p)).toBe(0);
 });
 
 test('TB-06 (AC4, AC30): every pre-live passage on screen equals the delivered text except for swapped bracket marks, character by character', async ({ page, request }) => {

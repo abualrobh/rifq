@@ -21,7 +21,7 @@ import { authorised, REALM, SignInGuard, type GateEnv, type RateLimit } from './
 import { renderPage, type PageCfg } from './page.ts';
 import { makeVerify, type VerifyHashes } from './verify.ts';
 import { makeQuoteCheck } from './quote-check.ts';
-import { makeLetters, type LettersQuran } from './letters.ts';
+import { makeLetters, warmUp, type LettersQuran } from './letters.ts';
 import { makeTiming, TIMING_PATH } from './timing.ts';
 import { makeReciters, RECITERS_PATH } from './reciters.ts';
 import { AUDIO_LIMIT_PER_MINUTE, makeAudio, type AudioRecord } from './audio.ts';
@@ -189,8 +189,11 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   // D-156 A, D-157: the letters-only matching data, in this bundle only, shared by the D-149 display
   // marks (/api/tafseer) and the private quote check page, so both use one index (AC31).
   const letters = cfg.tafseer && cfg.lettersQuran ? makeLetters(cfg.lettersQuran) : null;
+  if (letters) warmUp(cfg.lettersQuran); // at Worker startup, not in a request (kit v30, v31, v32 reader CPU)
   const tafseer = cfg.tafseer ? makeTafseer(cfg, { ...deps, letters }) : null;
-  let requests = 0;
+  // Requests this isolate received: all of them, and those past the password gate (kit v30, QA v29
+  // FIND-W: the 401 challenge a browser gets first is not a signed-in request).
+  let requests = 0, signedIn = 0;
   const catalogueOn = !!(tafseer && cfg.dev && cfg.gate);
   // RQ-006 preparation (D-110 to D-118): the reciters and timing check page, on the same terms as
   // the catalogue (development builds behind the gate, with the Tafseer client's credentials).
@@ -201,9 +204,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   // D-081: development builds behind the password gate only.
   const verify = cfg.dev && cfg.gate && cfg.verifyHashes ? makeVerify(cfg.verifyHashes, cfg.dev, deps) : null;
   // D-084 quote check page: development builds behind the gate, with Tafseer on.
-  const quotes = cfg.dev && cfg.gate && tafseer && letters ? makeQuoteCheck(letters, cfg.dev, deps) : null;
+  const quotes = cfg.dev && cfg.gate && tafseer && letters ? makeQuoteCheck(letters, cfg.dev, { ...deps, fingerprints: cfg.fingerprints ?? null }) : null;
   // D-156 A timing check page: on the same terms as the quote check page.
-  const timing = quotes && letters && tafseer ? makeTiming(quotes, letters, { started: Date.now(), requests: () => requests, tafseerServed: tafseer.served }) : null;
+  const timing = quotes && letters && tafseer ? makeTiming(quotes, letters, { all: () => requests, signedIn: () => signedIn, tafseerServed: tafseer.served }) : null;
   const guard = new SignInGuard();
   const assetHeaders = cfg.assetHeaders ? { ...BASE_HEADERS, ...cfg.assetHeaders } : null;
   if (assetHeaders) delete (assetHeaders as Record<string, string>)['cache-control'];
@@ -294,9 +297,13 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       if (v === 'unavailable') return unavailable();
       if (v === 'limited') return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
       const raw = await readCapped(req, MAX_TAFSEER_BODY);
-      let s = 0;
-      try { s = typeof raw === 'string' ? Number((JSON.parse(raw) as { s?: unknown }).s) : 0; } catch { s = 0; }
-      const out = await quotes.surah(env, s);
+      let s = 0, page = 1, skip = 0;
+      try {
+        const b = typeof raw === 'string' ? (JSON.parse(raw) as { s?: unknown; page?: unknown; skip?: unknown }) : {};
+        s = Number(b.s); page = b.page === undefined ? 1 : Number(b.page); skip = b.skip === undefined ? 0 : Number(b.skip);
+      } catch { s = 0; }
+      // Kit v30: one small part of a surah per request (CPU per request stays light).
+      const out = await quotes.part(env, s, page, skip);
       return json(out.status, out.data);
     }
     if (pathname === '/api/dev/verify-text' && verify) {
@@ -378,11 +385,12 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
     async fetch(req: Request, env: Env): Promise<Response> {
       requests++;
       try {
-        if (!cfg.gate) return await handle(req, env);
+        if (!cfg.gate) { signedIn++; return await handle(req, env); }
         const v = await guard.check(req, env, netKey(req), authorised);
         if (v.kind === 'unavailable') return gateUnavailable();
         if (v.kind === 'locked') return lockedOut(v.retry);
         if (v.kind === 'denied') return unauthorised();
+        signedIn++;
         return withHeaders(await handle(req, env), { 'cache-control': PRIVATE_CACHE });
       } catch {
         return unavailable();
