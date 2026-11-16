@@ -115,6 +115,15 @@ const ar = {
   backToReading: 'العودة إلى القراءة',
   tafseerNoScript: 'يحتاج عرض التفسير إلى تفعيل جافاسكربت. نص الآية معروض أعلاه.',
   tafseerDevNote: 'نسخة تطوير: ميزة التفسير غير معتمدة للإصدار بعد (D-076).',
+  // RQ-007 v1.1 (English Tafseer, kit v34): the six strings of its table, as drafted there. Shown
+  // in the English interface only (D-141 C); the Arabic column is kept as drafted (RQ-007 open
+  // question 7). Needs B-09 review.
+  tafseerEnNote: 'ترجمة إنجليزية مختصرة لتفسير ابن كثير.',
+  tfTranslator: 'المترجم',
+  tfAbridgement: 'الاختصار',
+  tfOriginal: 'العمل الأصلي',
+  langEnglish: 'الإنجليزية',
+  tafseerEnNotConfigured: 'لم يُضبط رقم عمل التفسير الإنجليزي في الموقع بعد (D-136)، لذلك لا يُعرض تفسير بالإنجليزية.',
   // RQ-004 surah index page (draft v0.1; D-089 B, D-093 A; D-090, D-091, D-092 and D-094 use
   // option A pending Hamzeh). New strings, added after the B-09 review (D-104); provisional until
   // Hamzeh's follow-up review.
@@ -318,6 +327,13 @@ const en: typeof ar = {
   backToReading: 'Back to reading',
   tafseerNoScript: 'Showing the Tafseer needs JavaScript. The ayah text is shown above.',
   tafseerDevNote: 'Development build: Tafseer is not approved for release yet (D-076).',
+  // RQ-007 v1.1 (see the Arabic block). Needs B-09 review.
+  tafseerEnNote: 'Abridged English translation of Tafsir Ibn Kathir.',
+  tfTranslator: 'Translator',
+  tfAbridgement: 'Abridgement',
+  tfOriginal: 'Original work',
+  langEnglish: 'English',
+  tafseerEnNotConfigured: 'The English Tafseer work is not set on this site yet (D-136), so no English Tafseer is shown.',
   // RQ-004 surah index (see the Arabic block).
   surahIndex: 'Surah index',
   surahIndexOpen: 'Open the surah index',

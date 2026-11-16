@@ -26,6 +26,17 @@
 // Development page (GET /dev/tafseer-catalogue/): lists the tafsirs the API offers so Hamzeh can
 // decide D-076. It exists only in development builds with the password gate on.
 //
+// RQ-007 (kit v34, D-135, D-136, D-141 C, D-143 A, D-145): English Tafseer. The English work is its
+// own setting, TAFSIR_EN_ID, with no default (AC8). A request with "l": "en" asks for it (the
+// English interface); a request without "l" (or "ar") asks for the Arabic work exactly as before.
+// The language check runs for each setting on its own (AC9): TAFSIR_ID serves only a work the API
+// says is "arabic" (unchanged, D-077), TAFSIR_EN_ID only one it says is "english" (an unknown
+// language is refused). Each work has its own cache entries (the English key holds "en" and its ID),
+// its own marks and its own source details (AC10). The 7-day rule, the shared TAFSEER_LIMIT and the
+// content.tafsirs.read scope are the same code for both (AC25 to AC27). No fingerprint is ever looked
+// at for English (AC16). D-149 marks for English treat a phrase with no Arabic letters as "N",
+// shown as delivered (P-11, AC34).
+//
 // No console call exists in this file on purpose: nothing is logged.
 import { escapeHtml } from '../core/highlight.ts';
 import type { FingerprintFile } from '../core/tafseer-fingerprints.ts';
@@ -57,8 +68,17 @@ export const looksLikeIbnKathir = (x: { name: string | null; author_name: string
 
 // Optional source record approved by Hamzeh (AC7): fields the API does not give.
 export type TafseerSourceRecord = { title?: string; author?: string; edition?: string; publisher?: string };
-export type TafseerCfg = { dev: boolean; gate?: boolean; counts?: number[]; fingerprints?: FingerprintFile | null; tafseerSource?: TafseerSourceRecord | null };
-export type TafseerEnv = QfSecrets & { TAFSIR_ID?: string };
+// RQ-007 AC14 (D-140 C): the English work's record also names its translator, abridgement and
+// original work. Only Hamzeh's approved record fills these; otherwise they are "not stated".
+export type TafseerEnSourceRecord = TafseerSourceRecord & { translator?: string; abridgement?: string; original?: string };
+// tafseerParts (release builds only, from the release check, RQ-007 AC18): a part that failed its
+// check is held back and answers "not configured". Development builds never set it.
+export type TafseerCfg = { dev: boolean; gate?: boolean; counts?: number[]; fingerprints?: FingerprintFile | null; tafseerSource?: TafseerSourceRecord | null; tafseerEnSource?: TafseerEnSourceRecord | null; tafseerParts?: { ar: boolean; en: boolean } | null };
+export type TafseerEnv = QfSecrets & { TAFSIR_ID?: string; TAFSIR_EN_ID?: string };
+export type TafseerLang = 'ar' | 'en';
+// The setting and the API language each interface's work must have (AC8, AC9).
+export const SETTING: Record<TafseerLang, 'TAFSIR_ID' | 'TAFSIR_EN_ID'> = { ar: 'TAFSIR_ID', en: 'TAFSIR_EN_ID' };
+export const isEnglish = (language: string | null | undefined) => typeof language === 'string' && language.trim().toLowerCase() === 'english';
 
 export type CacheLike = { match(key: string): Promise<Response | undefined>; put(key: string, r: Response): Promise<void> };
 type Deps = { fetch?: (u: string, i: RequestInit) => Promise<Response>; now?: () => number; cache?: () => CacheLike | null; timeoutMs?: number; letters?: Letters | null };
@@ -71,8 +91,9 @@ function defaultCache(): CacheLike | null {
   return c?.default ?? null;
 }
 
-export function tafsirIdOf(env: TafseerEnv): number | null {
-  const v = typeof env.TAFSIR_ID === 'string' ? env.TAFSIR_ID.trim() : '';
+export function tafsirIdOf(env: TafseerEnv, lang: TafseerLang = 'ar'): number | null {
+  const raw = env[SETTING[lang]];
+  const v = typeof raw === 'string' ? raw.trim() : '';
   return /^[1-9][0-9]{0,8}$/.test(v) ? Number(v) : null;
 }
 
@@ -115,14 +136,16 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     } catch { /* a copy that cannot be kept is fetched again next time */ }
   }
 
-  async function passage(origin: string, q: QfConfig, id: number, s: number, a: number): Promise<PassageResult> {
-    const k = key(origin, [q.env, id, `${s}:${a}`, letters ? letters.key() : 'nomarks']);
+  async function passage(origin: string, q: QfConfig, id: number, s: number, a: number, lang: TafseerLang = 'ar'): Promise<PassageResult> {
+    // The Arabic key is unchanged from kit v33; the English key also holds "en" (AC10).
+    const lk = letters ? letters.key() : 'nomarks';
+    const k = key(origin, lang === 'ar' ? [q.env, id, `${s}:${a}`, lk] : [q.env, 'en', id, `${s}:${a}`, lk]);
     const hit = await readStored<PassageResult>(k);
     if (hit) return hit;
     let res: PassageResult;
     try {
       const p = parseByAyah(await qf.get(q, byAyahPath(id, s, a), { fields: 'language_name' }), s, a);
-      res = p ? { kind: 'ok', p, marks: marksFor(p) } : { kind: 'none' };
+      res = p ? { kind: 'ok', p, marks: marksFor(p, lang) } : { kind: 'none' };
     } catch (e) {
       if (e instanceof QfError && e.kind === 'not_found') res = { kind: 'none' };
       else throw e;
@@ -134,10 +157,12 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
   // Once per fetched passage. A work whose language the API does not give is taken as Arabic (the
   // route serves Arabic works only, D-077). If anything goes wrong, no marks: the browser then shows
   // the passage as delivered (AC37).
-  function marksFor(p: Passage): Marks | null {
+  // RQ-007: an English passage is never an Arabic work (P-11: its phrases with no Arabic letters
+  // are "N", shown as delivered).
+  function marksFor(p: Passage, lang: TafseerLang): Marks | null {
     if (!letters) return null;
     try {
-      return computeMarks(letters.index(`/api/tafseer request ${served}`), p.text, p.range, p.languageName === null || isArabic(p.languageName));
+      return computeMarks(letters.index(`/api/tafseer request ${served}`), p.text, p.range, lang === 'ar' && (p.languageName === null || isArabic(p.languageName)));
     } catch { return null; }
   }
 
@@ -151,7 +176,10 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
   }
 
   // Validated request -> response body and status. Never includes credentials or tokens.
-  async function answer(origin: string, env: TafseerEnv, s: number, a: number): Promise<{ status: number; data: Record<string, unknown> }> {
+  async function answer(origin: string, env: TafseerEnv, s: number, a: number, lang: TafseerLang = 'ar'): Promise<{ status: number; data: Record<string, unknown> }> {
+    if (lang === 'en') return answerEn(origin, env, s, a);
+    // RQ-007 AC18 (release builds only): an Arabic part that failed its release check is held back.
+    if (!cfg.dev && cfg.tafseerParts && !cfg.tafseerParts.ar) return { status: 503, data: { status: 'not_configured', missing: [] } };
     const q = qfConfig(env, cfg.dev);
     const id = tafsirIdOf(env);
     const missing = [...('missing' in q ? q.missing : []), ...(id === null ? ['TAFSIR_ID'] : [])];
@@ -177,17 +205,57 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     return { status: 200, data: { status: 'ok', s, a, range: r.p.range, text: r.p.text, source, ...(r.marks ? { marks: r.marks } : {}) } };
   }
 
+  // RQ-007: the English work (TAFSIR_EN_ID). Same steps as answer(), with its own setting, language
+  // check, cache entries, marks and source record. Every answer carries lang "en".
+  async function answerEn(origin: string, env: TafseerEnv, s: number, a: number): Promise<{ status: number; data: Record<string, unknown> }> {
+    const notConfigured = (missing: string[]) => ({ status: 503, data: { status: 'not_configured', lang: 'en', missing: cfg.dev ? missing : [] } });
+    // Release builds: the English part is held back unless its release check passed (AC12, AC18).
+    if (!cfg.dev && cfg.tafseerParts && !cfg.tafseerParts.en) return notConfigured([]);
+    const q = qfConfig(env, cfg.dev);
+    const id = tafsirIdOf(env, 'en');
+    if ('missing' in q || id === null) return notConfigured([...('missing' in q ? q.missing : []), ...(id === null ? ['TAFSIR_EN_ID'] : [])]);
+    let r: PassageResult;
+    try { r = await passage(origin, q, id, s, a, 'en'); } catch { return { status: 503, data: { status: 'unavailable', lang: 'en' } }; }
+    let meta: TafsirListItem | undefined;
+    let listFailed = false;
+    // Also for "no passage": the work's language decides whether it may be served at all.
+    try { meta = (await list(origin, q)).find((x) => x.id === id); } catch { meta = undefined; listFailed = true; }
+    const language = (r.kind === 'ok' ? r.p.languageName : null) ?? meta?.language_name ?? null;
+    // AC9: only a work the API calls "english". If its language cannot be read now (the list
+    // failed and the passage does not say), nothing is shown: "unavailable".
+    if (language === null && listFailed) return { status: 503, data: { status: 'unavailable', lang: 'en' } };
+    if (!isEnglish(language)) return notConfigured(['english_tafsir (D-135)']);
+    if (r.kind === 'none') return { status: 404, data: { status: 'none', lang: 'en', s, a } };
+    const rec = cfg.tafseerEnSource ?? {};
+    const source = {
+      tafsirId: id,
+      title: r.p.resourceName ?? meta?.name ?? rec.title ?? null,
+      author: meta?.author_name ?? rec.author ?? null,
+      edition: rec.edition ?? null,
+      publisher: rec.publisher ?? null,
+      translator: rec.translator ?? null,
+      abridgement: rec.abridgement ?? null,
+      original: rec.original ?? null,
+      language,
+      provider: PROVIDER,
+    };
+    return { status: 200, data: { status: 'ok', lang: 'en', s, a, range: r.p.range, text: r.p.text, source, ...(r.marks ? { marks: r.marks } : {}) } };
+  }
+
   // Body already read and checked by the caller (size, type, cross-site, rate limit).
   async function api(origin: string, raw: string, env: TafseerEnv): Promise<{ status: number; data: Record<string, unknown> }> {
     let b: unknown;
     try { b = JSON.parse(raw); } catch { return { status: 400, data: { status: 'bad_request' } }; }
     const o = (b ?? {}) as Record<string, unknown>;
     const s = o.s, a = o.a;
+    // RQ-007: "l" is absent or "ar" for the Arabic work, "en" for the English work; nothing else.
+    if (o.l !== undefined && o.l !== 'ar' && o.l !== 'en') return { status: 400, data: { status: 'bad_request' } };
+    const lang: TafseerLang = o.l === 'en' ? 'en' : 'ar';
     const counts = cfg.counts ?? [];
     if (!Number.isInteger(s) || !Number.isInteger(a) || (s as number) < 1 || (a as number) < 1) return { status: 400, data: { status: 'bad_request' } };
     if (counts.length && ((s as number) >= counts.length || (a as number) > counts[s as number])) return { status: 400, data: { status: 'bad_request' } };
     served++;
-    return answer(origin, env, s as number, a as number);
+    return answer(origin, env, s as number, a as number, lang);
   }
 
   // The development catalogue page (D-076 helper). Plain HTML with no script.
@@ -195,6 +263,7 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     const h = escapeHtml;
     const q = qfConfig(env, cfg.dev);
     const id = tafsirIdOf(env);
+    const idEn = tafsirIdOf(env, 'en');
     const head = `<!doctype html>
 <html lang="en" dir="ltr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>DEVELOPMENT PAGE: Tafseer catalogue - RIFQ</title><link rel="stylesheet" href="/rifq-basic.css"></head>
 <body><p class="banner" role="note">DEVELOPMENT PAGE. Private, for Hamzeh only, to decide D-076. Not part of RIFQ, not reviewed, not for release.</p><main>
@@ -207,12 +276,15 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
       return { status: 503, html: `${head}<p role="alert">The API could not be reached or refused the request (${h(kind)}). Try again later.</p>${foot}` };
     }
     const ikArabic = (x: TafsirListItem) => isArabic(x.language_name) && looksLikeIbnKathir(x);
-    const row = (x: TafsirListItem) => `<tr${ikArabic(x) ? ' class="match" data-ibn-kathir' : ''}><td>${x.id}</td><td>${h(x.name ?? 'not stated')}</td><td>${h(x.author_name ?? 'not stated')}</td><td>${h(x.language_name ?? 'not stated')}</td><td>${h(x.slug ?? '')}</td><td>${ikArabic(x) ? '<strong>Possible Ibn Kathir (D-076)</strong>' : looksLikeIbnKathir(x) ? 'Ibn Kathir name, not Arabic' : ''}</td></tr>`;
+    const row = (x: TafsirListItem) => `<tr${ikArabic(x) ? ' class="match" data-ibn-kathir' : ''}${idEn !== null && x.id === idEn ? ' data-tafsir-en' : ''}><td>${x.id}</td><td>${h(x.name ?? 'not stated')}</td><td>${h(x.author_name ?? 'not stated')}</td><td>${h(x.language_name ?? 'not stated')}</td><td>${h(x.slug ?? '')}</td><td>${ikArabic(x) ? '<strong>Possible Ibn Kathir (D-076)</strong>' : looksLikeIbnKathir(x) ? 'Ibn Kathir name, not Arabic' : ''}</td></tr>`;
     const table = (rows: TafsirListItem[]) => `<table><thead><tr><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Author</th><th scope="col">Language</th><th scope="col">Slug</th><th scope="col">D-076</th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table>`;
     const arabic = l.filter((x) => isArabic(x.language_name));
     const other = l.filter((x) => !isArabic(x.language_name));
     const ik = arabic.filter(looksLikeIbnKathir);
     const ikOther = other.filter(looksLikeIbnKathir);
+    const english = other.filter((x) => isEnglish(x.language_name));
+    const enEntry = idEn === null ? undefined : l.find((x) => x.id === idEn);
+    const enLine = `<p>TAFSIR_EN_ID setting (RQ-007, D-136): <strong data-tafsir-en-id>${idEn === null ? 'not set' : String(idEn)}</strong>${idEn === null ? '' : enEntry ? `; in this list as ID ${enEntry.id}, language <strong data-tafsir-en-language>${h(enEntry.language_name ?? 'not stated')}</strong>, slug <strong data-tafsir-en-slug>${h(enEntry.slug ?? 'not stated')}</strong>, author <strong data-tafsir-en-author>${h(enEntry.author_name ?? 'not stated')}</strong> (row marked below)` : '; <strong>not in this list</strong>'}. The English interface shows only this work, and only if its language is "english" (RQ-007 AC9).</p>`;
     const ikNote = `<section aria-labelledby="ik"><h2 id="ik">D-076: Tafsir Ibn Kathir in Arabic</h2>
 <p>Hamzeh chose Tafsir Ibn Kathir in Arabic. The Quran Foundation docs do not publish its ID, so TAFSIR_ID is not set. Arabic entries whose name, author or slug looks like Ibn Kathir: <strong data-ibn-kathir-count>${ik.length}</strong>${ik.length ? ' (IDs ' + ik.map((x) => x.id).join(', ') + ', marked below)' : ''}. Matches in other languages, not usable under D-077: ${ikOther.length}${ikOther.length ? ' (IDs ' + ikOther.map((x) => x.id).join(', ') + ')' : ''}.</p>
 <p>Confirm the exact ID and edition (with the D-012 reviewer), then set TAFSIR_ID to that ID. This page matches by spelling only and is not a confirmation.</p></section>`;
@@ -220,10 +292,11 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
 <p>API environment: <strong>${h(q.env)}</strong>. Pre-live data covers only surahs 1 and 2. Names, authors and languages are shown exactly as the API returns them, from <code>/resources/tafsirs</code>, kept for at most 7 days.</p>
 <p>Response shape check: <a href="${SHAPE_PATH}">${SHAPE_PATH}</a> (keys, types and lengths only).</p>
 <p>TAFSIR_ID setting: <strong>${id === null ? 'not set (D-076 open)' : String(id)}</strong>.</p>
+${enLine}
 ${ikNote}
 <h2>Arabic (D-077): ${arabic.length}</h2>
 ${arabic.length ? table(arabic) : '<p>None with language "arabic".</p>'}
-<details><summary>Other languages, not shown to readers under D-077: ${other.length}</summary>${other.length ? table(other) : ''}</details>
+<details open data-other-languages><summary>Other languages: ${other.length} (English: <span data-english-count>${english.length}</span>). Open by default (RQ-007 AC31). Only the TAFSIR_EN_ID work is shown to readers, in the English interface.</summary>${other.length ? table(other) : ''}</details>
 <p>Choosing a work is Hamzeh's decision (D-076), with the D-012 reviewer. This list is not a recommendation.</p>${foot}` };
   }
 

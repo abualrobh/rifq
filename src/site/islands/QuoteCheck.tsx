@@ -11,6 +11,12 @@
 //
 // Kit v32 (FIND-AE, D-151 A): the D-079 fingerprint change alarm is shown here, and only here
 // (readers never see review notices): counts, and the ayah references whose fingerprint differs.
+//
+// RQ-007 (kit v34, AC17, AC37): a choice of work. "Arabic" checks TAFSIR_ID exactly as before.
+// "English" checks TAFSIR_EN_ID: only phrases in Arabic letters are matched and listed; phrases with
+// no Arabic letters are counted only; no fingerprints; the comparison asks /api/tafseer for the
+// English passage ("l": "en"). Each run's results and downloads name their work, and a new run
+// (or a change of work) starts from empty, so the two works' results never mix (AC10).
 import { useRef, useState } from 'react';
 import { reviewCsv, type CsvRow as ReviewItem } from '../../core/review-csv.ts';
 
@@ -34,6 +40,14 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
   const [display, setDisplay] = useState<Disp[]>([]);
   const [fpDiffer, setFpDiffer] = useState<string[]>([]);
   const [cmp, setCmp] = useState<{ state: string; done: number; agree: number; differ: { ref: string; check: string; api: string }[]; errors: number }>({ state: 'idle', done: 0, agree: 0, differ: [], errors: 0 });
+  const [work, setWork] = useState<'ar' | 'en'>('ar');
+  const [ran, setRan] = useState<{ work: 'ar' | 'en'; id: number | null } | null>(null);
+  const tag = ran ? `${ran.work}${ran.id === null ? '' : '-' + ran.id}` : work;
+  const pick = (w: 'ar' | 'en') => {
+    setWork(w); setRan(null);
+    setList([]); setCounts({}); setErrors([]); setDone([]); setDisplay([]); setFpDiffer([]); setState('idle');
+    setCmp({ state: 'idle', done: 0, agree: 0, differ: [], errors: 0 });
+  };
 
   async function compare() {
     stop.current = false;
@@ -44,7 +58,7 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
       if (stop.current) { setCmp({ state: 'stopped', done, agree, differ: [...differ], errors }); return; }
       const [s, a] = p.ref.split(':').map(Number);
       try {
-        const r = await fetch('/api/tafseer', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ s, a }) });
+        const r = await fetch('/api/tafseer', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify(ran?.work === 'en' ? { s, a, l: 'en' } : { s, a }) });
         const d = await r.json();
         const m = d?.marks;
         const api = m && typeof m.c === 'string' && m.n === m.c.length ? m.c : d?.status === 'ok' ? '(no marks)' : `(${String(d?.status ?? r.status)})`;
@@ -60,6 +74,9 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
   async function run() {
     const a = Math.max(1, Math.min(surahs, Number(from) || 1)), b = Math.max(a, Math.min(surahs, Number(to) || a));
     stop.current = false;
+    const w = work;
+    setRan({ work: w, id: null });
+    setCmp({ state: 'idle', done: 0, agree: 0, differ: [], errors: 0 });
     setList([]); setCounts({}); setErrors([]); setDone([]); setDisplay([]); setFpDiffer([]); setState('running');
     for (let s = a; s <= b; s++) {
       let part: { page: number; skip: number } | null = { page: 1, skip: 0 };
@@ -68,10 +85,11 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
         if (stop.current) { setState('stopped'); return; }
         if (parts++) await new Promise((res) => setTimeout(res, PART_PAUSE_MS));
         try {
-          const r: Response = await fetch('/api/dev/quote-check', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ s, page: part.page, skip: part.skip }) });
+          const r: Response = await fetch('/api/dev/quote-check', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify(w === 'en' ? { s, page: part.page, skip: part.skip, w: 'en' } : { s, page: part.page, skip: part.skip }) });
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const d: any = await r.json();
           if (r.status === 200 && Array.isArray(d.list)) {
+            if (Number.isInteger(d.tafsirId)) setRan({ work: w, id: d.tafsirId });
             setList((x) => [...x, ...d.list]);
             setCounts((c) => {
               const n = { ...c };
@@ -84,6 +102,12 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
               for (const [k] of CLASSES) n['d' + k] = (n['d' + k] ?? 0) + (d.displayCounts?.[k] ?? 0);
               n.fpChecked = (n.fpChecked ?? 0) + (Number(d.fingerprints?.checked) || 0);
               n.fpSame = (n.fpSame ?? 0) + (Number(d.fingerprints?.same) || 0);
+              // RQ-007: phrases with no Arabic letters (English work only): counted, never listed.
+              n.otherPhrases = (n.otherPhrases ?? 0) + (Number(d.other?.phrases) || 0);
+              n.otherRound = (n.otherRound ?? 0) + (Number(d.other?.byBracket?.round) || 0);
+              n.otherOrnate = (n.otherOrnate ?? 0) + (Number(d.other?.byBracket?.ornate) || 0);
+              n.otherCurly = (n.otherCurly ?? 0) + (Number(d.other?.byBracket?.curly) || 0);
+              n.otherUnclosed = (n.otherUnclosed ?? 0) + (Number(d.other?.unclosed) || 0);
               return n;
             });
             if (Array.isArray(d.fingerprints?.differ)) setFpDiffer((x) => [...x, ...d.fingerprints.differ.filter((r: unknown) => typeof r === 'string')]);
@@ -114,15 +138,20 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
 
   return (
     <div data-quote-check>
+      <fieldset data-qc-work>
+        <legend>Work</legend>
+        <label><input type="radio" name="qc-work" value="ar" checked={work === 'ar'} disabled={state === 'running'} onChange={() => pick('ar')} data-qc-work-ar /> Arabic (TAFSIR_ID)</label>{' '}
+        <label><input type="radio" name="qc-work" value="en" checked={work === 'en'} disabled={state === 'running'} onChange={() => pick('en')} data-qc-work-en /> English (TAFSIR_EN_ID, RQ-007)</label>
+      </fieldset>
       <p>
         <label>From surah <input value={from} onChange={(e) => setFrom(e.target.value)} size={4} inputMode="numeric" dir="ltr" data-qc-from /></label>{' '}
         <label>to <input value={to} onChange={(e) => setTo(e.target.value)} size={4} inputMode="numeric" dir="ltr" data-qc-to /></label>{' '}
         <button type="button" className="btn" data-qc-run disabled={state === 'running'} onClick={() => void run()}>Run the check</button>{' '}
         <button type="button" className="btn" disabled={state !== 'running'} onClick={() => { stop.current = true; }}>Stop</button>{' '}
-        <button type="button" className="btn" data-qc-json disabled={!list.length} onClick={() => save(JSON.stringify({ check: 'D-084', made: new Date().toISOString(), counts, list, errors }, null, 1), 'application/json', 'rifq-d084-reviewer-list.json')}>Download JSON</button>{' '}
-        <button type="button" className="btn" data-qc-csv disabled={!list.length} onClick={() => save(reviewCsv(list), 'text/csv;charset=utf-8', 'rifq-d084-reviewer-list.csv')}>Download CSV</button>
+        <button type="button" className="btn" data-qc-json disabled={!list.length} onClick={() => save(JSON.stringify({ check: 'D-084', work: ran?.work ?? work, tafsirId: ran?.id ?? null, made: new Date().toISOString(), counts, list, errors }, null, 1), 'application/json', ran?.work === 'en' ? `rifq-d084-list-${tag}.json` : 'rifq-d084-reviewer-list.json')}>Download JSON</button>{' '}
+        <button type="button" className="btn" data-qc-csv disabled={!list.length} onClick={() => save(reviewCsv(list), 'text/csv;charset=utf-8', ran?.work === 'en' ? `rifq-d084-list-${tag}.csv` : 'rifq-d084-reviewer-list.csv')}>Download CSV</button>
       </p>
-      <p role="status" data-qc-progress>Surahs checked: {done.length} ({state}). Requests: <span data-qc-requests>{counts.requests ?? 0}</span>.</p>
+      <p role="status" data-qc-progress>Surahs checked: {done.length} ({state}). Requests: <span data-qc-requests>{counts.requests ?? 0}</span>.{ran && <> Work: <span data-qc-ran>{ran.work === 'en' ? 'English' : 'Arabic'}{ran.id === null ? '' : `, ID ${ran.id}`}</span>.</>}</p>
       <table>
         <tbody>
           <tr><th scope="row">Passages</th><td data-qc-passages>{counts.passages ?? 0}</td></tr>
@@ -132,6 +161,13 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
           <tr><th scope="row">In braces (qiraah_or_quote)</th><td data-qc-braces>{counts.braces ?? 0}</td></tr>
           <tr><th scope="row">Errors</th><td data-qc-errors>{errors.length}</td></tr>
           {CLASSES.map(([k, label]) => <tr key={k}><th scope="row">Reader display {k}: {label}</th><td data-qc-display={k}>{counts['d' + k] ?? 0}</td></tr>)}
+          {ran?.work === 'en' && <>
+            <tr><th scope="row">Bracketed phrases with no Arabic letters (counted, not listed, not restyled; RQ-007 AC17, AC34)</th><td data-qc-other>{counts.otherPhrases ?? 0}</td></tr>
+            <tr><th scope="row">Of those: in ( )</th><td data-qc-other-round>{counts.otherRound ?? 0}</td></tr>
+            <tr><th scope="row">Of those: in ornate parentheses</th><td data-qc-other-ornate>{counts.otherOrnate ?? 0}</td></tr>
+            <tr><th scope="row">Of those: in {'{ }'}</th><td data-qc-other-curly>{counts.otherCurly ?? 0}</td></tr>
+            <tr><th scope="row">Of those: unclosed</th><td data-qc-other-unclosed>{counts.otherUnclosed ?? 0}</td></tr>
+          </>}
           <tr><th scope="row">D-079 fingerprints checked</th><td data-qc-fp-checked>{counts.fpChecked ?? 0}</td></tr>
           <tr><th scope="row">D-079 fingerprint same</th><td data-qc-fp-same>{counts.fpSame ?? 0}</td></tr>
           <tr><th scope="row">D-079 fingerprint differs (still shown to readers)</th><td data-qc-fp-differ>{fpDiffer.length}</td></tr>
