@@ -160,21 +160,24 @@ export function makeQuoteCheck(src: LettersQuran | Letters, devAllowed: boolean,
   async function coverage(env: QfSecrets & { TAFSIR_EN_ID?: string }, s: number, page = 1, skip = 0): Promise<Err> {
     const got = await chunk(env, s, page, skip, 'en');
     if ('status' in got) return got;
+    // Kit v34 CPU: each phrase is tested once; the passage-level figures use a code-point count and
+    // a plain character-class test (no letters-only folding of the whole passage).
     const passages = got.passages.map((p) => {
-      const ps = findPhrases(p.text);
-      const ar = { '()': 0, '\ufd3f\ufd3e': 0, '{}': 0 } as Record<Bracket, number>, no = { '()': 0, '\ufd3f\ufd3e': 0, '{}': 0 } as Record<Bracket, number>;
-      let unclosed = 0;
-      for (const ph of ps) { (hasArabicLetters(ph.text) ? ar : no)[ph.bracket]++; if (ph.unclosed) unclosed++; }
+      const ar = { round: 0, ornate: 0, curly: 0 }, no = { round: 0, ornate: 0, curly: 0 };
+      let unclosed = 0, arabicPhrases = 0, otherPhrases = 0;
+      for (const ph of findPhrases(p.text)) {
+        const k = BRACKET_KEY[ph.bracket];
+        if (ARABIC_SCRIPT_LETTER.test(ph.text) && hasArabicLetters(ph.text)) { arabicPhrases++; ar[k]++; } else { otherPhrases++; no[k]++; }
+        if (ph.unclosed) unclosed++;
+      }
       return {
         from: p.from, to: p.to,
-        chars: [...p.text].length,
-        arabicPhrases: ps.filter((x) => hasArabicLetters(x.text)).length,
-        otherPhrases: ps.filter((x) => !hasArabicLetters(x.text)).length,
-        arabicByBracket: { round: ar['()'], ornate: ar['\ufd3f\ufd3e'], curly: ar['{}'] },
-        otherByBracket: { round: no['()'], ornate: no['\ufd3f\ufd3e'], curly: no['{}'] },
+        chars: codePoints(p.text),
+        arabicPhrases, otherPhrases,
+        arabicByBracket: ar, otherByBracket: no,
         unclosed,
         square: countChar(p.text, '['),
-        hasArabicLetters: hasArabicLetters(p.text),
+        hasArabicLetters: ARABIC_SCRIPT_LETTER.test(p.text),
       };
     });
     return { status: 200, data: { status: 'ok', lang: 'en', s, tafsirId: got.id, page: got.page, pages: got.fetched, records: got.records, passages, next: got.next } };
@@ -187,6 +190,13 @@ export type OtherCounts = { phrases: number; byBracket: { round: number; ornate:
 export const newOther = (): OtherCounts => ({ phrases: 0, byBracket: { round: 0, ornate: 0, curly: 0 }, unclosed: 0 });
 const BRACKET_KEY: Record<Bracket, keyof OtherCounts['byBracket']> = { '()': 'round', '\ufd3f\ufd3e': 'ornate', '{}': 'curly' };
 const countChar = (t: string, ch: string) => { let n = 0; for (let i = t.indexOf(ch); i >= 0; i = t.indexOf(ch, i + 1)) n++; return n; };
+const codePoints = (t: string) => { let n = t.length; for (let i = 0; i < t.length; i++) { const c = t.charCodeAt(i); if (c >= 0xdc00 && c <= 0xdfff && i > 0) { const d = t.charCodeAt(i - 1); if (d >= 0xd800 && d <= 0xdbff) n--; } } return n; };
+// Coverage only (a count for Hamzeh, not used for display or matching): any Arabic-script letter,
+// including presentation forms, anywhere in the passage. Checked on every code point: each one that
+// hasArabicLetters accepts is in this class, so a text with no match has no Arabic letters, and the
+// class is used as a cheap first test before hasArabicLetters (unit-tested).
+const LETTER_RANGES: [number, number][] = [[1569, 1594], [1601, 1610], [1649, 1747], [1749, 1749], [1774, 1775], [1786, 1788], [1791, 1791], [1872, 1919], [2208, 2249], [64336, 64829], [64848, 65020], [65136, 65276]];
+export const ARABIC_SCRIPT_LETTER = new RegExp(`[${LETTER_RANGES.map(([a, b]) => (a === b ? `\\u{${a.toString(16)}}` : `\\u{${a.toString(16)}}-\\u{${b.toString(16)}}`)).join('')}]`, 'u');
 
 // One English passage: phrases with Arabic letters exactly as checkPassage handles every phrase
 // (same matcher, counts and listing rule); the others counted in `other` only. Returns the display
@@ -195,7 +205,7 @@ export function checkPassageEn(ix: Parameters<typeof phraseMatcher>[0], html: st
   const matcher = phraseMatcher(ix, own);
   let c = '';
   for (const p of findPhrases(html)) {
-    if (!hasArabicLetters(p.text)) {
+    if (!(ARABIC_SCRIPT_LETTER.test(p.text) && hasArabicLetters(p.text))) {
       other.phrases++;
       other.byBracket[BRACKET_KEY[p.bracket]]++;
       if (p.unclosed) other.unclosed++;

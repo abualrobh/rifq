@@ -15,7 +15,7 @@ import { arabicRuns } from '../../src/core/bidi.ts';
 import { STRINGS } from '../../src/core/strings.ts';
 import { makeWorker } from '../../src/worker/app.ts';
 import { MAX_AGE_MS, type CacheLike } from '../../src/worker/tafseer.ts';
-import { checkPassageEn, newOther } from '../../src/worker/quote-check.ts';
+import { ARABIC_SCRIPT_LETTER, checkPassageEn, newOther } from '../../src/worker/quote-check.ts';
 import { englishCatalogueProblems, englishRecordProblems, runTafseerCheck, TAFSEER_RECORD_FORMAT } from '../../scripts/tafseer-release-check.ts';
 
 const { ab, src, syn } = synthetic('tafseer-en');
@@ -402,4 +402,14 @@ test('strings: the six RQ-007 strings in both tables, exactly as drafted', () =>
   assert.equal(STRINGS.en.langEnglish, 'English');
   assert.equal(STRINGS.en.tafseerEnNotConfigured, 'The English Tafseer work is not set on this site yet (D-136), so no English Tafseer is shown.');
   for (const k of ['tafseerEnNote', 'tfTranslator', 'tfAbridgement', 'tfOriginal', 'langEnglish', 'tafseerEnNotConfigured'] as const) assert.ok(STRINGS.ar[k].length > 0 && STRINGS.ar[k] !== STRINGS.en[k], k);
+});
+
+test('coverage: the cheap Arabic-letter class accepts every code point that hasArabicLetters accepts', () => {
+  let missed = 0;
+  for (let c = 0; c <= 0x10ffff; c++) {
+    if (c >= 0xd800 && c <= 0xdfff) continue;
+    const x = String.fromCodePoint(c);
+    if (hasArabicLetters(x) && !ARABIC_SCRIPT_LETTER.test(x)) missed++;
+  }
+  assert.equal(missed, 0);
 });
