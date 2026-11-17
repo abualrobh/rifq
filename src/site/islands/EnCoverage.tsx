@@ -5,11 +5,13 @@
 // shows none. It asks RIFQ's own Worker for one small part of a surah at a time (about 10 ayat a
 // request, as /dev/quote-check/ does), one request every 1.1 seconds, under the 60-a-minute Tafseer
 // limit, and counts the requests it made. Nothing is stored or sent anywhere else.
+// Kit v35: also the mixed phrases (Arabic and other letters, QA v34 FIND-AS), the empty bracketed
+// phrases and the count of the sign U+FDFA (in passages and inside phrases), all numbers only.
 import { useRef, useState } from 'react';
 
 const PART_PAUSE_MS = 1100;
 type Br = { round: number; ornate: number; curly: number };
-type P = { from: number; to: number; chars: number; arabicPhrases: number; otherPhrases: number; arabicByBracket: Br; otherByBracket: Br; unclosed: number; square: number; hasArabicLetters: boolean };
+type P = { from: number; to: number; chars: number; arabicPhrases: number; otherPhrases: number; arabicByBracket: Br; otherByBracket: Br; unclosed: number; square: number; hasArabicLetters: boolean; mixedPhrases?: number; emptyPhrases?: number; signInPhrases?: number; sign?: number };
 type Row = { s: number; a: number; p: P | null };
 
 export default function EnCoverage({ counts }: { counts: number[] }) {
@@ -91,9 +93,12 @@ export default function EnCoverage({ counts }: { counts: number[] }) {
           <tr><th scope="row">Passages with any Arabic letters</th><td data-cov-with-arabic>{ps.filter((p) => p.hasArabicLetters).length}</td></tr>
           <tr><th scope="row">Bracketed phrases with Arabic letters (D-149 display applies)</th><td data-cov-ar>{sum((p) => p.arabicPhrases)}</td></tr>
           <tr><th scope="row">Of those: in ( ), ornate parentheses, {'{ }'}</th><td data-cov-ar-br>{`${sum((p) => p.arabicByBracket.round)}, ${sum((p) => p.arabicByBracket.ornate)}, ${sum((p) => p.arabicByBracket.curly)}`}</td></tr>
+          <tr><th scope="row">Of those: mixed, with letters of another script too (Latin, ...; kit v35)</th><td data-cov-mixed>{sum((p) => p.mixedPhrases ?? 0)}</td></tr>
           <tr><th scope="row">Bracketed phrases with no Arabic letters (shown as delivered, AC34)</th><td data-cov-other>{sum((p) => p.otherPhrases)}</td></tr>
           <tr><th scope="row">Of those: in ( ), ornate parentheses, {'{ }'}</th><td data-cov-other-br>{`${sum((p) => p.otherByBracket.round)}, ${sum((p) => p.otherByBracket.ornate)}, ${sum((p) => p.otherByBracket.curly)}`}</td></tr>
           <tr><th scope="row">Unclosed brackets (either kind)</th><td data-cov-unclosed>{sum((p) => p.unclosed)}</td></tr>
+          <tr><th scope="row">Empty bracketed phrases: nothing but spaces between the brackets (kit v35)</th><td data-cov-empty>{sum((p) => p.emptyPhrases ?? 0)}</td></tr>
+          <tr><th scope="row">Sign U+FDFA (sallallahu alayhi wa sallam): in passages, of which inside bracketed phrases (kit v35)</th><td data-cov-sign>{`${sum((p) => p.sign ?? 0)}, ${sum((p) => p.signInPhrases ?? 0)}`}</td></tr>
           <tr><th scope="row">Square brackets [ (not checked by RIFQ)</th><td data-cov-square>{sum((p) => p.square)}</td></tr>
           <tr><th scope="row">Errors</th><td data-cov-errors>{errors.length}</td></tr>
         </tbody>

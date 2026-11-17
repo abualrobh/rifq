@@ -97,11 +97,12 @@ test('AC10, AC22: separate cache entries; the Arabic key is the kit v33 key; key
   const keys = [...cache.m.keys()].filter((k) => k.includes('2%3A21'));
   assert.equal(keys.length, 2);
   assert.ok(keys.some((k) => /\/__rifq-cache\/tafseer\/v5\/prelive\/901\/2%3A21\/[^/]+$/.test(k)), 'Arabic key unchanged');
-  assert.ok(keys.some((k) => /\/__rifq-cache\/tafseer\/v5\/prelive\/en\/169\/2%3A21\/[^/]+$/.test(k)), 'English key holds en and its ID');
+  // Kit v35 (B5): the English key also ends with the English marks version (EN_MARKS_VERSION).
+  assert.ok(keys.some((k) => /\/__rifq-cache\/tafseer\/v5\/prelive\/en\/169\/2%3A21\/[^/]+\/e1$/.test(k)), 'English key holds en, its ID and the English marks version');
   assert.ok([...cache.m.keys()].every((k) => !k.includes('10.7.7.7')));
 });
 
-test('AC8: no English setting: development builds name it; release builds name nothing; Arabic keeps working', async () => {
+test('AC8, AC12 (D-175 A): no English setting: development builds name it; release builds name nothing and the reader shows tafseerUnavailable; Arabic keeps working', async () => {
   const { TAFSIR_EN_ID: _x, ...noEn } = ENV;
   const { w } = setup();
   const r = await askEn(w, 1, 1, noEn);

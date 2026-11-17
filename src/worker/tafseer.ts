@@ -30,8 +30,8 @@
 // own setting, TAFSIR_EN_ID, with no default (AC8). A request with "l": "en" asks for it (the
 // English interface); a request without "l" (or "ar") asks for the Arabic work exactly as before.
 // The language check runs for each setting on its own (AC9): TAFSIR_ID serves only a work the API
-// says is "arabic" (unchanged, D-077), TAFSIR_EN_ID only one it says is "english" (an unknown
-// language is refused). Each work has its own cache entries (the English key holds "en" and its ID),
+// says is "arabic" (since kit v35, D-174 A: an unknown language is refused too), TAFSIR_EN_ID only
+// one it says is "english" (an unknown language is refused). Each work has its own cache entries (the English key holds "en" and its ID),
 // its own marks and its own source details (AC10). The 7-day rule, the shared TAFSEER_LIMIT and the
 // content.tafsirs.read scope are the same code for both (AC25 to AC27). No fingerprint is ever looked
 // at for English (AC16). D-149 marks for English treat a phrase with no Arabic letters as "N",
@@ -42,6 +42,7 @@ import { escapeHtml } from '../core/highlight.ts';
 import type { FingerprintFile } from '../core/tafseer-fingerprints.ts';
 import { shapeOf } from './shape.ts';
 import { computeMarks, type Marks } from '../core/tafseer-marks.ts';
+import { EN_MARKS_VERSION, enMarks } from './marks-en.ts';
 import type { Letters } from './letters.ts';
 import { byAyahPath, byChapterPath, isArabic, LIST_PATH, parseByAyah, parseTafsirList, QfClient, qfConfig, QfError, type Passage, type QfConfig, type QfSecrets, type TafsirListItem } from './qf.ts';
 
@@ -137,9 +138,10 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
   }
 
   async function passage(origin: string, q: QfConfig, id: number, s: number, a: number, lang: TafseerLang = 'ar'): Promise<PassageResult> {
-    // The Arabic key is unchanged from kit v33; the English key also holds "en" (AC10).
+    // The Arabic key is unchanged from kit v33; the English key also holds "en" (AC10) and, since
+    // kit v35, the version of the English marks code (EN_MARKS_VERSION, src/worker/marks-en.ts).
     const lk = letters ? letters.key() : 'nomarks';
-    const k = key(origin, lang === 'ar' ? [q.env, id, `${s}:${a}`, lk] : [q.env, 'en', id, `${s}:${a}`, lk]);
+    const k = key(origin, lang === 'ar' ? [q.env, id, `${s}:${a}`, lk] : [q.env, 'en', id, `${s}:${a}`, lk, EN_MARKS_VERSION]);
     const hit = await readStored<PassageResult>(k);
     if (hit) return hit;
     let res: PassageResult;
@@ -159,9 +161,12 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
   // the passage as delivered (AC37).
   // RQ-007: an English passage is never an Arabic work (P-11: its phrases with no Arabic letters
   // are "N", shown as delivered).
+  // Kit v35 (B5): English passages use enMarks (the same letters, less CPU; the index is built
+  // only when a phrase has Arabic letters).
   function marksFor(p: Passage, lang: TafseerLang): Marks | null {
     if (!letters) return null;
     try {
+      if (lang === 'en') return enMarks(() => letters.index(`/api/tafseer request ${served}`), p.text, p.range);
       return computeMarks(letters.index(`/api/tafseer request ${served}`), p.text, p.range, lang === 'ar' && (p.languageName === null || isArabic(p.languageName)));
     } catch { return null; }
   }
@@ -186,12 +191,20 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     if ('missing' in q || id === null) return { status: 503, data: { status: 'not_configured', missing: cfg.dev ? missing : [] } };
     let r: PassageResult;
     try { r = await passage(origin, q, id, s, a); } catch { return { status: 503, data: { status: 'unavailable' } }; }
-    if (r.kind === 'none') return { status: 404, data: { status: 'none', s, a } };
     let meta: TafsirListItem | undefined;
-    try { meta = (await list(origin, q)).find((x) => x.id === id); } catch { meta = undefined; }
-    const language = r.p.languageName ?? meta?.language_name ?? null;
-    // D-077: Arabic Tafseer only. A work the API says is in another language is not shown.
-    if (language !== null && !isArabic(language)) return { status: 503, data: { status: 'not_configured', missing: cfg.dev ? ['arabic_tafsir (D-077)'] : [] } };
+    let listFailed = false;
+    // Kit v35, D-174 A (RQ-007 AC9, QA v34 FIND-AT): the Arabic setting serves only a work the API
+    // calls "arabic", as the English setting does for "english". The language is read first, also
+    // for "no passage". A work in another language, or one whose language cannot be read (not in
+    // the list and not in the passage), is refused with "not configured", naming the expected
+    // language and D-135 in development builds. If the list cannot be read now and the passage does
+    // not say, the answer is "unavailable" (nothing is shown). A work labelled "arabic" gets exactly
+    // the answers it got before (byte for byte; tested).
+    try { meta = (await list(origin, q)).find((x) => x.id === id); } catch { meta = undefined; listFailed = true; }
+    const language = (r.kind === 'ok' ? r.p.languageName : null) ?? meta?.language_name ?? null;
+    if (language === null && listFailed) return { status: 503, data: { status: 'unavailable' } };
+    if (language === null || !isArabic(language)) return { status: 503, data: { status: 'not_configured', missing: cfg.dev ? ['arabic_tafsir (D-135)'] : [] } };
+    if (r.kind === 'none') return { status: 404, data: { status: 'none', s, a } };
     const rec = cfg.tafseerSource ?? {};
     const source = {
       tafsirId: id,

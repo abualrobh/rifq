@@ -11,9 +11,10 @@
 // Release mode fails unless all of these hold:
 // 1. AC15 records (tafseer-record.json, kept in the private data repository and filled in by
 //    Hamzeh): D-076 approved with the tafsir ID, the work listed as approved in approved-sources.md,
-//    Hamzeh's D-008 audit, and Quran Foundation's production approval covering
-//    content.tafsirs.read. QF_ENV must be "production". No D-012 reviewer check is required for
-//    Tafseer (D-146, D-168 A); a reviewerCheck field in the record is ignored.
+//    and Quran Foundation's production approval covering content.tafsirs.read. QF_ENV must be
+//    "production". No D-012 reviewer check is required for Tafseer (D-146, D-168 A); a
+//    reviewerCheck field in the record is ignored. No D-008 audit is required either (kit v35,
+//    D-176 A: RQ-005 v1.1 AC15, D-147); a d008Audit field in the record is ignored.
 // 2. D-078 as changed by D-084: the quote check runs over every passage and its results are
 //    reported (counts, and a reviewer list of the phrases it could not match to their own ayat),
 //    but it never blocks a release. See src/core/tafseer-quotes.ts for the method and its limits.
@@ -33,7 +34,8 @@
 // list that ID with the same name, author, slug and language. It does not require a D-012 review
 // (D-139, D-146), a D-008 audit (D-147), fingerprints (D-138 C) or any quote-check result (D-150),
 // and it fetches no English passage. The Arabic result (`ok`, `reasons`) is computed exactly as in
-// kit v33 and never looks at the English part; `english.ok` never looks at the Arabic part.
+// kit v33 (apart from the D-008 line removed by D-176 A in kit v35) and never looks at the English
+// part; `english.ok` never looks at the Arabic part.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -48,7 +50,7 @@ export type TafseerRecord = {
   d076?: { status?: string; date?: string } | null;
   approvedSourcesListed?: boolean;
   reviewerCheck?: { date?: string } | null; // ignored since D-168 A (D-146: no reviewer step for Tafseer)
-  d008Audit?: { date?: string } | null;
+  d008Audit?: { date?: string } | null; // ignored since kit v35, D-176 A (D-147: D-008 does not apply to Tafseer from the official QF source)
   qfProductionApproval?: { date?: string; scopes?: string[] } | null;
   title?: string | null; author?: string | null; edition?: string | null; publisher?: string | null;
   quoteMarkers?: unknown;
@@ -73,7 +75,6 @@ export function releaseRecordProblems(r: TafseerRecord | null, env: QfSecrets): 
   if (!Number.isInteger(r.tafsirId) || (r.tafsirId as number) < 1) out.push('D-076: no tafsir ID recorded');
   if (r.d076?.status !== 'approved' || !DATE.test(r.d076?.date ?? '')) out.push('D-076: not recorded as approved with a date');
   if (r.approvedSourcesListed !== true) out.push('approved-sources.md: the work is not recorded as listed as approved');
-  if (!DATE.test(r.d008Audit?.date ?? '')) out.push("D-008: Hamzeh's audit is not recorded");
   if (!DATE.test(r.qfProductionApproval?.date ?? '') || !(r.qfProductionApproval?.scopes ?? []).includes(SCOPE)) out.push(`Quran Foundation production approval covering ${SCOPE} is not recorded`);
   if (env.QF_ENV !== 'production') out.push(`QF_ENV is "${env.QF_ENV ?? 'unset'}", not "production"`);
   return out;

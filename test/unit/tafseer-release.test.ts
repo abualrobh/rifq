@@ -357,10 +357,12 @@ test('D-079 store: format, references, hashes, dates and duplicates are checked'
   assert.equal(sha, '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881');
 });
 
-test('AC15: a release needs every record, and production; no D-012 reviewer check for Tafseer (D-146, D-168 A)', () => {
+test('AC15: a release needs every record, and production; no D-012 reviewer check (D-146, D-168 A) and no D-008 audit (D-147, D-176 A) for Tafseer', () => {
   const all = releaseRecordProblems({}, {});
-  assert.equal(all.length, 7);
+  assert.equal(all.length, 6);
   assert.ok(!all.some((x) => x.includes('D-012') || /review/i.test(x)), all.join('\n'));
+  // Kit v35, D-176 A (QA v34 FIND-AU): no D-008 line at all.
+  assert.ok(!all.some((x) => x.includes('D-008')), all.join('\n'));
   const ok = {
     format: TAFSEER_RECORD_FORMAT, tafsirId: 5, d076: { status: 'approved', date: '2026-12-01' }, approvedSourcesListed: true,
     d008Audit: { date: '2026-12-03' }, qfProductionApproval: { date: '2026-12-04', scopes: ['content.tafsirs.read'] },
@@ -368,8 +370,12 @@ test('AC15: a release needs every record, and production; no D-012 reviewer chec
   assert.deepEqual(releaseRecordProblems(ok, { QF_ENV: 'production' }), [], 'no reviewer check recorded: allowed');
   assert.deepEqual(releaseRecordProblems({ ...ok, reviewerCheck: { date: '2026-12-02' } }, { QF_ENV: 'production' }), [], 'an old record with one: ignored');
   assert.deepEqual(releaseRecordProblems({ ...ok, reviewerCheck: null }, { QF_ENV: 'production' }), []);
+  // D-176 A: a record with no D-008 audit is allowed; an old record with one is ignored.
+  const { d008Audit: _d, ...noAudit } = ok;
+  assert.deepEqual(releaseRecordProblems(noAudit, { QF_ENV: 'production' }), [], 'no D-008 audit recorded: allowed (D-176 A)');
+  assert.deepEqual(releaseRecordProblems({ ...ok, d008Audit: null }, { QF_ENV: 'production' }), []);
   // The other records are still required.
-  for (const k of ['format', 'tafsirId', 'd076', 'approvedSourcesListed', 'd008Audit', 'qfProductionApproval'] as const) {
+  for (const k of ['format', 'tafsirId', 'd076', 'approvedSourcesListed', 'qfProductionApproval'] as const) {
     assert.equal(releaseRecordProblems({ ...ok, [k]: undefined }, { QF_ENV: 'production' }).length >= 1, true, k);
   }
   assert.equal(releaseRecordProblems(ok, { QF_ENV: 'prelive' }).length, 1);

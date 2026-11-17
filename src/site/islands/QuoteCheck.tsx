@@ -19,6 +19,7 @@
 // (or a change of work) starts from empty, so the two works' results never mix (AC10).
 import { useRef, useState } from 'react';
 import { reviewCsv, type CsvRow as ReviewItem } from '../../core/review-csv.ts';
+import { displayN } from '../lib/quote-check-counts.ts';
 
 // Kit v30: 1.1 seconds between requests (each part of a surah is one request; under the
 // 60-a-minute Tafseer limit).
@@ -160,7 +161,9 @@ export default function QuoteCheck({ surahs }: { surahs: number }) {
           <tr><th scope="row">Of the matches: edge matches (D-088)</th><td data-qc-edge>{counts.edge ?? 0}</td></tr>
           <tr><th scope="row">In braces (qiraah_or_quote)</th><td data-qc-braces>{counts.braces ?? 0}</td></tr>
           <tr><th scope="row">Errors</th><td data-qc-errors>{errors.length}</td></tr>
-          {CLASSES.map(([k, label]) => <tr key={k}><th scope="row">Reader display {k}: {label}</th><td data-qc-display={k}>{counts['d' + k] ?? 0}</td></tr>)}
+          {/* Kit v35 (B4): for the English work, N counts unclosed phrases only; the phrases with no
+              Arabic letters (also shown as delivered) are counted in their own rows below. */}
+          {CLASSES.map(([k, label]) => <tr key={k}><th scope="row">Reader display {k}: {label}</th><td data-qc-display={k}>{k === 'N' && ran?.work === 'en' ? displayN(counts) : counts['d' + k] ?? 0}</td></tr>)}
           {ran?.work === 'en' && <>
             <tr><th scope="row">Bracketed phrases with no Arabic letters (counted, not listed, not restyled; RQ-007 AC17, AC34)</th><td data-qc-other>{counts.otherPhrases ?? 0}</td></tr>
             <tr><th scope="row">Of those: in ( )</th><td data-qc-other-round>{counts.otherRound ?? 0}</td></tr>

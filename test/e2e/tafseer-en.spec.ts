@@ -21,7 +21,7 @@ const en = (a: number, s = 2) => enPassageText(s, a, src)!;
 const QIX = indexFromSource(src.list);
 const BR = new RegExp(`[(){}${OPEN}${CLOSE}]`, 'g');
 const NAMES: Record<string, string> = { O: 'own', A: 'other', P: 'plain' };
-const EN_QUOTES = [CASE.quoteExact, CASE.quoteSameSurah, CASE.quoteElsewhere, CASE.quoteUnmatched, CASE.braces, CASE.tooShort, EN_CASE.mix, EN_CASE.mixed, EN_CASE.paragraphs];
+const EN_QUOTES = [CASE.quoteExact, CASE.quoteSameSurah, CASE.quoteElsewhere, CASE.quoteUnmatched, CASE.braces, CASE.tooShort, EN_CASE.mix, EN_CASE.mixed, EN_CASE.paragraphs, EN_CASE.quotes, EN_CASE.forms];
 
 test('EN-01 (AC1, AC6, AC7, AC12, AC19, AC23): one tap in the English reader opens the English passage, LTR, with the note; only RIFQ is called', async ({ page, seen }) => {
   await page.goto('/en/2/#a20');
@@ -205,6 +205,23 @@ test('EN-09 (AC20, AC33, AC34, AC35, AC37, P-11): Arabic runs marked Arabic; Ara
     // Styled own/other phrases: Quran font, own language and direction, a q element; their
     // brackets show on screen as RTL (the opening mark at the right).
     for (const s of await el.locator('[data-tfq="own"], [data-tfq="other"]').all()) {
+      // Kit v35 (B3, FIND-AS): a phrase that also holds English letters keeps class, colour and
+      // font, but is not Arabic and right to left as a whole: its English words keep their order.
+      if (await s.evaluate((e) => /[A-Za-z]/.test(e.textContent ?? ''))) {
+        await expect(s).toHaveAttribute('data-tfq-mixed', '');
+        expect(await s.getAttribute('lang')).toBeNull();
+        expect(await s.getAttribute('dir')).toBeNull();
+        await expect(s.locator('q')).toHaveCount(1);
+        expect(await s.evaluate((e) => getComputedStyle(e).fontFamily)).toContain('Noto Naskh Arabic');
+        const order = await s.evaluate((e) => {
+          const xs: number[] = [];
+          const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+          for (let n = w.nextNode(); n; n = w.nextNode()) { const m = /[A-Za-z]+/.exec(n.textContent ?? ''); if (!m || (n.parentElement!.closest('[lang]') as HTMLElement).lang === 'ar' && n.parentElement!.closest('[data-ar-run]')) continue; const r = document.createRange(); r.setStart(n, m.index); r.setEnd(n, m.index + 1); xs.push(r.getBoundingClientRect().left); }
+          return xs;
+        });
+        for (let i = 1; i < order.length; i++) expect(order[i], `2:${a}: English words left to right`).toBeGreaterThan(order[i - 1]);
+        continue;
+      }
       await expect(s).toHaveAttribute('lang', 'ar');
       await expect(s).toHaveAttribute('dir', 'rtl');
       await expect(s.locator('q')).toHaveCount(1);
@@ -319,4 +336,65 @@ test('EN-15 (AC27): Arabic and English Tafseer requests share one limit of 60 a 
   expect(codes[60]).toBe(429);
   const r = await request.post(`${STRICT}/api/tafseer`, { data: { s: 2, a: 20, l: 'en' } });
   expect(r.status()).toBe(429);
+});
+
+test('EN-16 (kit v35 B1, B2; AC20, AC35, R-5): Arabic quotation marks stay with their Arabic line; presentation forms in brackets are shown', async ({ page }) => {
+  // Geometry of the first and last line of an element: the x of each visible character.
+  const ends = (sel: string) => page.locator(sel).first().evaluate((el) => {
+    const cs: { c: string; x: number; y: number }[] = [];
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) for (let i = 0; i < (n.textContent ?? '').length; i++) {
+      const c = n.textContent![i]; if (!c.trim()) continue;
+      const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); const b = r.getClientRects()[0]; if (b) cs.push({ c, x: b.left + b.width / 2, y: Math.round(b.top + b.height / 2) });
+    }
+    const ys = [...new Set(cs.map((c) => c.y))].sort((p, q) => p - q);
+    const line = (y: number) => cs.filter((c) => Math.abs(c.y - y) < 8);
+    const first = line(ys[0]), last = line(ys[ys.length - 1]);
+    const open = first.find((c) => c.c === '\u00ab'), close = last.find((c) => c.c === '\u00bb');
+    return { openRight: !!open && open.x >= Math.max(...first.map((c) => c.x)) - 0.5, closeLeft: !!close && close.x <= Math.min(...last.map((c) => c.x)) + 0.5 };
+  });
+  for (const size of [MOBILE, { width: 1280, height: 900 }]) for (const night of [false, true]) {
+    await page.setViewportSize(size);
+    await page.goto(`/en/tafseer/2/#a${EN_CASE.quotes}`);
+    await ready(page);
+    if (night) await page.locator('[data-night]').click();
+    const el = page.locator('[data-tf-text]');
+    // A paragraph that is one Arabic line is right to left as a whole, with its marks in place.
+    const line = el.locator('[data-ar-line]');
+    await expect(line).toHaveCount(1);
+    await expect(line).toHaveAttribute('dir', 'rtl');
+    await expect(line).toHaveAttribute('lang', 'ar');
+    expect(await ends('[data-tf-text] [data-ar-line]'), `${size.width} ${night}`).toEqual({ openRight: true, closeLeft: true });
+    // Inline quotations: the marks are inside the run, opening at its right.
+    const runs = el.locator('[data-ar-run]');
+    const quoted = await runs.evaluateAll((xs) => xs.map((x) => x.textContent ?? '').filter((t) => t.includes('\u00ab')));
+    expect(quoted.length).toBe(2);
+    for (const t of quoted) expect(t.startsWith('\u00ab') && t.endsWith('\u00bb')).toBe(true);
+    expect(await ends('[data-tf-text] [data-ar-run]:has-text("\u00ab")'), `${size.width} ${night} inline`).toEqual({ openRight: true, closeLeft: true });
+    // English around the runs keeps its order: "MOCK said," then the quotation, then "and then".
+    const order = await el.locator('p').nth(2).evaluate((p) => {
+      const at = (word: string) => { const w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT); for (let n = w.nextNode(); n; n = w.nextNode()) { const i = (n.textContent ?? '').indexOf(word); if (i >= 0) { const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); const b = r.getBoundingClientRect(); return { x: b.left, y: b.top }; } } return null; };
+      return [at('MOCK'), at('and then'), at('numbers'), at('means')];
+    });
+    for (let i = 1; i < order.length; i++) expect(order[i]!.y > order[i - 1]!.y + 4 || order[i]!.x > order[i - 1]!.x, `English order ${i}`).toBe(true);
+    // AC35: the words shown are the words delivered.
+    const text = (await el.evaluate((x) => x.textContent)) ?? '';
+    expect(utf8(text.replace(BR, '')).equals(utf8(visibleText(sanitize(en(EN_CASE.quotes))).replace(BR, '')))).toBe(true);
+    const box = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    expect(box).toBeLessThanOrEqual(1);
+  }
+  // B1: the sign U+FDFA and other presentation forms inside brackets are shown, each with a width.
+  await page.goto(`/en/tafseer/2/#a${EN_CASE.forms}`);
+  await ready(page);
+  const el = page.locator('[data-tf-text]');
+  const text = (await el.evaluate((x) => x.textContent)) ?? '';
+  expect(utf8(text.replace(BR, '')).equals(utf8(visibleText(sanitize(en(EN_CASE.forms))).replace(BR, '')))).toBe(true);
+  const signs = await el.evaluate((root) => {
+    const ws: number[] = [];
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) for (let i = 0; i < (n.textContent ?? '').length; i++) if (/[\ufdfa\ufdf2\ufefb]/.test(n.textContent![i])) { const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); ws.push(r.getBoundingClientRect().width); }
+    return ws;
+  });
+  expect(signs.length).toBe((en(EN_CASE.forms).match(/[\ufdfa\ufdf2\ufefb]/g) ?? []).length);
+  for (const x of signs) expect(x).toBeGreaterThan(1);
 });

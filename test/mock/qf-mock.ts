@@ -25,7 +25,10 @@ export const MOCK_EN_ID = 169;
 export const MOCK_OTHER_LANG_ID = 908;
 // English-work ayat in surah 2 with special behaviour (besides CASE.grouped, none, error500,
 // rate429, slow and hostile, which apply to every work).
-export const EN_CASE = { mix: 30, mixed: 31, paragraphs: 32 } as const;
+// Kit v35: 33, Arabic quotations in guillemets, quotes and brackets, as a whole line and inline
+// (B2); 34, the sign U+FDFA and other Arabic presentation forms inside ( ), { } and ornate
+// parentheses (B1).
+export const EN_CASE = { mix: 30, mixed: 31, paragraphs: 32, quotes: 33, forms: 34 } as const;
 // Ayat in surah 2 with special behaviour.
 export const CASE = {
   grouped: [3, 4, 5], hostile: 6, none: 7, error500: 8, rate429: 9, slow: 10,
@@ -83,6 +86,12 @@ export function enPassageText(s: number, a: number, q?: Quran): string | null {
     else if (a === EN_CASE.mixed) body = `(Mock ${own.split(' ')[0]} mixed) and (Mock only English)`;
     if (body !== null) return `<p>MOCK EN QUOTE 2:${a} before ${body} after. Not Tafseer.</p>`;
     if (a === EN_CASE.paragraphs) return `<p>MOCK EN PARAGRAPH ONE 2:${a} with ${own} inside. Not Tafseer.</p><p>MOCK EN PARAGRAPH TWO with (${own}) quoted. Not Tafseer.</p>`;
+    if (a === EN_CASE.quotes) {
+      const w = own.split(' ');
+      return `<p>MOCK EN QUOTE LINES 2:${a}. Not Tafseer.</p><p>\u00ab${own} ${own}\u061f\u00bb</p>`
+        + `<p>MOCK said, \u00ab${w[0]} ${w[1] ?? w[0]}\u00bb and then "${w[0]}" mock ${w[0]}\u061f ${w[1] ?? w[0]}\u060c numbers 12 \u00ab${w[0]} 3 ${w[1] ?? w[0]}\u00bb (7) end, the word ${w[0]} means mock.</p>`;
+    }
+    if (a === EN_CASE.forms) return `<p>MOCK EN SIGNS 2:${a}: he (\ufdfa) said, (O Mock \ufdfa) and {\ufdfa} and ${OPEN}\ufdfa${CLOSE}, (\ufdf2), (\ufefb), {${own} \ufdfa}, (mock \ufdf2 mock) and Mock \ufdfa ! Not Tafseer.</p>`;
   }
   return `<p>MOCK EN PASSAGE ${s}:${a} for tafsir ${MOCK_EN_ID}. Not Tafseer: made-up English test text.</p>`;
 }

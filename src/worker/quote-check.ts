@@ -44,6 +44,7 @@ import { fingerprintMap, sha256Hex, type FingerprintFile } from '../core/tafseer
 import { makeLetters, type Letters, type LettersQuran } from './letters.ts';
 import { byChapterPath, parseByChapter, QfClient, qfConfig, QfError, type QfSecrets } from './qf.ts';
 import { PAGE_PAUSE_MS } from './verify.ts';
+import { hasOtherLetter } from '../core/bidi.ts';
 
 export type { LettersQuran } from './letters.ts';
 
@@ -164,11 +165,19 @@ export function makeQuoteCheck(src: LettersQuran | Letters, devAllowed: boolean,
     // a plain character-class test (no letters-only folding of the whole passage).
     const passages = got.passages.map((p) => {
       const ar = { round: 0, ornate: 0, curly: 0 }, no = { round: 0, ornate: 0, curly: 0 };
-      let unclosed = 0, arabicPhrases = 0, otherPhrases = 0;
+      let unclosed = 0, arabicPhrases = 0, otherPhrases = 0, mixedPhrases = 0, emptyPhrases = 0, signInPhrases = 0;
       for (const ph of findPhrases(p.text)) {
         const k = BRACKET_KEY[ph.bracket];
-        if (ARABIC_SCRIPT_LETTER.test(ph.text) && hasArabicLetters(ph.text)) { arabicPhrases++; ar[k]++; } else { otherPhrases++; no[k]++; }
+        if (ARABIC_SCRIPT_LETTER.test(ph.text) && hasArabicLetters(ph.text)) {
+          arabicPhrases++; ar[k]++;
+          // Kit v35 (B3, QA v34 FIND-AS): Arabic-letter phrases that also hold letters of another script.
+          if (hasOtherLetter(ph.text)) mixedPhrases++;
+        } else { otherPhrases++; no[k]++; }
         if (ph.unclosed) unclosed++;
+        // Kit v35 (B1): phrases with nothing but spaces between the brackets, and phrases holding
+        // the sign U+FDFA, so a check of the real work shows what the delivered text holds.
+        if (ph.text.trim() === '') emptyPhrases++;
+        if (ph.text.includes('\ufdfa')) signInPhrases++;
       }
       return {
         from: p.from, to: p.to,
@@ -176,6 +185,8 @@ export function makeQuoteCheck(src: LettersQuran | Letters, devAllowed: boolean,
         arabicPhrases, otherPhrases,
         arabicByBracket: ar, otherByBracket: no,
         unclosed,
+        mixedPhrases, emptyPhrases, signInPhrases,
+        sign: countChar(p.text, '\ufdfa'),
         square: countChar(p.text, '['),
         hasArabicLetters: ARABIC_SCRIPT_LETTER.test(p.text),
       };
