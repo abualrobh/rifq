@@ -13,21 +13,33 @@
 // and swaps only their two bracket characters; the words go into elements built here with fixed
 // class names. Own-ayah and other-ayah phrases are quotations (q, D-153 C), with no added words.
 // Missing or unfitting marks: the passage as delivered, with no message (AC37).
+//
+// RQ-007 (kit v34): in the English interface the request says "l": "en" and the Worker answers
+// from the English work (TAFSIR_EN_ID). The passage is marked lang="en" dir="ltr" (AC19); each
+// Arabic run inside it is put in its own lang="ar" dir="rtl" element without changing a character
+// (AC20, src/core/bidi.ts arabicRuns). The AC7 note (tafseerEnNote) sits outside the passage, and
+// source details add Translator, Abridgement and Original work, with the language shown as
+// "English" (AC14). No review line for English (AC16). A work that is not set, or not English, shows
+// tafseerEnNotConfigured in development builds and tafseerUnavailable in release builds (AC8, AC12).
+// The Arabic interface is unchanged.
 import { goReplace } from '../client/nav.ts';
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { sanitize, type Node } from '../../core/tafseer-html.ts';
 import { markedNodes, type MNode } from '../../core/tafseer-marks.ts';
 import { surahPath, t, tafseerPath, type Lang } from '../../core/strings.ts';
 import BidiText from './BidiText.tsx';
+import { arabicRuns, hasOtherLetter, isArabicLine } from '../../core/bidi.ts';
+import { markedText } from '../../core/tafseer-marks.ts';
+import { notConfiguredMessage } from '../lib/tafseer-messages.ts';
 
-type Source = { tafsirId: number; title: string | null; author: string | null; edition: string | null; publisher: string | null; language: string | null; provider: string };
+type Source = { tafsirId: number; title: string | null; author: string | null; edition: string | null; publisher: string | null; language: string | null; provider: string; translator?: string | null; abridgement?: string | null; original?: string | null };
 type Ok = { status: 'ok'; s: number; a: number; range: { s: number; from: number; to: number }; text: string; source: Source; marks?: unknown };
 type View =
   | { kind: 'loading' }
   | { kind: 'ok'; d: Ok }
   | { kind: 'none' } | { kind: 'unavailable' } | { kind: 'not_configured' } | { kind: 'auth' };
 
-type Props = { lang: Lang; s: number; count: number; prevCount: number; last: number };
+type Props = { lang: Lang; s: number; count: number; prevCount: number; last: number; dev?: boolean };
 
 // "#a5" or "#a5;from=2:4" (the ayah the reader left in the reader, for the back link, AC18).
 export function parseHash(h: string, count: number): { a: number; from: [number, number] | null } {
@@ -36,19 +48,47 @@ export function parseHash(h: string, count: number): { a: number; from: [number,
   return { a: a >= 1 && a <= count ? a : 1, from: m && m[2] ? [Number(m[2]), Number(m[3])] : null };
 }
 
-function render(nodes: (Node | MNode)[], arabic = true): ReactNode[] {
+// RQ-007 AC20: in a passage that is not Arabic, each Arabic run of a text node gets its own
+// lang="ar" dir="rtl" element; the characters are the same, in the same order.
+function textOf(t: string, key: number | string, runs: boolean): ReactNode {
+  if (!runs) return createElement(Fragment, { key }, t);
+  const parts = arabicRuns(t);
+  if (parts.length === 1 && !parts[0].ar) return createElement(Fragment, { key }, t);
+  return createElement(Fragment, { key }, ...parts.map((p, j) => (p.ar ? createElement('span', { key: j, lang: 'ar', dir: 'rtl', 'data-ar-run': '' }, p.text) : p.text)));
+}
+
+// Block tags whose whole text can be one Arabic line (kit v35, B2).
+const LINE_TAGS = new Set(['p', 'div', 'blockquote', 'li', 'h3', 'h4', 'h5', 'h6']);
+const plainText = (nodes: (Node | MNode)[]): string => markedText(nodes as MNode[]);
+
+// `runs` (RQ-007, English passages only): mark Arabic runs. The Arabic interface never sets it, so
+// its output is unchanged from kit v33.
+function render(nodes: (Node | MNode)[], arabic = true, runs = false): ReactNode[] {
   return nodes.map((n, i) => {
-    if (typeof n === 'string') return createElement(Fragment, { key: i }, n);
+    if (typeof n === 'string') return textOf(n, i, runs);
     if ('tfq' in n) {
       // Plain: only the brackets change. Own and other ayah: Quran font and colour (CSS), and the
       // words are a quotation for assistive technology (D-153 C). Inside a passage that is not
       // Arabic, the Arabic phrase keeps its own language and direction.
-      if (n.tfq === 'P') return createElement('span', { key: i, className: 'tfq tfq-plain', 'data-tfq': 'plain' }, n.open, n.text, n.close);
+      if (n.tfq === 'P') return createElement('span', { key: i, className: 'tfq tfq-plain', 'data-tfq': 'plain' }, n.open, textOf(n.text, 't', runs), n.close);
       const own = n.tfq === 'O';
-      return createElement('span', { key: i, className: own ? 'tfq tfq-own' : 'tfq tfq-other', 'data-tfq': own ? 'own' : 'other', ...(arabic ? {} : { lang: 'ar', dir: 'rtl' }) },
+      const cls = { key: i, className: own ? 'tfq tfq-own' : 'tfq tfq-other', 'data-tfq': own ? 'own' : 'other' };
+      // Kit v35 (B3, QA v34 FIND-AS; AC20, AC22): a matched phrase that also holds English (or any
+      // non-Arabic) letters keeps its class, colour, font and brackets, but is not marked Arabic as
+      // a whole: only its Arabic runs are, so its English words keep their order and language.
+      if (!arabic && hasOtherLetter(n.text)) return createElement('span', { ...cls, 'data-tfq-mixed': '' }, n.open, createElement('q', null, textOf(n.text, 't', runs)), n.close);
+      return createElement('span', { ...cls, ...(arabic ? {} : { lang: 'ar', dir: 'rtl' }) },
         n.open, createElement('q', null, n.text), n.close);
     }
-    return n.tag === 'br' ? createElement('br', { key: i }) : createElement(n.tag, { key: i }, ...render(n.children, arabic));
+    if (n.tag === 'br') return createElement('br', { key: i });
+    // Kit v35 (B2, RQ-007 R-5, AC20): in an English passage, a paragraph (or other block) whose
+    // whole text is one Arabic line (Arabic letters, no letter of another script) is laid out right
+    // to left as a whole, exactly as the Arabic passage is, with its quotation marks, question mark
+    // and numbers in place. No character changes.
+    if (runs && LINE_TAGS.has(n.tag) && isArabicLine(plainText(n.children))) {
+      return createElement(n.tag, { key: i, lang: 'ar', dir: 'rtl', 'data-ar-line': '' }, ...render(n.children, true, false));
+    }
+    return createElement(n.tag, { key: i }, ...render(n.children, arabic, runs));
   });
 }
 
@@ -58,7 +98,7 @@ export function passageNodes(text: string, marks: unknown): { nodes: (Node | MNo
   return m ? { nodes: m.nodes, marked: true } : { nodes: sanitize(text), marked: false };
 }
 
-export default function TafseerView({ lang, s, count, prevCount, last }: Props) {
+export default function TafseerView({ lang, s, count, prevCount, last, dev = false }: Props) {
   const [a, setA] = useState(1);
   const [view, setView] = useState<View>({ kind: 'loading' });
   const from = useRef<[number, number] | null>(null);
@@ -94,7 +134,7 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
     try {
       const r = await fetch('/api/tafseer', {
         method: 'POST', credentials: 'same-origin', cache: 'no-store',
-        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ s, a: n }),
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify(lang === 'en' ? { s, a: n, l: 'en' } : { s, a: n }),
       });
       let d: Record<string, unknown> = {};
       try { d = await r.json(); } catch { d = {}; }
@@ -108,7 +148,7 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
     }
     if (next.kind === 'ok' || next.kind === 'none') seen.current.set(key, next);
     if (id === seq.current) setView(next);
-  }, [s]);
+  }, [s, lang]);
 
   useEffect(() => {
     const h = parseHash(location.hash, count);
@@ -147,7 +187,12 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
         <dt>{t(lang, 'tfAuthor')}</dt><dd data-tf-src-author><bdi>{src?.author ?? notStated}</bdi></dd>
         <dt>{t(lang, 'tfEdition')}</dt><dd data-tf-src-edition><bdi>{src?.edition ?? notStated}</bdi></dd>
         <dt>{t(lang, 'tfPublisher')}</dt><dd data-tf-src-publisher><bdi>{src?.publisher ?? notStated}</bdi></dd>
-        <dt>{t(lang, 'tfLanguage')}</dt><dd data-tf-src-language><bdi>{src?.language ?? notStated}</bdi></dd>
+        {lang === 'en' && <>
+          <dt>{t(lang, 'tfTranslator')}</dt><dd data-tf-src-translator><bdi>{src?.translator ?? notStated}</bdi></dd>
+          <dt>{t(lang, 'tfAbridgement')}</dt><dd data-tf-src-abridgement><bdi>{src?.abridgement ?? notStated}</bdi></dd>
+          <dt>{t(lang, 'tfOriginal')}</dt><dd data-tf-src-original><bdi>{src?.original ?? notStated}</bdi></dd>
+        </>}
+        <dt>{t(lang, 'tfLanguage')}</dt><dd data-tf-src-language><bdi>{lang === 'en' && (src?.language ?? '').trim().toLowerCase() === 'english' ? t('en', 'langEnglish') : src?.language ?? notStated}</bdi></dd>
         <dt>{t(lang, 'tfId')}</dt><dd data-tf-src-id><bdi dir="ltr">{src ? String(src.tafsirId) : notStated}</bdi></dd>
         <dt>{t(lang, 'tfProvider')}</dt><dd data-tf-src-provider><bdi dir="ltr">Quran Foundation</bdi></dd>
       </dl>
@@ -158,16 +203,26 @@ export default function TafseerView({ lang, s, count, prevCount, last }: Props) 
   if (view.kind === 'loading') body = <p className="msg">{t(lang, 'tafseerLoading')}</p>;
   else if (view.kind === 'none') body = <p className="msg" data-tf-msg="none">{t(lang, 'tafseerNone')}</p>;
   else if (view.kind === 'unavailable') body = <p className="msg alert" data-tf-msg="unavailable">{t(lang, 'tafseerUnavailable')}</p>;
+  else if (view.kind === 'not_configured' && lang === 'en') {
+    // D-175 A: release builds show tafseerUnavailable (AC12); development builds name D-136 (AC8).
+    const m = notConfiguredMessage(lang, dev);
+    body = m.msg === 'not_configured'
+      ? <p className="msg alert" data-tf-msg="not_configured"><BidiText text={t(lang, m.key)} lang={lang} /></p>
+      : <p className="msg alert" data-tf-msg="unavailable">{t(lang, m.key)}</p>;
+  }
   else if (view.kind === 'not_configured') body = <p className="msg alert" data-tf-msg="not_configured"><BidiText text={t(lang, 'tafseerNotConfigured')} lang={lang} /></p>;
   else if (view.kind === 'auth') body = <p className="msg alert" data-tf-msg="auth">{t(lang, 'tafseerAuthAgain')}</p>;
   else {
     const d = view.d;
-    const arabic = (d.source.language ?? '').trim().toLowerCase() === 'arabic';
+    // RQ-007: the English interface asks for the English work only, so its passage is English (AC19).
+    const english = lang === 'en';
+    const arabic = !english && (d.source.language ?? '').trim().toLowerCase() === 'arabic';
     const shown = passageNodes(d.text, d.marks);
     body = (
       <>
         {d.range.from !== d.range.to && <p className="tf-range" data-tf-range>{t(lang, 'tafseerRange', { s: d.range.s, from: d.range.from, to: d.range.to })}</p>}
-        <div className="tf-text" lang={arabic ? 'ar' : undefined} dir={arabic ? 'rtl' : 'auto'} translate="no" data-tf-text data-tf-marked={shown.marked ? '1' : '0'}>{render(shown.nodes, arabic)}</div>
+        {english && <p className="tf-en-note" data-tf-en-note>{t('en', 'tafseerEnNote')}</p>}
+        <div className="tf-text" lang={arabic ? 'ar' : english ? 'en' : undefined} dir={arabic ? 'rtl' : english ? 'ltr' : 'auto'} translate="no" data-tf-text data-tf-marked={shown.marked ? '1' : '0'}>{render(shown.nodes, arabic, english)}</div>
         {/* RQ-005 v1.1 AC26/AC27 (D-146, D-151 A, kit v32 FIND-AE): readers see no review line or notice at all; a D-079 fingerprint mismatch shows on /dev/quote-check/ only. */}
         {sourceList(d.source)}
       </>

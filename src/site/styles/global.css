@@ -313,6 +313,10 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + .5rem); }
 .tf-text { font-family: system-ui, sans-serif; font-size: calc(var(--ayah-size, 1.5rem) * .75); line-height: 1.9; overflow-wrap: anywhere; }
 .tf-text p { margin-block: .5rem; }
 .tf-range { font-weight: 600; margin-block: .5rem; }
+/* RQ-007 AC20 (kit v34): an English passage, and the Arabic runs in it, use Tajawal (D-102, D-142);
+   phrases styled under AC33 keep the Quran font (.tfq-own, .tfq-other). The Arabic passage is unchanged. */
+.tf-text[lang="en"] { font-family: "Tajawal", system-ui, sans-serif; }
+.tf-en-note { font-size: .9rem; color: var(--muted); margin-block: .5rem; }
 /* D-149 bracket display (RQ-005 v1.1 AC29 to AC36). Own-ayah phrases: Quran font, green, { }.
    Other-ayah phrases: Quran font, brown, ( ). Plain phrases keep the Tafseer font and text colour;
    only their brackets change. The phrase stays inline with the words around it and follows the

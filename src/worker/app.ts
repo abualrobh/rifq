@@ -298,12 +298,33 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
       if (v === 'limited') return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
       const raw = await readCapped(req, MAX_TAFSEER_BODY);
       let s = 0, page = 1, skip = 0;
+      let w: unknown;
+      try {
+        const b = typeof raw === 'string' ? (JSON.parse(raw) as { s?: unknown; page?: unknown; skip?: unknown; w?: unknown }) : {};
+        s = Number(b.s); page = b.page === undefined ? 1 : Number(b.page); skip = b.skip === undefined ? 0 : Number(b.skip); w = b.w;
+      } catch { s = 0; }
+      // RQ-007 (kit v34): "w" chooses the work: absent or "ar" TAFSIR_ID, "en" TAFSIR_EN_ID.
+      if (w !== undefined && w !== 'ar' && w !== 'en') return json(400, { status: 'bad_request' });
+      // Kit v30: one small part of a surah per request (CPU per request stays light).
+      const out = await quotes.part(env, s, page, skip, w === 'en' ? 'en' : 'ar');
+      return json(out.status, out.data);
+    }
+    // RQ-007 open questions 1 and 2 (kit v34): coverage of the English work, numbers only. Same
+    // terms as the quote check (development builds behind the gate, TAFSEER_LIMIT, one part a request).
+    if (pathname === '/api/dev/tafseer-coverage' && quotes) {
+      if (req.method !== 'POST') return json(405, { status: 'method' }, { allow: 'POST' });
+      if (!/^application\/json\s*(;|$)/.test((req.headers.get('content-type') ?? '').toLowerCase())) return json(415, { status: 'unsupported_type' });
+      if (crossSite(req)) return json(403, { status: 'cross_site' });
+      const v = await checkLimit(env.TAFSEER_LIMIT, netKey(req), tfMem);
+      if (v === 'unavailable') return unavailable();
+      if (v === 'limited') return json(429, { status: 'rate_limited' }, { 'retry-after': RETRY });
+      const raw = await readCapped(req, MAX_TAFSEER_BODY);
+      let s = 0, page = 1, skip = 0;
       try {
         const b = typeof raw === 'string' ? (JSON.parse(raw) as { s?: unknown; page?: unknown; skip?: unknown }) : {};
         s = Number(b.s); page = b.page === undefined ? 1 : Number(b.page); skip = b.skip === undefined ? 0 : Number(b.skip);
       } catch { s = 0; }
-      // Kit v30: one small part of a surah per request (CPU per request stays light).
-      const out = await quotes.part(env, s, page, skip);
+      const out = await quotes.coverage(env, s, page, skip);
       return json(out.status, out.data);
     }
     if (pathname === '/api/dev/verify-text' && verify) {

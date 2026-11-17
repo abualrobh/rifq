@@ -93,6 +93,8 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   // 1b. RQ-005 inputs. The fingerprint store and the Tafseer record hold no Tafseer text.
   let fingerprints: FingerprintFile | null = null;
   let tRecord: TafseerRecord | null = null;
+  // RQ-007 AC18 (release builds only): which Tafseer parts passed their own release check.
+  let tafseerParts: { ar: boolean; en: boolean } | null = null;
   if (tf.on) {
     const srcCounts = [0];
     for (const a of loadSource(recordPath).list) srcCounts[a.sora] = a.aya_no;
@@ -108,7 +110,10 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
       // Counts only in the log; the reviewer list (Tafseer phrases) is never written by the build.
       const { reviewerList, ...short } = rep;
       log({ step: 'tafseer-release-check', ...short, reviewerList: reviewerList.length });
-      if (!rep.ok) { process.exitCode = 2; throw new Error('Tafseer release check failed'); }
+      // RQ-007 AC18: a failing part is held back and does not block the other part. With no part
+      // passing, the build fails (an Arabic-only record behaves exactly as before kit v34).
+      if (!rep.ok && !rep.english.ok) { process.exitCode = 2; throw new Error('Tafseer release check failed'); }
+      tafseerParts = { ar: rep.ok, en: rep.english.ok };
     }
   }
   log({ step: 'tafseer-flag', tafseer: tf.on });
@@ -207,6 +212,9 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
       fingerprints: fingerprints ?? { format: 'rifq-tafseer-fingerprints/1', entries: [] },
       // AC7: edition and publisher come only from the record approved by Hamzeh, never from an agent.
       tafseerSource: tRecord ? { title: tRecord.title ?? undefined, author: tRecord.author ?? undefined, edition: tRecord.edition ?? undefined, publisher: tRecord.publisher ?? undefined } : null,
+      // RQ-007 AC14 (D-140 C): the English work's fields from Hamzeh's record only.
+      ...(tRecord?.english ? { tafseerEnSource: Object.fromEntries((['edition', 'publisher', 'translator', 'abridgement', 'original'] as const).filter((k) => typeof tRecord!.english![k] === 'string').map((k) => [k, tRecord!.english![k]])) } : {}),
+      ...(tafseerParts ? { tafseerParts } : {}),
     } : {}),
     workerData,
   };
