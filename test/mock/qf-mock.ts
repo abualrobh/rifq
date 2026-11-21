@@ -28,7 +28,10 @@ export const MOCK_OTHER_LANG_ID = 908;
 // Kit v35: 33, Arabic quotations in guillemets, quotes and brackets, as a whole line and inline
 // (B2); 34, the sign U+FDFA and other Arabic presentation forms inside ( ), { } and ornate
 // parentheses (B1).
-export const EN_CASE = { mix: 30, mixed: 31, paragraphs: 32, quotes: 33, forms: 34 } as const;
+// Kit v36: 35, the work's own h1/h2 headings (QA v35 FIND-BB); 36, edge cases of Arabic quotations
+// (FIND-BA): a quotation split by markup in an English line, an Arabic line with a Latin word,
+// nested brackets and curly quotes.
+export const EN_CASE = { mix: 30, mixed: 31, paragraphs: 32, quotes: 33, forms: 34, headings: 35, edges: 36 } as const;
 // Ayat in surah 2 with special behaviour.
 export const CASE = {
   grouped: [3, 4, 5], hostile: 6, none: 7, error500: 8, rate429: 9, slow: 10,
@@ -90,6 +93,16 @@ export function enPassageText(s: number, a: number, q?: Quran): string | null {
       const w = own.split(' ');
       return `<p>MOCK EN QUOTE LINES 2:${a}. Not Tafseer.</p><p>\u00ab${own} ${own}\u061f\u00bb</p>`
         + `<p>MOCK said, \u00ab${w[0]} ${w[1] ?? w[0]}\u00bb and then "${w[0]}" mock ${w[0]}\u061f ${w[1] ?? w[0]}\u060c numbers 12 \u00ab${w[0]} 3 ${w[1] ?? w[0]}\u00bb (7) end, the word ${w[0]} means mock.</p>`;
+    }
+    if (a === EN_CASE.headings) {
+      return `<h1>MOCK EN Introduction 2:${a}</h1><h2>MOCK heading which follows</h2><h2>MOCK third heading</h2><p>MOCK EN body paragraph one. Not Tafseer.</p>`
+        + `<h2>MOCK heading between paragraphs</h2><p>MOCK EN body paragraph two. Not Tafseer.</p><h2>${own}</h2><p>MOCK EN body paragraph three. Not Tafseer.</p>`;
+    }
+    if (a === EN_CASE.edges) {
+      const w = own.split(' ');
+      return `<p>MOCK EN EDGES 2:${a}. Not Tafseer.</p><p>MOCK split \u00ab<b>${w[0]}</b> ${w[1] ?? w[0]}\u00bb end of the mock line.</p>`
+        + `<p>\u00ab${own} Ibn ${own}\u00bb</p><p>MOCK nested ( ${w[0]} (${w[1] ?? w[0]}) ) and ((${w[0]})) end.</p>`
+        + `<p>MOCK curly \u201c${w[0]} ${w[1] ?? w[0]}\u201d end.</p>`;
     }
     if (a === EN_CASE.forms) return `<p>MOCK EN SIGNS 2:${a}: he (\ufdfa) said, (O Mock \ufdfa) and {\ufdfa} and ${OPEN}\ufdfa${CLOSE}, (\ufdf2), (\ufefb), {${own} \ufdfa}, (mock \ufdf2 mock) and Mock \ufdfa ! Not Tafseer.</p>`;
   }

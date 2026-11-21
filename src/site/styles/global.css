@@ -317,6 +317,11 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + .5rem); }
    phrases styled under AC33 keep the Quran font (.tfq-own, .tfq-other). The Arabic passage is unchanged. */
 .tf-text[lang="en"] { font-family: "Tajawal", system-ui, sans-serif; }
 .tf-en-note { font-size: .9rem; color: var(--muted); margin-block: .5rem; }
+/* Kit v36 (QA v35 FIND-BB): the English work's own headings (its h1 and h2, shown as h3 and h4),
+   each on its own line, a little larger than the text. Arabic passages have no such element. */
+.tf-text [data-tf-h] { margin-block: .9rem .3rem; line-height: 1.5; font-weight: 700; }
+.tf-text [data-tf-h="1"] { font-size: 1.15em; }
+.tf-text [data-tf-h="2"] { font-size: 1.05em; }
 /* D-149 bracket display (RQ-005 v1.1 AC29 to AC36). Own-ayah phrases: Quran font, green, { }.
    Other-ayah phrases: Quran font, brown, ( ). Plain phrases keep the Tafseer font and text colour;
    only their brackets change. The phrase stays inline with the words around it and follows the

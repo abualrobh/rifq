@@ -54,6 +54,17 @@ export function bidiHtml(text: string, rtl: boolean, esc: (s: string) => string)
 //   - runs separated only by spaces or digits are one run.
 // Words of English around a run keep their English order: a letter of another script always ends a
 // run, and English commas or full stops next to a run stay outside it.
+//
+// Kit v36 (QA v35 FIND-BA; still no character added, removed or changed):
+//   - a bracket or guillemet quotation finds its own closing mark, counting nested pairs of the
+//     same kind, so "( A (B) )" is one run with both outer brackets (it was "( A (B)" and a lone ")");
+//   - curly double quotes U+201C/U+201D are not mirrored by the browser, so inside a right-to-left
+//     run they showed reversed; they now stay outside the run, in the English line, around it;
+//   - the caller says whether the text starts or ends a line (`edges`). The "opening guillemet
+//     before a run that reaches the end of the text" and "closing guillemet after a run that
+//     starts the text" rules apply only there, so a quotation split by markup inside one line no
+//     longer leaves a closing guillemet in the middle (the view groups such a quotation instead,
+//     src/core/tafseer-display.ts quoteGroups). Without `edges` both apply, as in kit v35.
 const AR_CHAR_SRC = '[\\u0600-\\u06FF\\u0750-\\u077F\\u0870-\\u089F\\u08A0-\\u08FF\\uFB50-\\uFD3D\\uFD40-\\uFDFF\\uFE70-\\uFEFE]';
 const AR_CHAR = new RegExp(AR_CHAR_SRC);
 const GAP_SRC = '[ \\u00A0\\u200A-\\u200F\\u2060]';
@@ -68,7 +79,19 @@ const CLOSE_ONLY = new Set(['\u00bb', '\u203a']);
 const OTHER_LETTER = /(?!\p{Script_Extensions=Arabic})\p{L}/u;
 export const hasOtherLetter = (t: string) => OTHER_LETTER.test(t);
 export type RunPart = { text: string; ar: boolean };
-export function arabicRuns(text: string): RunPart[] {
+export type RunEdges = { open: boolean; close: boolean };
+// The index of the closing mark that pairs with an opening mark before `from`, counting nested pairs
+// of the same kind (only where the two marks differ), up to `end`; -1 if there is none.
+function pairClose(text: string, from: number, end: number, open: string, close: string): number {
+  if (open === close) { const c = text.indexOf(close, from); return c >= 0 && c < end ? c : -1; }
+  let depth = 0;
+  for (let k = from; k < end; k++) {
+    if (text[k] === open) depth++;
+    else if (text[k] === close) { if (depth === 0) return k; depth--; }
+  }
+  return -1;
+}
+export function arabicRuns(text: string, edges: RunEdges = { open: true, close: true }): RunPart[] {
   const spans: [number, number][] = [];
   for (const m of text.matchAll(AR_RUN)) spans.push([m.index!, m.index! + m[0].length]);
   if (!spans.length) return [{ text, ar: false }];
@@ -84,12 +107,15 @@ export function arabicRuns(text: string): RunPart[] {
     const tight = open === '"' || open === '\u201c';
     if (close !== undefined && !(tight && i !== a - 1)) {
       const lineEnd = text.indexOf('\n', b) < 0 ? text.length : text.indexOf('\n', b);
-      const c = text.indexOf(close, b);
-      if (c >= 0 && c < lineEnd && !hasOtherLetter(text.slice(i + 1, c)) && !(tight && SPACE.test(text[c - 1]))) { a = i; b = c + 1; }
-      else if (OPEN_ONLY.has(open) && (c < 0 || c >= lineEnd) && text.slice(b, lineEnd).trim() === '') a = i;
+      const c = pairClose(text, b, lineEnd, open, close);
+      if (c >= 0 && !hasOtherLetter(text.slice(i + 1, c)) && !(tight && SPACE.test(text[c - 1]))) {
+        // Curly quotes stay outside (kit v36): the run is the quoted words up to the closing mark.
+        if (open === '\u201c') b = Math.max(b, c); else { a = i; b = c + 1; }
+      }
+      else if (edges.open && OPEN_ONLY.has(open) && c < 0 && text.slice(b, lineEnd).trim() === '') a = i;
     }
     // A closing mark right after a run that starts the text.
-    if (a === spans[k][0] && b < text.length && CLOSE_ONLY.has(text[b]) && text.slice(0, a).trim() === '') b += 1;
+    if (edges.close && a === spans[k][0] && b < text.length && CLOSE_ONLY.has(text[b]) && text.slice(0, a).trim() === '') b += 1;
     spans[k] = [a, b];
   }
   // Join runs that overlap, touch, or are separated only by spaces and digits.
@@ -113,3 +139,17 @@ export function arabicRuns(text: string): RunPart[] {
 // A text that is one Arabic line: Arabic letters and no letter of another script (kit v35, B2: a
 // paragraph of the English passage holding only such a line is laid out right to left as a whole).
 export const isArabicLine = (t: string) => AR_CHAR.test(t) && !hasOtherLetter(t);
+
+// Kit v36 (QA v35 FIND-BA 2): a line that is Arabic with a few words of another script, such as a
+// name in Latin letters: its first and last letters are Arabic and at least two thirds of its
+// letters are Arabic. The view lays it out right to left like an Arabic line and isolates the other
+// words left to right, so the Arabic reads in order and the Latin words keep theirs.
+const AR_SCRIPT_LETTER = /\p{Script_Extensions=Arabic}/u;
+export function isMostlyArabicLine(t: string): boolean {
+  const letters = t.match(/\p{L}/gu);
+  if (!letters || !AR_CHAR.test(t)) return false;
+  let ar = 0;
+  for (const l of letters) if (AR_SCRIPT_LETTER.test(l)) ar++;
+  const other = letters.length - ar;
+  return other > 0 && ar >= 2 * other && AR_SCRIPT_LETTER.test(letters[0]) && AR_SCRIPT_LETTER.test(letters[letters.length - 1]);
+}

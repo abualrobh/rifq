@@ -22,13 +22,20 @@
 // "English" (AC14). No review line for English (AC16). A work that is not set, or not English, shows
 // tafseerEnNotConfigured in development builds and tafseerUnavailable in release builds (AC8, AC12).
 // The Arabic interface is unchanged.
+//
+// Kit v36 (English passages only; display only, the Worker answers and the matching files are
+// unchanged): the work's <h1>/<h2> headings are shown as headings on their own lines (QA v35
+// FIND-BB); a <<...>> quotation split by markup inside an English line is one right-to-left element;
+// a line that is Arabic apart from a few Latin words is right to left with those words isolated;
+// nested brackets and curly quotes around Arabic runs (FIND-BA). No character is added or changed.
 import { goReplace } from '../client/nav.ts';
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { sanitize, type Node } from '../../core/tafseer-html.ts';
 import { markedNodes, type MNode } from '../../core/tafseer-marks.ts';
 import { surahPath, t, tafseerPath, type Lang } from '../../core/strings.ts';
 import BidiText from './BidiText.tsx';
-import { arabicRuns, hasOtherLetter, isArabicLine } from '../../core/bidi.ts';
+import { arabicRuns, bidiParts, hasOtherLetter, isArabicLine, isMostlyArabicLine, type RunEdges } from '../../core/bidi.ts';
+import { headingBlocks, HEADING_TAGS, QUOTE_GROUP, quoteGroups } from '../../core/tafseer-display.ts';
 import { markedText } from '../../core/tafseer-marks.ts';
 import { notConfiguredMessage } from '../lib/tafseer-messages.ts';
 
@@ -50,23 +57,52 @@ export function parseHash(h: string, count: number): { a: number; from: [number,
 
 // RQ-007 AC20: in a passage that is not Arabic, each Arabic run of a text node gets its own
 // lang="ar" dir="rtl" element; the characters are the same, in the same order.
-function textOf(t: string, key: number | string, runs: boolean): ReactNode {
+function textOf(t: string, key: number | string, runs: boolean, edges?: RunEdges): ReactNode {
   if (!runs) return createElement(Fragment, { key }, t);
-  const parts = arabicRuns(t);
+  const parts = arabicRuns(t, edges);
   if (parts.length === 1 && !parts[0].ar) return createElement(Fragment, { key }, t);
   return createElement(Fragment, { key }, ...parts.map((p, j) => (p.ar ? createElement('span', { key: j, lang: 'ar', dir: 'rtl', 'data-ar-run': '' }, p.text) : p.text)));
 }
 
-// Block tags whose whole text can be one Arabic line (kit v35, B2).
-const LINE_TAGS = new Set(['p', 'div', 'blockquote', 'li', 'h3', 'h4', 'h5', 'h6']);
+// Kit v36 (FIND-BA 2): inside a line that is mostly Arabic, each run of Latin words is isolated left
+// to right and marked English (the same split as interface text, bidiParts); the characters are
+// the same, in the same order.
+function isoText(t: string, key: number | string): ReactNode {
+  const parts = bidiParts(t, true);
+  if (parts.length === 1 && !parts[0].ltr) return createElement(Fragment, { key }, t);
+  return createElement(Fragment, { key }, ...parts.map((p, j) => (p.ltr ? createElement('bdi', { key: j, dir: 'ltr', lang: 'en', 'data-en-run': '' }, p.text) : p.text)));
+}
+
+// Block tags whose whole text can be one Arabic line (kit v35, B2; kit v36: the work's headings).
+const LINE_TAGS = new Set(['p', 'div', 'blockquote', 'li', 'h3', 'h4', 'h5', 'h6', ...HEADING_TAGS]);
+// Elements after or before which a text starts or ends a line (kit v36, FIND-BA 1).
+const LINE_BREAKS = new Set(['br', 'p', 'div', 'blockquote', 'ul', 'ol', 'li', 'h3', 'h4', 'h5', 'h6', ...HEADING_TAGS]);
+const breaks = (n: Node | MNode | undefined) => n !== undefined && typeof n !== 'string' && !('tfq' in n) && LINE_BREAKS.has(n.tag);
+// The work's headings (kit v36, FIND-BB): h1 as h3 and h2 as h4 inside the Tafseer section, whose
+// own heading is an h2.
+const HEADING_AS: Record<string, string> = { 'tf-h1': 'h3', 'tf-h2': 'h4' };
 const plainText = (nodes: (Node | MNode)[]): string => markedText(nodes as MNode[]);
 
 // `runs` (RQ-007, English passages only): mark Arabic runs. The Arabic interface never sets it, so
-// its output is unchanged from kit v33.
-function render(nodes: (Node | MNode)[], arabic = true, runs = false): ReactNode[] {
+// its output is unchanged from kit v33. `block` (kit v36): the nodes are the whole content of a
+// block, so the first starts a line and the last ends one. `iso` (kit v36): the nodes are inside a
+// mostly Arabic line (isMostlyArabicLine).
+function render(nodes: (Node | MNode)[], arabic = true, runs = false, block = false, iso = false): ReactNode[] {
   return nodes.map((n, i) => {
-    if (typeof n === 'string') return textOf(n, i, runs);
+    if (typeof n === 'string') {
+      if (iso) return isoText(n, i);
+      if (!runs) return textOf(n, i, runs);
+      return textOf(n, i, runs, { open: breaks(nodes[i + 1]) || (block && i === nodes.length - 1), close: breaks(nodes[i - 1]) || (block && i === 0) });
+    }
     if ('tfq' in n) {
+      // Kit v36: inside a mostly Arabic line, a phrase keeps its class; its Latin words are isolated.
+      if (iso) {
+        if (n.tfq === 'P') return createElement('span', { key: i, className: 'tfq tfq-plain', 'data-tfq': 'plain' }, n.open, isoText(n.text, 't'), n.close);
+        const own = n.tfq === 'O';
+        const cls = { key: i, className: own ? 'tfq tfq-own' : 'tfq tfq-other', 'data-tfq': own ? 'own' : 'other' };
+        if (hasOtherLetter(n.text)) return createElement('span', { ...cls, 'data-tfq-mixed': '' }, n.open, createElement('q', null, isoText(n.text, 't')), n.close);
+        return createElement('span', cls, n.open, createElement('q', null, n.text), n.close);
+      }
       // Plain: only the brackets change. Own and other ayah: Quran font and colour (CSS), and the
       // words are a quotation for assistive technology (D-153 C). Inside a passage that is not
       // Arabic, the Arabic phrase keeps its own language and direction.
@@ -81,14 +117,29 @@ function render(nodes: (Node | MNode)[], arabic = true, runs = false): ReactNode
         n.open, createElement('q', null, n.text), n.close);
     }
     if (n.tag === 'br') return createElement('br', { key: i });
+    // Kit v36 (FIND-BA 1): a quotation split by markup in an English line, as one right-to-left
+    // element. Inside an Arabic line it needs no element of its own.
+    if (n.tag === QUOTE_GROUP) {
+      if (!runs) return createElement(Fragment, { key: i }, ...render(n.children, arabic, runs, false, iso));
+      return createElement('span', { key: i, lang: 'ar', dir: 'rtl', 'data-ar-run': '', 'data-ar-quote': '' }, ...render(n.children, true, false));
+    }
+    // Kit v36 (FIND-BB): the work's own headings, each a block of its own.
+    const tag = HEADING_AS[n.tag] ?? n.tag;
+    const hd = HEADING_AS[n.tag] ? { 'data-tf-h': n.tag.slice(4) } : {};
     // Kit v35 (B2, RQ-007 R-5, AC20): in an English passage, a paragraph (or other block) whose
     // whole text is one Arabic line (Arabic letters, no letter of another script) is laid out right
     // to left as a whole, exactly as the Arabic passage is, with its quotation marks, question mark
     // and numbers in place. No character changes.
     if (runs && LINE_TAGS.has(n.tag) && isArabicLine(plainText(n.children))) {
-      return createElement(n.tag, { key: i, lang: 'ar', dir: 'rtl', 'data-ar-line': '' }, ...render(n.children, true, false));
+      return createElement(tag, { key: i, ...hd, lang: 'ar', dir: 'rtl', 'data-ar-line': '' }, ...render(n.children, true, false));
     }
-    return createElement(n.tag, { key: i }, ...render(n.children, arabic, runs));
+    // Kit v36 (FIND-BA 2): Arabic with a few Latin words (a name, a book title) is also a right to
+    // left line; the Latin words are isolated left to right.
+    if (runs && LINE_TAGS.has(n.tag) && isMostlyArabicLine(plainText(n.children))) {
+      return createElement(tag, { key: i, ...hd, lang: 'ar', dir: 'rtl', 'data-ar-line': '', 'data-ar-mixed': '' }, ...render(n.children, true, false, false, true));
+    }
+    if (iso) return createElement(tag, { key: i, ...hd }, ...render(n.children, arabic, false, false, true));
+    return createElement(tag, { key: i, ...hd }, ...render(n.children, arabic, runs, runs && LINE_TAGS.has(n.tag)));
   });
 }
 
@@ -96,6 +147,12 @@ function render(nodes: (Node | MNode)[], arabic = true, runs = false): ReactNode
 export function passageNodes(text: string, marks: unknown): { nodes: (Node | MNode)[]; marked: boolean } {
   const m = marks === undefined ? null : markedNodes(text, marks);
   return m ? { nodes: m.nodes, marked: true } : { nodes: sanitize(text), marked: false };
+}
+
+// Kit v36: the English passage's display nodes, with the work's headings as blocks (FIND-BB) and
+// quotations split by markup grouped (FIND-BA 1). The Arabic passage does not come here.
+export function englishNodes(text: string, nodes: (Node | MNode)[]): MNode[] {
+  return quoteGroups(headingBlocks(text, nodes as MNode[]).nodes);
 }
 
 export default function TafseerView({ lang, s, count, prevCount, last, dev = false }: Props) {
@@ -222,7 +279,7 @@ export default function TafseerView({ lang, s, count, prevCount, last, dev = fal
       <>
         {d.range.from !== d.range.to && <p className="tf-range" data-tf-range>{t(lang, 'tafseerRange', { s: d.range.s, from: d.range.from, to: d.range.to })}</p>}
         {english && <p className="tf-en-note" data-tf-en-note>{t('en', 'tafseerEnNote')}</p>}
-        <div className="tf-text" lang={arabic ? 'ar' : english ? 'en' : undefined} dir={arabic ? 'rtl' : english ? 'ltr' : 'auto'} translate="no" data-tf-text data-tf-marked={shown.marked ? '1' : '0'}>{render(shown.nodes, arabic, english)}</div>
+        <div className="tf-text" lang={arabic ? 'ar' : english ? 'en' : undefined} dir={arabic ? 'rtl' : english ? 'ltr' : 'auto'} translate="no" data-tf-text data-tf-marked={shown.marked ? '1' : '0'}>{english ? render(englishNodes(d.text, shown.nodes), false, true, true) : render(shown.nodes, arabic, english)}</div>
         {/* RQ-005 v1.1 AC26/AC27 (D-146, D-151 A, kit v32 FIND-AE): readers see no review line or notice at all; a D-079 fingerprint mismatch shows on /dev/quote-check/ only. */}
         {sourceList(d.source)}
       </>
