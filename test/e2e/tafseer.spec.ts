@@ -159,7 +159,9 @@ test('AC19: switching language keeps the ayah; Quran and Tafseer text keep their
   await expect(page.getByRole('region', { name: 'Tafseer' })).toBeVisible();
   expect(utf8(await shown(page).locator('p.ayah').textContent() ?? '').equals(sliceOf(2, 22))).toBe(true);
   await expect(shown(page).locator('p.ayah')).toHaveAttribute('dir', 'rtl');
-  await expect(page.locator('[data-tf-text]')).toHaveAttribute('dir', 'rtl');
+  // RQ-007 (kit v34): the English interface shows the English work, left to right (RQ-007 AC19).
+  await expect(page.locator('[data-tf-text]')).toHaveAttribute('dir', 'ltr');
+  await expect(page.locator('[data-tf-text]')).toHaveAttribute('lang', 'en');
   const sw = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1);
   expect(sw).toBe(true);
 });
@@ -214,9 +216,11 @@ test('AC23: hostile markup runs no script and loads nothing; the words still mat
 });
 
 test('D-079, D-151 A, AC26/AC27 (kit v32 FIND-AE): a passage whose fingerprint differs is shown; no review line or notice for a differing or a matching one', async ({ page }) => {
-  // e2e fingerprints: 2:13 (CASE.changed) differs, 2:14 (CASE.reviewed) matches. Both languages.
-  for (const lang of ['en', 'ar'] as const) {
-    await page.goto(`${lang === 'en' ? '/en' : ''}/tafseer/2/#a${CASE.changed}`);
+  // e2e fingerprints: 2:13 (CASE.changed) differs, 2:14 (CASE.reviewed) matches. The Arabic work
+  // (kit v34: the English interface shows the English work, which has no fingerprints, RQ-007 AC16;
+  // see tafseer-en.spec.ts).
+  for (const lang of ['ar'] as const) {
+    await page.goto(`/tafseer/2/#a${CASE.changed}`);
     await ready(page);
     const el = page.locator('[data-tf-text]');
     await expect(el).toHaveCount(1);

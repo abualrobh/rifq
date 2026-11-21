@@ -18,6 +18,17 @@ export const MOCK_TAFSIR_ID = 901;
 // A second made-up work whose by_ayah answer has the other plausible shape (see parseByAyah).
 export const MOCK_SHAPE_B_ID = 906;
 export const PRELIVE_SURAHS = new Set([1, 2]);
+// RQ-007 (kit v34): a made-up English work under the ID the test site uses for English (169), and a
+// made-up work in another language. Their passages are made-up Latin test text marked "MOCK EN";
+// they are NOT Tafseer. Any Arabic in them is cut by program from the Quran source at run time.
+export const MOCK_EN_ID = 169;
+export const MOCK_OTHER_LANG_ID = 908;
+// English-work ayat in surah 2 with special behaviour (besides CASE.grouped, none, error500,
+// rate429, slow and hostile, which apply to every work).
+// Kit v35: 33, Arabic quotations in guillemets, quotes and brackets, as a whole line and inline
+// (B2); 34, the sign U+FDFA and other Arabic presentation forms inside ( ), { } and ornate
+// parentheses (B1).
+export const EN_CASE = { mix: 30, mixed: 31, paragraphs: 32, quotes: 33, forms: 34 } as const;
 // Ayat in surah 2 with special behaviour.
 export const CASE = {
   grouped: [3, 4, 5], hostile: 6, none: 7, error500: 8, rate429: 9, slow: 10,
@@ -51,7 +62,42 @@ export function alter(s: string): string {
   return String.fromCodePoint(cp + 1) + s.slice(String.fromCodePoint(cp).length);
 }
 
+// RQ-007: the made-up English work. Cases (surah 2): own words in ornate parentheses (11), words of
+// 2:20 in ( ) (15), words of 1:2 in ( ) (16), shifted letters (17), an own word and English words in
+// braces (18), one word of 2:20 (19); 30: bracketed phrases with no Arabic letters in every kind of
+// bracket, digits and Latin, square brackets, an Arabic run outside brackets and an unclosed English
+// bracket; 31: a phrase mixing Latin and Arabic letters (P-11); 32: two paragraphs, an Arabic run in
+// each. Every Arabic run is cut from the source by program.
+export function enPassageText(s: number, a: number, q?: Quran): string | null {
+  if (s === 2 && a === CASE.none) return null;
+  if (s === 2 && (CASE.grouped as readonly number[]).includes(a)) return `<p>MOCK EN GROUPED PASSAGE 2:${CASE.grouped[0]}-2:${CASE.grouped[2]} for tafsir ${MOCK_EN_ID}. Not Tafseer: made-up English test text.</p>`;
+  if (s === 2 && a === CASE.hostile) return passageText(MOCK_TAFSIR_ID, s, a, q);
+  const own = s === 2 ? quoteFrom(q, 2, a) : null;
+  const shift = (x: string) => [...x].map((c) => (/[\u0628-\u0639]/u.test(c) ? String.fromCodePoint(c.codePointAt(0)! + 1) : c)).join('');
+  if (s === 2 && own !== null) {
+    let body: string | null = null;
+    if (a === CASE.quoteExact) body = `${OPEN}${own}${CLOSE}`;
+    else if (a === CASE.quoteSameSurah) body = `(${quoteFrom(q, 2, 20)})`;
+    else if (a === CASE.quoteElsewhere) body = `(${quoteFrom(q, 1, 2)})`;
+    else if (a === CASE.quoteUnmatched) body = `(${shift(own)})`;
+    else if (a === CASE.braces) body = `{${own.split(' ')[0]}} and {Mock English words in braces}`;
+    else if (a === CASE.tooShort) body = `(${(quoteFrom(q, 2, 20) ?? '').split(' ')[0]})`;
+    else if (a === EN_CASE.mix) body = `(Mock English words in round brackets), {Mock words in curly brackets}, ${OPEN}Mock words in ornate parentheses${CLOSE}, (2:255), (Ref 12b), [Mock square note], the run ${own} outside brackets, and (Mock unclosed bracket`;
+    else if (a === EN_CASE.mixed) body = `(Mock ${own.split(' ')[0]} mixed) and (Mock only English)`;
+    if (body !== null) return `<p>MOCK EN QUOTE 2:${a} before ${body} after. Not Tafseer.</p>`;
+    if (a === EN_CASE.paragraphs) return `<p>MOCK EN PARAGRAPH ONE 2:${a} with ${own} inside. Not Tafseer.</p><p>MOCK EN PARAGRAPH TWO with (${own}) quoted. Not Tafseer.</p>`;
+    if (a === EN_CASE.quotes) {
+      const w = own.split(' ');
+      return `<p>MOCK EN QUOTE LINES 2:${a}. Not Tafseer.</p><p>\u00ab${own} ${own}\u061f\u00bb</p>`
+        + `<p>MOCK said, \u00ab${w[0]} ${w[1] ?? w[0]}\u00bb and then "${w[0]}" mock ${w[0]}\u061f ${w[1] ?? w[0]}\u060c numbers 12 \u00ab${w[0]} 3 ${w[1] ?? w[0]}\u00bb (7) end, the word ${w[0]} means mock.</p>`;
+    }
+    if (a === EN_CASE.forms) return `<p>MOCK EN SIGNS 2:${a}: he (\ufdfa) said, (O Mock \ufdfa) and {\ufdfa} and ${OPEN}\ufdfa${CLOSE}, (\ufdf2), (\ufefb), {${own} \ufdfa}, (mock \ufdf2 mock) and Mock \ufdfa ! Not Tafseer.</p>`;
+  }
+  return `<p>MOCK EN PASSAGE ${s}:${a} for tafsir ${MOCK_EN_ID}. Not Tafseer: made-up English test text.</p>`;
+}
+
 export function passageText(id: number, s: number, a: number, q?: Quran, version = 2): string | null {
+  if (id === MOCK_EN_ID) return enPassageText(s, a, q);
   if (s === 2 && a === CASE.none) return null;
   if (s === 2 && (CASE.grouped as readonly number[]).includes(a)) return `<p>MOCK GROUPED PASSAGE 2:${CASE.grouped[0]}-2:${CASE.grouped[2]} for tafsir ${id}. Not Tafseer: made-up test text.</p>`;
   if (s === 2 && a === CASE.hostile) {
@@ -99,6 +145,9 @@ const LIST = [
   // Made-up entries for the D-076 catalogue highlight. These IDs are NOT Quran Foundation IDs.
   { id: 904, name: 'Mock Tafsir Ibn Kathir (made up)', author_name: 'Mock author', slug: 'mock-ibn-kathir', language_name: 'arabic', translated_name: { name: 'Mock', language_name: 'english' } },
   { id: 905, name: 'Mock English edition', author_name: 'Mock Ibn Katheer', slug: 'mock-en-ik', language_name: 'english', translated_name: { name: 'Mock', language_name: 'english' } },
+  // RQ-007: the made-up English work (test site ID) and a made-up work in another language.
+  { id: MOCK_EN_ID, name: 'Mock English Tafsir (abridged, made up)', author_name: 'Mock English Author', slug: 'mock-en-169', language_name: 'english', translated_name: { name: 'Mock English Tafsir', language_name: 'english' } },
+  { id: MOCK_OTHER_LANG_ID, name: 'Mock Tafsir in another language', author_name: 'Mock Author O', slug: 'mock-other', language_name: 'mocklang', translated_name: { name: 'Mock O', language_name: 'english' } },
 ];
 
 const err = (status: number, type: string) => new Response(JSON.stringify({ message: `mock ${type}`, type, success: false }), { status, headers: { 'content-type': 'application/json' } });
@@ -257,7 +306,7 @@ export function createMockQf(opts: Opts = {}) {
       const page = Math.max(1, Number(u.searchParams.get('page') ?? '1'));
       const slice = ayat.slice((page - 1) * per, page * per);
       const items = slice.map((a) => ({ a, t: passageText(id, s, a, opts.quran) })).filter((x) => x.t !== null)
-        .map((x) => ({ id: 80000 + x.a, resource_id: id, verse_id: 0, language_id: 0, text: x.t, language_name: 'arabic', resource_name: 'mock', verse_key: `${s}:${x.a}`, chapter_id: s, verse_number: x.a, slug: 'mock' }));
+        .map((x) => ({ id: 80000 + x.a, resource_id: id, verse_id: 0, language_id: 0, text: x.t, language_name: LIST.find((y) => y.id === id)?.language_name ?? 'arabic', resource_name: 'mock', verse_key: `${s}:${x.a}`, chapter_id: s, verse_number: x.a, slug: 'mock' }));
       const total = Math.ceil(ayat.length / per);
       return ok({ tafsirs: items, pagination: { per_page: per, current_page: page, next_page: page < total ? page + 1 : null, total_pages: total, total_records: ayat.length } });
     }

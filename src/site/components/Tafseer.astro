@@ -37,6 +37,6 @@ const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
   <section class="tf-section tf-tafseer" aria-labelledby="tf-tafseer-h" data-tf-tafseer>
     <h2 id="tf-tafseer-h">{t(lang, 'tafseerSection')}</h2>
     <noscript><p class="msg">{t(lang, 'tafseerNoScript')}</p></noscript>
-    <TafseerView lang={lang} s={surah.n} count={surah.items.length} prevCount={prevCount} last={surahs.length} client:load />
+    <TafseerView lang={lang} s={surah.n} count={surah.items.length} prevCount={prevCount} last={surahs.length} dev={dev} client:load />
   </section>
 </Layout>
