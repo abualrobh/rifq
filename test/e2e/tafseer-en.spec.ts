@@ -398,3 +398,117 @@ test('EN-16 (kit v35 B1, B2; AC20, AC35, R-5): Arabic quotation marks stay with 
   expect(signs.length).toBe((en(EN_CASE.forms).match(/[\ufdfa\ufdf2\ufefb]/g) ?? []).length);
   for (const x of signs) expect(x).toBeGreaterThan(1);
 });
+
+// Kit v36 (QA v35 FIND-BB, FIND-BA). Screenshots only when RIFQ_SHOTS names a folder outside the
+// repository (they hold Arabic cut from the source: private).
+const shot = async (page: import('@playwright/test').Page, name: string) => {
+  const dir = process.env.RIFQ_SHOTS;
+  if (dir) await page.locator('.tf-view').screenshot({ path: join(dir, `${name}.png`) });
+};
+// The x and line of every visible character of an element.
+const charsOf = (page: import('@playwright/test').Page, sel: string) => page.locator(sel).first().evaluate((el) => {
+  const cs: { c: string; x: number; y: number }[] = [];
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = w.nextNode(); n; n = w.nextNode()) for (let i = 0; i < (n.textContent ?? '').length; i++) {
+    const c = n.textContent![i]; if (!c.trim()) continue;
+    const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); const b = r.getClientRects()[0]; if (b) cs.push({ c, x: b.left + b.width / 2, y: Math.round(b.top + b.height / 2) });
+  }
+  return cs;
+});
+const VIEWS = [MOBILE, { width: 1280, height: 900 }].flatMap((size) => [false, true].map((night) => ({ size, night })));
+
+test('EN-17 (kit v36, FIND-BB; AC35): the work\'s h1/h2 headings are shown as headings, each on its own line, with the same words', async ({ page }) => {
+  for (const { size, night } of VIEWS) {
+    await page.setViewportSize(size);
+    await page.goto(`/en/tafseer/2/#a${EN_CASE.headings}`);
+    await ready(page);
+    if (night) await page.locator('[data-night]').click();
+    const el = page.locator('[data-tf-text]');
+    const hs = el.locator('[data-tf-h]');
+    await expect(hs).toHaveCount(5);
+    expect(await hs.evaluateAll((xs) => xs.map((x) => `${x.tagName}:${(x as HTMLElement).dataset.tfH}`))).toEqual(['H3:1', 'H4:2', 'H4:2', 'H4:2', 'H4:2']);
+    const html = en(EN_CASE.headings);
+    const want = [...html.matchAll(/<h[12]>(.*?)<\/h[12]>/g)].map((m) => m[1]);
+    expect(await hs.allTextContents()).toEqual(want);
+    // Each heading is a block of its own: it starts below the element before it, nothing beside it.
+    const boxes = await el.evaluate((root) => [...root.children].map((c) => { const r = c.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: c.hasAttribute('data-tf-h') }; }));
+    for (let i = 1; i < boxes.length; i++) expect(boxes[i].top, `${size.width} ${night} block ${i}`).toBeGreaterThanOrEqual(boxes[i - 1].bottom - 0.5);
+    // The heading made only of Arabic words is a right-to-left line.
+    await expect(hs.nth(4)).toHaveAttribute('data-ar-line', '');
+    await expect(hs.nth(4)).toHaveAttribute('dir', 'rtl');
+    // Larger and bold, in the passage's font.
+    const st = await hs.first().evaluate((h) => ({ w: getComputedStyle(h).fontWeight, f: parseFloat(getComputedStyle(h).fontSize), p: parseFloat(getComputedStyle(h.parentElement!).fontSize) }));
+    expect(Number(st.w)).toBeGreaterThanOrEqual(700);
+    expect(st.f).toBeGreaterThan(st.p);
+    // AC35: the words shown are the words delivered, nothing added.
+    const text = (await el.evaluate((x) => x.textContent)) ?? '';
+    expect(utf8(text.replace(BR, '')).equals(utf8(visibleText(sanitize(html)).replace(BR, '')))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    await shot(page, `en17-headings-${size.width}-${night ? 'dark' : 'light'}`);
+  }
+  // The Arabic interface has no such element.
+  await page.goto(`/tafseer/2/#a${EN_CASE.headings}`);
+  await ready(page);
+  await expect(page.locator('[data-tf-text] [data-tf-h], [data-tf-text] [data-ar-quote], [data-tf-text] [data-en-run]')).toHaveCount(0);
+});
+
+test('EN-18 (kit v36, FIND-BA; AC20, AC35): split quotations, Arabic lines with a Latin word and curly quotes keep their marks in place', async ({ page }) => {
+  for (const { size, night } of VIEWS) {
+    await page.setViewportSize(size);
+    await page.goto(`/en/tafseer/2/#a${EN_CASE.edges}`);
+    await ready(page);
+    if (night) await page.locator('[data-night]').click();
+    const el = page.locator('[data-tf-text]');
+    const tag = `${size.width} ${night ? 'dark' : 'light'}`;
+    // 1. The quotation split by <b> is one right-to-left element: << at its right, >> at its left.
+    const q = el.locator('[data-ar-quote]');
+    await expect(q).toHaveCount(1);
+    await expect(q).toHaveAttribute('dir', 'rtl');
+    const t = (await q.textContent()) ?? '';
+    expect(t.startsWith('\u00ab') && t.endsWith('\u00bb')).toBe(true);
+    const qc = await charsOf(page, '[data-tf-text] [data-ar-quote]');
+    const xs = qc.map((c) => c.x);
+    expect(qc.find((c) => c.c === '\u00ab')!.x, `${tag} split: opening at the right`).toBeGreaterThanOrEqual(Math.max(...xs) - 0.5);
+    expect(qc.find((c) => c.c === '\u00bb')!.x, `${tag} split: closing at the left`).toBeLessThanOrEqual(Math.min(...xs) + 0.5);
+    // English around it in order: "MOCK split" left of the quotation, "end of" right of it.
+    const p1 = await charsOf(page, '[data-tf-text] p:nth-child(2)');
+    const at = (s: string) => { const i = p1.map((c) => c.c).join('').indexOf(s.replace(/ /g, '')); return p1[i]; };
+    expect(at('split')!.x).toBeLessThan(Math.min(...xs));
+    expect(at('end')!.y > at('split')!.y + 4 || at('end')!.x > Math.max(...xs)).toBe(true);
+    // 2. The Arabic line with a Latin word: right to left, the word isolated and marked English.
+    const line = el.locator('[data-ar-mixed]');
+    await expect(line).toHaveCount(1);
+    await expect(line).toHaveAttribute('dir', 'rtl');
+    await expect(line.locator('bdi[data-en-run][lang="en"]')).toHaveText('Ibn');
+    const lc = await charsOf(page, '[data-tf-text] [data-ar-mixed]');
+    const ys = [...new Set(lc.map((c) => c.y))].sort((a, b) => a - b);
+    const first = lc.filter((c) => Math.abs(c.y - ys[0]) < 8), last = lc.filter((c) => Math.abs(c.y - ys[ys.length - 1]) < 8);
+    expect(first.find((c) => c.c === '\u00ab')!.x, `${tag} line: opening at the right`).toBeGreaterThanOrEqual(Math.max(...first.map((c) => c.x)) - 0.5);
+    expect(last.find((c) => c.c === '\u00bb')!.x, `${tag} line: closing at the left`).toBeLessThanOrEqual(Math.min(...last.map((c) => c.x)) + 0.5);
+    // 4. Curly quotes stay in the English line around the run: " left of it, " right of it.
+    const pc = await charsOf(page, '[data-tf-text] p:nth-child(5)');
+    const run = el.locator('p').nth(4).locator('[data-ar-run]');
+    await expect(run).toHaveCount(1);
+    expect(((await run.textContent()) ?? '').includes('\u201c')).toBe(false);
+    const rb = await run.evaluate((r) => { const b = r.getBoundingClientRect(); return { l: b.left, r: b.right }; });
+    expect(pc.find((c) => c.c === '\u201c')!.x).toBeLessThan(rb.l + 0.5);
+    expect(pc.find((c) => c.c === '\u201d')!.x).toBeGreaterThan(rb.r - 0.5);
+    // AC20: every Arabic letter is in an element marked Arabic; no Latin letter is (outside phrases).
+    const lang = await el.evaluate((root) => {
+      let bad = 0, latin = 0;
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const s = n.textContent ?? '', l = (n.parentElement!.closest('[lang]') as HTMLElement).lang;
+        if (/[\u0600-\u06ff\ufb50-\ufdff\ufe70-\ufeff]/.test(s) && l !== 'ar') bad++;
+        if (l === 'ar' && /[A-Za-z]/.test(s) && !n.parentElement!.closest('.tfq')) latin++;
+      }
+      return { bad, latin };
+    });
+    expect(lang).toEqual({ bad: 0, latin: 0 });
+    // AC35: the words shown are the words delivered.
+    const text = (await el.evaluate((x) => x.textContent)) ?? '';
+    expect(utf8(text.replace(BR, '')).equals(utf8(visibleText(sanitize(en(EN_CASE.edges))).replace(BR, '')))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    await shot(page, `en18-edges-${size.width}-${night ? 'dark' : 'light'}`);
+  }
+});
