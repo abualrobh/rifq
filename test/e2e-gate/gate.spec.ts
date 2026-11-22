@@ -156,7 +156,7 @@ test('AC72: in-place page changes behind the gate; a lock-out answer is loaded i
   await expect(page.locator('meta[name="rifq-page"]')).toHaveCount(1);
   await page.evaluate(() => { (window as unknown as { __doc: number }).__doc = 1; });
   const same = () => page.evaluate(() => (window as unknown as { __doc?: number }).__doc === 1).catch(() => false);
-  await page.click('a.index-card');
+  await page.click('a[data-all-surahs]');
   await page.waitForURL('**/surahs/');
   await hydrated(page);
   expect(await same(), 'in place, signed in').toBe(true);

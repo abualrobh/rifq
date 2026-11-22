@@ -4,7 +4,7 @@
 // source at run time. Expected values come from the source and the mock; no Tafseer is in this file.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { BUILD, expect, hydrated, MOBILE, sliceOf, src, STRICT, test, utf8 } from './helpers.ts';
+import { BUILD, expect, hydrated, MOBILE, sliceOf, src, STRICT, test, utf8, setNight } from './helpers.ts';
 import { CASE, CLOSE, EN_CASE, enPassageText, MOCK_EN_ID, MOCK_TAFSIR_ID, OPEN, passageText } from '../mock/qf-mock.ts';
 import { sanitize, visibleText } from '../../src/core/tafseer-html.ts';
 import { STRINGS } from '../../src/core/strings.ts';
@@ -255,7 +255,8 @@ test('EN-10 (AC21, AC36): text size, night mode and 390 px with English passages
   const after = await size();
   expect(after[0]).toBeGreaterThan(before[0]);
   expect(after[1] / after[0]).toBeCloseTo(before[1] / before[0], 2);
-  await page.locator('[data-night]').click();
+  await setNight(page, true); // kit v37: the switch is on the Settings screen (RQ-008 AC71)
+  await ready(page);
   await expect(page.locator('html')).toHaveClass(/dark/);
   const c = await page.evaluate(() => ({ text: getComputedStyle(document.querySelector('[data-tf-text]')!).color, own: getComputedStyle(document.querySelector('[data-tfq="own"]')!).color, note: getComputedStyle(document.querySelector('[data-tf-en-note]')!).color, bg: getComputedStyle(document.querySelector('.tf-tafseer')!).backgroundColor }));
   expect(c.text).toBe('rgb(233, 240, 236)');
@@ -355,9 +356,11 @@ test('EN-16 (kit v35 B1, B2; AC20, AC35, R-5): Arabic quotation marks stay with 
   });
   for (const size of [MOBILE, { width: 1280, height: 900 }]) for (const night of [false, true]) {
     await page.setViewportSize(size);
+    // Kit v37: night mode is set on the Settings screen (RQ-008 AC71) before the page opens.
+    await page.goto('/en/settings/');
+    await setNight(page, night);
     await page.goto(`/en/tafseer/2/#a${EN_CASE.quotes}`);
     await ready(page);
-    if (night) await page.locator('[data-night]').click();
     const el = page.locator('[data-tf-text]');
     // A paragraph that is one Arabic line is right to left as a whole, with its marks in place.
     const line = el.locator('[data-ar-line]');
@@ -420,9 +423,11 @@ const VIEWS = [MOBILE, { width: 1280, height: 900 }].flatMap((size) => [false, t
 test('EN-17 (kit v36, FIND-BB; AC35): the work\'s h1/h2 headings are shown as headings, each on its own line, with the same words', async ({ page }) => {
   for (const { size, night } of VIEWS) {
     await page.setViewportSize(size);
+    // Kit v37: night mode is set on the Settings screen (RQ-008 AC71) before the page opens.
+    await page.goto('/en/settings/');
+    await setNight(page, night);
     await page.goto(`/en/tafseer/2/#a${EN_CASE.headings}`);
     await ready(page);
-    if (night) await page.locator('[data-night]').click();
     const el = page.locator('[data-tf-text]');
     const hs = el.locator('[data-tf-h]');
     await expect(hs).toHaveCount(5);
@@ -455,9 +460,11 @@ test('EN-17 (kit v36, FIND-BB; AC35): the work\'s h1/h2 headings are shown as he
 test('EN-18 (kit v36, FIND-BA; AC20, AC35): split quotations, Arabic lines with a Latin word and curly quotes keep their marks in place', async ({ page }) => {
   for (const { size, night } of VIEWS) {
     await page.setViewportSize(size);
+    // Kit v37: night mode is set on the Settings screen (RQ-008 AC71) before the page opens.
+    await page.goto('/en/settings/');
+    await setNight(page, night);
     await page.goto(`/en/tafseer/2/#a${EN_CASE.edges}`);
     await ready(page);
-    if (night) await page.locator('[data-night]').click();
     const el = page.locator('[data-tf-text]');
     const tag = `${size.width} ${night ? 'dark' : 'light'}`;
     // 1. The quotation split by <b> is one right-to-left element: << at its right, >> at its left.

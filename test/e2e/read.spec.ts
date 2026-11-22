@@ -1,5 +1,5 @@
 // RQ-001 browser tests against the local build. Test IDs from qa-test-plans.md.
-import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow, topAyah, pageAyat, sha, NET4G, openSearch } from './helpers.ts';
+import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow, topAyah, pageAyat, sha, NET4G, openSearch, setNight } from './helpers.ts';
 import { t, ACCOUNT_WORDS } from '../../src/core/strings.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -131,27 +131,32 @@ for (const vp of [DESKTOP, MOBILE]) {
 }
 
 for (const lang of ['ar', 'en'] as const) {
+  // Kit v37 (RQ-008 AC71 to AC73): night mode is switched on the Settings screen; coming back to
+  // the reader (Back) shows the same ayah.
   test(`TP1-22: night mode on and off keeps the same ayah in view, ${lang}`, async ({ page }) => {
     await page.goto(lang === 'ar' ? '/2/#a150' : '/en/2/#a150');
     await hydrated(page);
     const before = await topAyah(page);
-    await page.locator('[data-night]').dispatchEvent('click');
-    await expect(page.locator('html')).toHaveClass(/dark/);
-    // The night button names its next action (it no longer uses aria-pressed).
-    await expect(page.locator('[data-night]')).toHaveAttribute('aria-label', t(lang, 'toLight'));
-    expect(await topAyah(page)).toBe(before);
-    await page.locator('[data-night]').dispatchEvent('click');
-    await expect(page.locator('html')).not.toHaveClass(/dark/);
-    expect(await topAyah(page)).toBe(before);
+    for (const dark of [true, false]) {
+      await page.locator('nav[data-tabbar]:visible a[data-tab="settings"]').click();
+      await hydrated(page);
+      const sw = page.locator('[data-night-switch]');
+      await sw.click();
+      await expect(sw).toHaveAttribute('aria-checked', String(dark));
+      await page.goBack();
+      await expect(page.locator('#a150')).toBeAttached();
+      if (dark) await expect(page.locator('html')).toHaveClass(/dark/); else await expect(page.locator('html')).not.toHaveClass(/dark/);
+      await expect.poll(() => topAyah(page)).toBe(before);
+    }
   });
 }
 
 test('TP1-23: text, controls and focus meet WCAG 2.2 AA contrast in both themes', async ({ page }) => {
   const results: Record<string, number> = {};
   for (const theme of ['light', 'dark']) {
+    if (theme === 'dark') { await page.goto('/settings/'); await setNight(page, true); }
     await page.goto('/2/');
     await hydrated(page);
-    if (theme === 'dark') await page.click('[data-night]');
     await openSearch(page);
     await page.fill('#q', src.list[0].aya_text.split(' ')[0]);
     await page.press('#q', 'Enter');
@@ -193,15 +198,23 @@ test('TP1-23: text, controls and focus meet WCAG 2.2 AA contrast in both themes'
 for (const vp of [DESKTOP, MOBILE]) {
   test(`TP1-25: switching language flips RTL and LTR without breaking layout, ${vp.width}px`, async ({ page }) => {
     await page.setViewportSize(vp);
+    // Kit v37 (D-181 C): the interface language is switched in Settings.
     await page.goto('/2/');
     await hydrated(page);
-    await page.click('#lang-switch');
-    await expect(page).toHaveURL(/\/en\/2\//);
+    await page.click('nav[data-tabbar]:visible a[data-tab="settings"]');
+    await hydrated(page);
+    await page.click('[data-set-lang-link="en"]');
+    await expect(page).toHaveURL(/\/en\/settings\/$/);
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await noOverflow(page);
+    await page.goto('/en/2/');
     await hydrated(page);
-    await page.click('#lang-switch');
-    await expect(page).toHaveURL(/\/2\//);
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+    await noOverflow(page);
+    await page.click('nav[data-tabbar]:visible a[data-tab="settings"]');
+    await hydrated(page);
+    await page.click('[data-set-lang-link="ar"]');
+    await expect(page).toHaveURL(/\/settings\/$/);
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     await noOverflow(page);
   });
@@ -229,8 +242,11 @@ test('TP1-29: reading, settings and language change send no personal data and no
   await page.click('a[data-surah-link="2"]');
   await hydrated(page);
   await page.click('[data-larger]');
-  await page.click('[data-night]');
-  await page.click('#lang-switch');
+  // Kit v37: night mode and language are on the Settings screen (RQ-008 AC71, D-181 C).
+  await page.click('nav[data-tabbar]:visible a[data-tab="settings"]');
+  await hydrated(page);
+  await page.click('[data-night-switch]');
+  await page.click('[data-set-lang-link="en"]');
   await hydrated(page);
   expect(seen.length).toBeGreaterThan(0);
   for (const s of seen) {
@@ -408,7 +424,9 @@ test('M-1: focusing a header control by script does not move the reading place',
   await page.goto('/2/#a100');
   await hydrated(page);
   expect(await topAyah(page)).toBe(100);
-  for (const sel of ['[data-smaller]', '[data-larger]', '[data-night]', '#lang-switch', '.brand']) {
+  // Kit v37: the night button and the language link left the header (RQ-008 AC72, D-181 C); the
+  // header tab row (D-179 A) is checked instead.
+  for (const sel of ['[data-smaller]', '[data-larger]', 'nav[data-tabbar="top"] a[data-tab="home"]', '.brand']) {
     await page.evaluate((s) => (document.querySelector(s) as HTMLElement).focus(), sel);
     expect(await topAyah(page), sel).toBe(100);
   }
@@ -452,7 +470,8 @@ for (const lang of ['ar', 'en'] as const) {
     const rtl = lang === 'ar';
     // Saved items are references only (RQ-003 AC9), written as the product writes them.
     await page.addInitScript(() => { try { localStorage.setItem('rifq.saves', JSON.stringify({ v: 1, b: [[2, 140], [3, 7]], l: [2, 40] })); } catch { /* none */ } });
-    await page.goto(lang === 'ar' ? '/' : '/en/');
+    // Kit v37 (RQ-008 AC22): the bookmark list and continue link are on the Saved screen.
+    await page.goto(lang === 'ar' ? '/saved/' : '/en/saved/');
     await hydrated(page);
     await expect(page.locator('[data-bm="2:140"] a')).toBeVisible();
     // First element in reading order must come first visually: right of the second in Arabic.
@@ -472,6 +491,8 @@ for (const lang of ['ar', 'en'] as const) {
     }, rtl ? surahs[1].ar : surahs[1].en);
     expect(order(cont[0] as DOMRect, cont[1] as DOMRect), 'continue reading').toBe(true);
     // Search results: the name comes before the surah and ayah numbers.
+    await page.goto(lang === 'ar' ? '/' : '/en/');
+    await hydrated(page);
     const q = src.list[0].aya_text.split(' ')[0];
     await page.fill('#q', q);
     await page.press('#q', 'Enter');

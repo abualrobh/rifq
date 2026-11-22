@@ -4,7 +4,7 @@
 // expected passages come from the mock's made-up text. No Tafseer is in this file.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { BUILD, expect, sliceOf, src, test, utf8, hydrated } from './helpers.ts';
+import { BUILD, expect, sliceOf, src, test, utf8, hydrated, setNight } from './helpers.ts';
 import { CASE, CLOSE, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, OPEN, passageText } from '../mock/qf-mock.ts';
 import { visibleText, sanitize } from '../../src/core/tafseer-html.ts';
 import { STRINGS } from '../../src/core/strings.ts';
@@ -176,7 +176,8 @@ test('AC20: text size and night mode change both sections', async ({ page }) => 
   const after = await sizes();
   expect(parseFloat(after[0])).toBeGreaterThan(parseFloat(before[0]));
   expect(parseFloat(after[1])).toBeGreaterThan(parseFloat(before[1]));
-  await page.locator('[data-night]').click();
+  await setNight(page, true); // kit v37: the switch is on the Settings screen (RQ-008 AC71)
+  await ready(page);
   await expect(page.locator('html')).toHaveClass(/dark/);
   const colors = await page.evaluate(() => [getComputedStyle(document.querySelector('[data-tf-text]')!).color, getComputedStyle(document.body).backgroundColor]);
   // D-102 dark palette: text #E9F0EC on background #0E1714.
@@ -306,7 +307,11 @@ test('TB-02 (AC33, AC34, AC35, D-153 C): colours in light and dark mode with con
   expect(o.font).toContain('Noto Naskh Arabic');
   expect(ratio(o.color, o.bg)).toBeGreaterThanOrEqual(4.5);
   expect(ratio(o.color, o.page)).toBeGreaterThanOrEqual(4.5);
-  await page.locator('[data-night]').click();
+  // Kit v37: the switch is on the Settings screen (RQ-008 AC71); the page is opened again after it.
+  await page.goto('/settings/');
+  await setNight(page, true);
+  await page.goto(`/tafseer/2/#a${CASE.quoteElsewhere}`);
+  await ready(page);
   await expect(page.locator('html')).toHaveClass(/dark/);
   o = await other();
   expect(o.color).toBe('rgb(217, 174, 110)'); // #D9AE6E

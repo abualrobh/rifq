@@ -30,8 +30,11 @@ for (const lang of LANGS) {
     expect((await li.allInnerTexts()).map((s) => s.replace(/\s+/g, ' ').trim())).toEqual(items(lang));
     expect(await page.locator('.pv-list > li > strong').allInnerTexts()).toEqual(labels(lang));
     await expect(page.locator('[data-pv-updated]')).toHaveText(t(lang, 'pvUpdated'));
-    // The alternate-language link goes to the other privacy page.
-    await expect(page.locator('#lang-switch')).toHaveAttribute('href', privacyPath(lang === 'ar' ? 'en' : 'ar'));
+    // Kit v37 (RQ-008 D-181 C, AC77): the header language link was removed; the interface language
+    // is switched in Settings. The page has no header language link and no current tab (AC2).
+    await expect(page.locator('#lang-switch')).toHaveCount(0);
+    await expect(page.locator('nav[data-tabbar] a[aria-current]')).toHaveCount(0);
+    expect(privacyPath(lang)).toMatch(/privacy\/$/);
     const body = await page.locator('body').innerText();
     expect(NO_COOKIE.test(body), 'no cookie claim').toBe(false);
     expect(NOT_LATIN_DIGIT.test(body), 'Latin digits only (D-065)').toBe(false);

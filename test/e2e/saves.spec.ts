@@ -1,5 +1,7 @@
 // RQ-003 browser tests. Every test uses a new, disposable browser profile and references only
 // (surah and ayah numbers). Removals happen through the product and are logged (D-051).
+// Kit v37 (RQ-008 AC22, AC77): the home Saved panel moved, unchanged, to the Saved screen, so the
+// list checks open /saved/ (home()); the interface language is switched in Settings (D-181 C).
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,8 +9,9 @@ import { test, expect, surahs, N, MOBILE, DESKTOP, BUILD, hydrated, noOverflow, 
 import { t, ACCOUNT_WORDS } from '../../src/core/strings.ts';
 
 const KEY = 'rifq.saves';
-const home = (lang: 'ar' | 'en') => (lang === 'ar' ? '/' : '/en/');
-const reader = (lang: 'ar' | 'en', s: number, a?: number) => `${home(lang)}${s}/${a ? `#a${a}` : ''}`;
+const base = (lang: 'ar' | 'en') => (lang === 'ar' ? '/' : '/en/');
+const home = (lang: 'ar' | 'en') => `${base(lang)}saved/`;
+const reader = (lang: 'ar' | 'en', s: number, a?: number) => `${base(lang)}${s}/${a ? `#a${a}` : ''}`;
 const stored = (page: Page) => page.evaluate((k) => localStorage.getItem(k), KEY);
 const seed = (ctx: BrowserContext, value: unknown) => ctx.addInitScript(([k, v]) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem(k as string, v as string); sessionStorage.setItem('seeded', '1'); } }, [KEY, JSON.stringify(value)]);
 
@@ -28,13 +31,13 @@ test('TP3-01: a bookmark stays after reload and after a browser restart', async 
   await page.reload();
   await hydrated(page);
   await expect(page.locator('button.bm[data-a="5"]')).toHaveAttribute('aria-pressed', 'true');
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await expect(page.locator('[data-bm="2:5"] a')).toHaveText(`${surahs[1].ar} 2:5`);
   await ctx.close();
   ctx = await chromium.launchPersistentContext(dir, { baseURL: 'http://127.0.0.1:8812', args: ['--no-proxy-server'] });
   page = ctx.pages()[0] ?? (await ctx.newPage());
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await expect(page.locator('[data-bm="2:5"] a')).toBeVisible();
   await ctx.close();
@@ -56,7 +59,11 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
     await expect(item).toHaveText(`${lang === 'ar' ? surahs[2].ar : surahs[2].en} 3:7`);
     expect(await page.evaluate(() => getComputedStyle(document.querySelector('[data-bookmarks]')!).direction)).toBe(lang === 'ar' ? 'rtl' : 'ltr');
     await noOverflow(page);
-    await page.click('#lang-switch');
+    await page.goto(`${base(lang)}settings/`);
+    await hydrated(page);
+    await page.click(`[data-set-lang-link="${lang === 'ar' ? 'en' : 'ar'}"]`);
+    await hydrated(page);
+    await page.click('nav[data-tabbar]:visible a[data-tab="saved"]');
     await hydrated(page);
     await expect(page.locator('[data-bm="3:7"] a')).toHaveText(`${lang === 'ar' ? surahs[2].en : surahs[2].ar} 3:7`);
     await noOverflow(page);
@@ -65,10 +72,10 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
 
 test('TP3-08: removing one bookmark through the product removes only that one', async ({ page, context }) => {
   await seed(context, { v: 1, b: [[1, 1], [2, 2], [3, 3]], l: null });
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await page.click('[data-bm="2:2"] button');
-  logRemoval('TP3-08', 'removed bookmark 2:2 through the home page, disposable profile');
+  logRemoval('TP3-08', 'removed bookmark 2:2 through the Saved screen, disposable profile');
   await expect(page.locator('[data-saved-status]')).toHaveText(t('ar', 'removed'));
   await page.reload();
   await hydrated(page);
@@ -192,7 +199,9 @@ test('TP3-19: device storage holds references only: no text, no names, no dates'
   await page.waitForTimeout(3600);
   const all = await page.evaluate(() => ({ ...localStorage }));
   const keys = Object.keys(all).sort();
-  expect(keys.every((k) => k === 'rifq.saves' || k === 'rifq.settings')).toBe(true);
+  // Kit v37 (RQ-008 AC20, D-182 A): recently read is the one new device-only item: surah numbers only.
+  expect(keys.every((k) => k === 'rifq.saves' || k === 'rifq.settings' || k === 'rifq.recent')).toBe(true);
+  if (all['rifq.recent']) expect(JSON.parse(all['rifq.recent'])).toEqual({ v: 1, s: [2] });
   const v = JSON.parse(all['rifq.saves']);
   expect(Object.keys(v).sort()).toEqual(['b', 'l', 'v']);
   expect(v.b).toEqual([[2, 20], [2, 21]]);
@@ -204,7 +213,7 @@ test('TP3-19: device storage holds references only: no text, no names, no dates'
 test('TP3-20: references that do not exist show a clear message and open nothing else', async ({ page, context }) => {
   const c2 = surahs[1].items.length;
   await seed(context, { v: 1, b: [[N + 1, 1], [2, c2 + 1], [0, 1], [1, 1]], l: [2, c2 + 1] });
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await expect(page.locator('[data-bad-last]')).toHaveText(t('ar', 'badRef', { s: 2, a: c2 + 1 }));
   await expect(page.locator('[data-continue]')).toHaveCount(0);
@@ -266,14 +275,14 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
 
 test('TP3-26: clear all asks to confirm; cancel keeps everything; confirm removes all bookmarks', async ({ page, context }) => {
   await seed(context, { v: 1, b: [[1, 1], [2, 2], [3, 3]], l: [2, 2] });
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await page.click('[data-clear]');
   await page.click('[data-clear-cancel]');
   await expect(page.locator('[data-bm]')).toHaveCount(3);
   await page.click('[data-clear]');
   await page.click('[data-clear-confirm]');
-  logRemoval('TP3-26', 'cleared bookmarks 1:1, 2:2, 3:3 through the home page, disposable profile');
+  logRemoval('TP3-26', 'cleared bookmarks 1:1, 2:2, 3:3 through the Saved screen, disposable profile');
   await expect(page.locator('[data-saved-status]')).toHaveText(t('ar', 'cleared'));
   await page.reload();
   await hydrated(page);

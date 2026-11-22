@@ -173,3 +173,24 @@ export async function openSearch(page: Page) {
   if (!(await d.evaluate((x) => (x as HTMLDetailsElement).open))) await page.locator('[data-search-toggle]').click();
   await expect(page.locator('#q')).toBeVisible();
 }
+
+// Kit v37 (RQ-008 AC71, AC72): the night button left the header; night mode is switched on the
+// Settings screen. Turns it on or off through the product: the Settings tab (an in-place change, so a
+// recitation keeps playing), the switch, then Back to the page shown before.
+export async function setNight(page: Page, on: boolean) {
+  const back = page.url();
+  const onSettings = /\/settings\/$/.test(new URL(back).pathname);
+  if (!onSettings) {
+    await page.locator('nav[data-tabbar]:visible a[data-tab="settings"]').click();
+    await expect(page).toHaveURL(/\/settings\/$/);
+  }
+  await hydrated(page);
+  const sw = page.locator('[data-night-switch]');
+  if ((await sw.getAttribute('aria-checked')) !== String(on)) await sw.click();
+  await expect(sw).toHaveAttribute('aria-checked', String(on));
+  if (!onSettings) {
+    await page.goBack();
+    await expect(page).toHaveURL(back);
+    await hydrated(page).catch(() => undefined);
+  }
+}
