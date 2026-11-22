@@ -1,24 +1,42 @@
 ---
-// Home page. D-089 B: the surah list moved to its own index page (RQ-004); home keeps search and
-// continue reading (RQ-003), with a clear link to the index.
+// Home page. RQ-008 stage 1 (kit v37, AC9): from top to bottom, the brand (page title), the go-to
+// box, the continue-reading card (when there is a last position), the mySaved row, the juz grid
+// with an "All surahs" link, and the recently read row (when there is something to show).
+// Go-to box in kit v37: the Go to screen (RQ-008 AC59 to AC69) is stage 3 and not built yet, so the
+// box is today's search form (RQ-002) unchanged: a reference such as 2:255 or a surah name gives
+// direct links, and Arabic words give word search, both only after Search is pressed (POST to
+// /api/search, as today). The same form is on the Search screen. D-089: home keeps search.
+// The bookmark list, Remove, Clear all and clear last position moved to the Saved screen (AC22).
 import Layout from '../layouts/Layout.astro';
 import Search from '../islands/Search.tsx';
-import Saved from '../islands/Saved.tsx';
-import { surahs, counts, names } from '../lib/data';
-import { t, homePath, indexPath, type Lang } from '../../core/strings.ts';
+import HomeSaved from '../islands/HomeSaved.tsx';
+import HomeRecent from '../islands/HomeRecent.tsx';
+import { counts, names, juz, juzByStartsOk } from '../lib/data';
+import { t, homePath, indexPath, ayahPath, type Lang } from '../../core/strings.ts';
 interface Props { lang: Lang }
 const { lang } = Astro.props;
 const other: Lang = lang === 'ar' ? 'en' : 'ar';
 ---
-<Layout lang={lang} title={t(lang, 'siteName')} alt={homePath(other)} wide>
-  <h1 class="home-title">{t(lang, 'siteName')}</h1>
-  <div class="home-grid">
-    <div class="home-main">
+<Layout lang={lang} title={t(lang, 'siteName')} alt={homePath(other)} wide tab="home">
+  <div class="home">
+    <h1 class="home-title">{t(lang, 'siteName')}</h1>
+    <div class="home-goto" data-home-goto>
       <Search lang={lang} client:idle />
-      <p class="index-card-wrap"><a class="index-card" href={indexPath(lang)} data-index-link><span class="index-card-title">{t(lang, 'surahIndex')}</span> <span class="index-card-sub">{t(lang, 'indexListLabel', { n: surahs.length })}</span></a></p>
     </div>
-    <div class="home-side">
-      <Saved lang={lang} counts={counts} names={names} client:idle />
-    </div>
+    <HomeSaved lang={lang} counts={counts} names={names} juz={juz} juzOk={juzByStartsOk} client:idle />
+    <!-- AC17 (D-090 D): the 30 juz, each opening the reader at its first ayah in the file, the same
+         targets as the index page's juz list. AC18: "All surahs" opens the surah index. -->
+    <section class="home-sec" aria-labelledby="home-juz-h" data-home-juz>
+      <div class="home-sec-head">
+        <h2 id="home-juz-h">{t(lang, 'juzTitle')}</h2>
+        <a href={indexPath(lang)} data-index-link data-all-surahs>{t(lang, 'allSurahs')}</a>
+      </div>
+      <ol class="juz-grid" aria-label={t(lang, 'juzListLabel', { n: juz.length })}>
+        {juz.map((j) => (
+          <li><a href={ayahPath(lang, j.s, j.a)} aria-label={t(lang, 'juzOf', { n: j.juz })} data-home-juz-link={j.juz} data-juz-start={`${j.s}:${j.a}`}>{j.juz}</a></li>
+        ))}
+      </ol>
+    </section>
+    <HomeRecent lang={lang} counts={counts} names={names} client:idle />
   </div>
 </Layout>

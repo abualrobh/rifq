@@ -21,7 +21,7 @@ const folded = ['', ...surahs.map((s) => foldName(s.ar))];
 // D-050 Arabic-only message for Latin letters).
 const en = lang === 'en' ? [['', ''] as [string, string], ...surahs.map((s) => enKeys(s.en))] : undefined;
 ---
-<Layout lang={lang} title={`${t(lang, 'surahIndex')} - ${t(lang, 'siteName')}`} alt={indexPath(other)} wide>
+<Layout lang={lang} title={`${t(lang, 'surahIndex')} - ${t(lang, 'siteName')}`} alt={indexPath(other)} wide tab="home">
   <h1 class="home-title">{t(lang, 'surahIndex')}</h1>
   <Continue lang={lang} counts={counts} names={names} client:idle />
   <IndexFilter lang={lang} folded={folded} en={en} counts={counts} names={names} client:idle />

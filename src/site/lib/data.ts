@@ -3,6 +3,7 @@
 // except what the pages render.
 import { juzStarts, loadSource, surahsOf } from '../../core/source-adapter.ts';
 import { gate, type Mode } from '../../core/source-gate.ts';
+import { juzOfAyah } from '../../core/recent.ts';
 
 const recordPath = process.env.RIFQ_RECORD;
 if (!recordPath) throw new Error('RIFQ_RECORD is not set. Run the build through scripts/build.ts.');
@@ -22,3 +23,7 @@ export const counts: number[] = [0, ...surahs.map((s) => s.items.length)];
 export const names: [string, string][] = surahs.map((s) => [s.ar, s.en]);
 // RQ-004 (D-090 D): the first ayah of each juz in the file, by juz number.
 export const juz = juzStarts(src.list);
+// RQ-008 AC11 (kit v37): the home continue card shows the juz of the saved ayah. Browsers get only
+// the 30 juz starts above and work the juz out from them (src/core/recent.ts juzOfAyah). This is
+// checked here against every ayah's own `jozz` in the file; if any differs, the card shows no juz.
+export const juzByStartsOk = src.list.every((x) => !Number.isInteger(x.jozz) || juzOfAyah(juz, x.sora, x.aya_no) === x.jozz);
