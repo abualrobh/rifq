@@ -78,7 +78,8 @@ test('NT-03: without JavaScript the pages render and the switch is disabled (no 
     const ctx = await browser.newContext({ javaScriptEnabled: false, viewport: MOBILE });
     const page = await ctx.newPage();
     await page.goto(path);
-    await expect(page.locator('main h1')).toBeVisible();
+    // Kit v39 (RQ-008 AC50): on reader pages the page heading (the surah name) is in the header.
+    await expect(page.locator('main h1, header h1').first()).toBeVisible();
     await expect(page.locator('.site-header [data-night]')).toHaveCount(0);
     if (path === '/settings/') await expect(page.locator('[data-night-switch]')).toBeDisabled();
     await noOverflow(page);

@@ -54,7 +54,7 @@ test('prototype fix: a search sent before the island loads works, by POST, with 
   page.on('request', (r) => seen.push({ url: r.url(), method: r.method(), headers: r.headers() }));
   await page.route('**/_astro/**', (r) => (r.request().url().endsWith('.js') ? r.abort() : r.continue()));
   await page.goto('/2/');
-  await openSearch(page);
+  await openSearch(page, false);
   await page.fill('#q', PHRASE);
   await page.press('#q', 'Enter');
   await page.waitForURL('**/api/search');
@@ -73,11 +73,12 @@ test('prototype fix: a search sent before the island loads works, by POST, with 
 });
 
 test('prototype fix: text typed before the island loads is kept and then searched by fetch', async ({ page, seen }) => {
-  await page.route('**/_astro/Search.*.js', async (r) => { await new Promise((x) => setTimeout(x, 2500)); await r.continue(); });
+  // Kit v39: the search input is the Go to view's (GoTo island, which uses the Search module).
+  await page.route(/\/_astro\/(GoTo|Search)\.[^/]*\.js$/, async (r) => { await new Promise((x) => setTimeout(x, 2500)); await r.continue(); });
   await page.goto('/en/2/');
-  await openSearch(page);
+  await openSearch(page, false);
   await page.fill('#q', PHRASE);
-  await page.waitForFunction(() => ![...document.querySelectorAll('astro-island[ssr]')].some((i) => i.getAttribute('component-url')?.includes('Search')), null, { timeout: 15_000 });
+  await page.waitForFunction(() => ![...document.querySelectorAll('astro-island[ssr]')].some((i) => i.getAttribute('component-url')?.includes('GoTo')), null, { timeout: 15_000 });
   await expect(page.locator('#q')).toHaveValue(PHRASE);
   await page.press('#q', 'Enter');
   await expect(page.locator('[data-search-status]')).toHaveText(t('en', 'resultCount', { n: brute(PHRASE).length }));
@@ -160,6 +161,8 @@ for (const lang of ['ar', 'en'] as const) {
     await page.route('**/api/search', (r) => r.abort());
     await searchUi(page, COMMON);
     await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'searchError'));
+    // Kit v39: the search is on the Go to screen; reading stays available back on the reader.
+    await page.goBack();
     await page.click('a[data-next]');
     await expect(page.locator('p.ayah[data-r]')).toHaveCount(surahs[2].items.length);
   });
@@ -194,6 +197,8 @@ for (const [lang, vp] of [['ar', null], ['en', MOBILE]] as const) {
     await expect(page.locator('[data-search-status]')).toHaveText(new RegExp(t(lang, 'rateLimited', { s: 'XX' }).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('XX', '\\d+')));
     expect(seen.filter((s) => s.url.endsWith('/api/search')).length).toBe(30);
     await noOverflow(page);
+    // Kit v39: the search is on the Go to screen; reading continues back on the reader.
+    await page.goBack();
     await page.click('a[data-next]');
     await expect(page.locator('p.ayah[data-r]')).toHaveCount(surahs[2].items.length);
   });
@@ -221,8 +226,10 @@ test('TP2-18 server backstop: the 121st direct request in a minute gets 429 with
 for (const lang of ['ar', 'en'] as const) {
   test(`TP2-22: the search input has a label in the interface language, ${lang}`, async ({ page }) => {
     await page.goto(lang === 'ar' ? '/' : '/en/');
-    await expect(page.getByLabel(t(lang, 'searchLabel'))).toHaveAttribute('id', 'q');
-    await expect(page.locator('#q')).toHaveAttribute('dir', 'rtl');
+    // Kit v39 (RQ-008 AC10, AC59): the home box is the Go to view's input, labelled gotoLabel; its
+    // direction follows what is typed (references, Arabic names, and English names in English).
+    await expect(page.getByLabel(t(lang, 'gotoLabel'))).toHaveAttribute('id', 'q');
+    await expect(page.locator('#q')).toHaveAttribute('dir', 'auto');
   });
 }
 
@@ -274,6 +281,9 @@ test('TP2-27 (dry run): whole word and start of word match; inside-word matches 
   }
 });
 
+// Kit v39 (RQ-008 AC60, AC61, AC64): in the browser the places are now the Go to view's direct results,
+// worked out on the device with the same rules (parseRef, matchSurahNames); the Worker's offers are
+// unchanged (API part).
 test('TP2-28: every surah name in Arabic is offered (API), and offers open the exact place (UI)', async ({ page, request }) => {
   for (const s of surahs) {
     const d = await (await request.post('/api/search', { data: { q: s.ar } })).json();
@@ -290,14 +300,14 @@ test('TP2-28: every surah name in Arabic is offered (API), and offers open the e
     await hydrated(page);
     await searchUi(page, q);
     expect(await page.locator('.msg.alert').count()).toBe(0);
-    await page.click(`[data-offer="2:${last}"]`);
+    await page.click(`[data-goto-result="ayah"][data-goto-ref="2:${last}"]`);
     await expect(page).toHaveURL(new RegExp(`/2/#a${last}$`));
     await expect(page.locator(`#a${last}`)).toBeInViewport();
   }
   await page.goto('/');
   await hydrated(page);
   await searchUi(page, surahs[1].ar);
-  await page.click('[data-offer="2"]');
+  await page.click('[data-goto-result="surah"][data-goto-ref="2"]');
   await expect(page).toHaveURL(/\/2\/$/);
 });
 
@@ -308,8 +318,9 @@ for (const lang of ['ar', 'en'] as const) {
     await hydrated(page);
     for (const q of [`${N + 1}`, ar(`${N + 1}:1`), `2:${surahs[1].items.length + 1}`, '0']) {
       await searchUi(page, q);
-      await expect(page.locator('[data-ref-missing]')).toHaveText(t(lang, 'refMissing'));
-      expect(await page.locator('[data-offer]').count()).toBe(0);
+      // Kit v39: the Go to view says it (AC60), once; no place is offered.
+      await expect(page.locator('[data-goto-status]')).toHaveText(t(lang, 'refMissing'));
+      expect(await page.locator('[data-offer], [data-goto-result], [data-ref-missing]').count()).toBe(0);
     }
   });
 }
@@ -440,9 +451,12 @@ for (const lang of ['ar', 'en'] as const) {
       expect(r.lang).toBe(lang);
       expect(r.label).toBe(name + t(lang, 'resultRef', { s, a }));
     }
-    await searchUi(page, '2:5');
-    const offer = page.locator('[data-offer="2:5"]');
-    await expect(offer).toHaveText(t(lang, 'offerAyah', { s: 2, a: 5, name: '' }) + (lang === 'ar' ? surahs[1].ar : surahs[1].en));
-    await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'offerCount', { n: 1 }));
+    // Kit v39 (RQ-008 AC60, AC65): the place for 2:5 is a Go to direct result, shown as it is typed,
+    // with its kind in words and the surah name in the interface language from the file.
+    await page.fill('#q', '2:5');
+    const offer = page.locator('[data-goto-result="ayah"][data-goto-ref="2:5"]');
+    await expect(offer.locator('.goto-title')).toHaveText(t(lang, 'gotoAyahResult', { name: lang === 'ar' ? surahs[1].ar : surahs[1].en, a: 5 }));
+    await expect(offer.locator('[data-goto-kind]')).toHaveText(t(lang, 'kindAyah'));
+    await expect(page.locator('[data-goto-status]')).toHaveText(t(lang, 'offerCount', { n: 2 }));
   });
 }

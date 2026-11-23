@@ -181,10 +181,13 @@ test('TP1-23: text, controls and focus meet WCAG 2.2 AA contrast in both themes'
         if (el) out[k] = ratio(getComputedStyle(el).color, bg(el));
       }
       // Focus indicator: outline colour against the page background (non-text, 3:1).
-      const b = document.querySelector<HTMLElement>('.surah-nav a')!;
+      // Kit v39: the search results are on the Go to screen (RQ-008 AC59), which has no surah links;
+      // its first link in the main content is used for the focus ring there.
+      const b = document.querySelector<HTMLElement>('.surah-nav a, main a[href]')!;
       b.focus();
       out.focus = ratio(getComputedStyle(b).outlineColor, bg(b.parentElement));
-      out.border = ratio(getComputedStyle(document.querySelector('.btn')!).borderTopColor, bg(document.querySelector('.btn')!.parentElement));
+      const btn = document.querySelector('.btn, .goto-word')!; // kit v39: the Go to row on the Go to screen
+      out.border = ratio(getComputedStyle(btn).borderTopColor, bg(btn.parentElement));
       return out;
     });
     for (const [k, v] of Object.entries(r)) {
@@ -282,6 +285,9 @@ for (const lang of ['ar', 'en'] as const) {
         expect(n.name, JSON.stringify({ id: n.id, cls: n.cls })).not.toBe('');
         if (n.id === 'lang-switch') continue; // names the other language on purpose
         const arabic = /[\u0621-\u064a]/.test(n.name);
+        // Kit v39 (RQ-008 AC69): the Go to example chips are examples to type (2:255, a surah name
+        // from the file, 36), not interface text.
+        if (n.cls.includes('goto-chip')) continue;
         if (lang === 'ar') expect(arabic, `ar label: ${n.id} ${n.cls}`).toBe(true);
         else expect(/[A-Za-z]/.test(n.name), `en label: ${n.id} ${n.cls}`).toBe(true);
       }
@@ -402,14 +408,16 @@ test('D-069: font files and licences are served; the policy allows fonts from th
 
 // D-070, design review H-2: one header row at phone width, and search behind one button.
 for (const lang of ['ar', 'en'] as const) {
+  // Kit v39 (RQ-008 AC50, AC59): the search form left the reader; its header's Go to button opens the
+  // Go to screen. The header stays one row at 390 px.
   test(`H-2: the reader header is one row at 390 px and the search form is behind a button, ${lang}`, async ({ page }) => {
     await page.setViewportSize(MOBILE);
     await page.goto(lang === 'ar' ? '/2/' : '/en/2/');
     await hydrated(page);
     const h = await page.evaluate(() => document.querySelector('.site-header')!.getBoundingClientRect().height);
     expect(h).toBeLessThanOrEqual(64);
-    await expect(page.locator('#q')).toBeHidden();
-    const toggle = page.locator('[data-search-toggle]');
+    await expect(page.locator('#q')).toHaveCount(0);
+    const toggle = page.locator('header [data-reader-goto]');
     const box = (await toggle.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(44);
     await expect(page.locator('[data-larger]')).toBeHidden();
@@ -423,8 +431,6 @@ for (const lang of ['ar', 'en'] as const) {
     await expect(page.locator('[data-larger]')).toBeHidden();
     await openSearch(page);
     await expect(page.locator('#q')).toBeVisible();
-    const first = await page.evaluate(() => document.querySelector('p.ayah')!.getBoundingClientRect().top);
-    test.info().annotations.push({ type: 'first-ayah-top-px-with-search-open', description: String(Math.round(first)) });
     await noOverflow(page);
   });
 }

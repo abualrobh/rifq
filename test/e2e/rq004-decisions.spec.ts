@@ -98,9 +98,9 @@ test('D092-01: two letters after the Arabic article find the surah in the index 
   expect(await visible(page)).toContain(2);
   await page.goto('/');
   await hydrated(page);
+  // Kit v39 (RQ-008 AC61): the home box shows the same match as a direct result as it is typed.
   await page.fill('#q', q2);
-  await page.press('#q', 'Enter');
-  await expect(page.locator('a[data-offer="2"]')).toBeVisible();
+  await expect(page.locator('a[data-goto-result="surah"][data-goto-ref="2"]')).toBeVisible();
 });
 
 test('D094-01: English rows show the English name and the Arabic name; Arabic rows the Arabic name only', async ({ page }) => {
