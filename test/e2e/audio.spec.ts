@@ -5,7 +5,7 @@
 // Not provable here (Chromium, no phone): AC26, AC27, AC29 and AC57 on the reference phone, and the
 // lock screen part of AC28 and AC54. Those need Hamzeh's iPhone test.
 import type { Page, Route } from '@playwright/test';
-import { test, expect, src, surahs, MOBILE, hydrated, noOverflow, setNight } from './helpers.ts';
+import { test, expect, src, surahs, MOBILE, hydrated, noOverflow, setNight, openAyah, ayahAction, bookmarked } from './helpers.ts';
 import { t } from '../../src/core/strings.ts';
 import { AUDIO_HOST } from '../../src/core/audio.ts';
 import { AR_WORD, MOCK_RECITER_NAMES } from '../mock/qf-mock.ts';
@@ -59,20 +59,21 @@ test('AU-01 (AC3, AC48, AC58): nothing is requested before play; no player off t
   await page.goto('/1/');
   await hydrated(page);
   await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-ready', '1');
-  await expect(page.locator('button.ap')).toHaveCount(n(1));
-  await expect(page.locator('button.ap').first()).toBeVisible();
+  // Kit v38 (RQ-008 D-187 A): one actions button per ayah; play is in the ayah actions panel.
+  await expect(page.locator('button.ayah-act')).toHaveCount(n(1));
+  await expect(page.locator('button.ayah-act').first()).toBeVisible();
   const a = await page.$eval('audio[data-audio]', (e) => ({ preload: (e as HTMLAudioElement).preload, src: e.getAttribute('src'), paused: (e as HTMLAudioElement).paused }));
   expect(a).toEqual({ preload: 'none', src: null, paused: true });
   expect(seen.filter((x) => x.url.includes('/api/audio') || x.url.includes(AUDIO_HOST))).toEqual([]);
   for (const p of ['/', '/en/', '/surahs/', '/tafseer/1/', '/privacy/', '/en/privacy/']) {
     await page.goto(p);
-    await expect(page.locator('[data-audio-player], button.ap'), p).toHaveCount(0);
+    await expect(page.locator('[data-audio-player], button.ayah-act'), p).toHaveCount(0);
   }
   const ctx = await browser.newContext({ javaScriptEnabled: false, viewport: MOBILE });
   const nj = await ctx.newPage();
   await nj.goto('/2/');
   await expect(nj.locator('[data-audio-noscript]')).toHaveText(t('ar', 'audioNoScript'));
-  await expect(nj.locator('button.ap').first()).toBeHidden();
+  await expect(nj.locator('button.ayah-act').first()).toBeHidden();
   await expect(nj.locator('[data-play-surah]')).toBeHidden();
   await ctx.close();
 });
@@ -107,12 +108,17 @@ test('AU-03 (AC1, AC2, AC10, AC43, AC53): a single ayah plays from its start and
   await page.goto('/2/');
   await hydrated(page);
   const before = await stored(page);
-  const b = page.locator('button.ap[data-ap="3"]');
-  await expect(b).toHaveAttribute('aria-label', t('ar', 'audioPlayAyah', { a: 3 }));
+  // Kit v38 (RQ-008 AC28, D-187 A): "Play this ayah" in the ayah actions panel; the panel closes.
+  await openAyah(page, 3);
+  const b = page.locator('dialog[data-ayah-panel] [data-act-play-ayah]');
+  await expect(b).toHaveText(t('ar', 'audioPlayAyah', { a: 3 }));
   await b.click();
+  await expect(page.locator('dialog[data-ayah-panel]')).toHaveJSProperty('open', false);
   await expect.poll(async () => (await audioState(page)).paused).toBe(false);
+  await openAyah(page, 3);
   await expect(b).toHaveAttribute('data-state', 'playing');
-  await expect(b).toHaveAttribute('aria-label', t('ar', 'audioPauseAyah', { a: 3 }));
+  await expect(b).toHaveText(t('ar', 'audioPauseAyah', { a: 3 }));
+  await page.locator('[data-act-close]').click();
   const st = await audioState(page);
   expect(st.t).toBeGreaterThanOrEqual(2 * STEP - 50);
   expect(st.t).toBeLessThan(2 * STEP + 1500);
@@ -132,12 +138,17 @@ test('AU-03 (AC1, AC2, AC10, AC43, AC53): a single ayah plays from its start and
   expect(await marked(page)).toEqual([]);
   expect(await stored(page), 'AC50: a single ayah does not move the last position').toEqual(before);
   // AC10: another ayah's control stops the first and starts the new one.
-  await page.click('button.ap[data-ap="5"]');
+  await ayahAction(page, 5, 'play-ayah');
   await expect.poll(() => marked(page)).toEqual([5]);
-  await page.click('button.ap[data-ap="7"]');
+  await ayahAction(page, 7, 'play-ayah');
   await expect.poll(() => marked(page)).toEqual([7]);
   expect((await audioState(page)).t).toBeGreaterThanOrEqual(6 * STEP - 50);
-  await expect(page.locator('button.ap[data-state="playing"]')).toHaveCount(1);
+  await openAyah(page, 7);
+  await expect(page.locator('[data-act-play-ayah][data-state="playing"]')).toHaveCount(1);
+  await page.locator('[data-act-close]').click();
+  await openAyah(page, 5);
+  await expect(page.locator('[data-act-play-ayah][data-state="playing"]')).toHaveCount(0);
+  await page.locator('[data-act-close]').click();
 });
 
 test('AU-04 (AC14, AC15, AC19, AC30): reciter list from the data; changing reciter restarts the current ayah; the choice is kept', async ({ page }) => {
@@ -148,7 +159,7 @@ test('AU-04 (AC14, AC15, AC19, AC30): reciter list from the data; changing recit
   await playSurah(page);
   await seekTo(page, 3 * STEP + 1000);
   await expect.poll(() => marked(page)).toEqual([4]);
-  await page.locator('[data-audio-more] summary').click();
+  await page.locator('[data-reciter-btn]').click();
   await expect(page.locator('[data-reciter]')).toHaveCount(2); // 7 and 97 pass on the mock data
   expect(await page.$$eval('[data-reciter]', (r) => r.map((x) => (x as HTMLInputElement).value))).toEqual(['7', '97']);
   const dl = page.locator('[data-audio-source]');
@@ -170,7 +181,7 @@ test('AU-04 (AC14, AC15, AC19, AC30): reciter list from the data; changing recit
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('rifq.settings')!))).toMatchObject({ dark: true, reciter: 97 });
   await page.reload();
   await hydrated(page);
-  await page.locator('[data-audio-more] summary').click();
+  await page.locator('[data-reciter-btn]').click();
   await expect(page.locator('[data-reciter="97"]')).toBeChecked();
   // AC55: no cookies, no Referer, the address exactly as given.
   for (const h of hits) { expect(h.headers.cookie).toBeUndefined(); expect(h.headers.referer).toBeUndefined(); expect(h.url.startsWith(`https://${AUDIO_HOST}/`)).toBe(true); }
@@ -211,16 +222,16 @@ test('AU-06 (AC16, AC24): storage blocked keeps the choice for the visit only; a
   await serveAudio(page, [], true);
   await page.goto('/1/');
   await hydrated(page);
-  await page.click('button.ap[data-ap="2"]');
+  await ayahAction(page, 2, 'play-ayah');
   await expect(page.locator('[data-audio-status]')).toHaveText(new RegExp(`^${esc(t('ar', 'audioUnavailable'))} \\[(file-error-\\d|play-\\w+)\\]$`), { timeout: 10000 });
   expect(await marked(page)).toEqual([2]);
   await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
-  await page.locator('[data-audio-more] summary').click();
+  await page.locator('[data-reciter-btn]').click();
   await page.check('[data-reciter="97"]');
   await expect(page.locator('[data-audio-status]')).toHaveText(t('ar', 'audioNotRemembered'));
 });
 
-test('AU-07 (AC7, AC8, P-2, AC46): automatic scrolling follows the ayah, pauses when the reader scrolls, and "go to current ayah" brings it back', async ({ page }) => {
+test('AU-07 (AC7, AC8, P-2, AC46; RQ-008 AC54): automatic scrolling follows the ayah, pauses when the reader scrolls, and the mini-player "go to the playing ayah" brings it back', async ({ page }) => {
   await page.setViewportSize(MOBILE);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await serveAudio(page);
@@ -230,7 +241,8 @@ test('AU-07 (AC7, AC8, P-2, AC46): automatic scrolling follows the ayah, pauses 
   const inView = (a: number) => page.evaluate((x) => {
     const r = document.getElementById(`a${x}`)!.getBoundingClientRect();
     const top = document.querySelector('.site-header')!.getBoundingClientRect().bottom;
-    const bar = document.querySelector('[data-player]')!.getBoundingClientRect().top;
+    // Kit v38 (RQ-008 AC54): the bottom edge is the mini-player and the tab bar (no fixed player).
+    const bar = Math.min(...['[data-mini-player]', 'nav[data-tabbar="bottom"]'].map((q) => document.querySelector(q)?.getBoundingClientRect().top ?? innerHeight).filter((v) => v > 0));
     // Fully on screen; an ayah taller than the space left shows from its start under the header.
     const room = Math.min(bar, innerHeight) - top;
     return r.height > room ? Math.abs(r.top - top) <= 12 : r.top >= top - 1 && r.bottom <= Math.min(bar, innerHeight) + 1;
@@ -240,15 +252,18 @@ test('AU-07 (AC7, AC8, P-2, AC46): automatic scrolling follows the ayah, pauses 
   await expect.poll(() => inView(41)).toBe(true);
   await page.mouse.move(195, 400);
   await page.mouse.wheel(0, -1500);
-  await expect(page.locator('[data-go-current]')).toBeVisible();
+  await page.waitForTimeout(300);
   await seekTo(page, 60 * STEP + 1000);
   await expect.poll(() => marked(page)).toEqual([61]);
   expect(await inView(61)).toBe(false);
-  const go = page.locator('[data-go-current]');
+  const go = page.locator('[data-mini-go]');
   expect((await go.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await go.click();
   await expect.poll(() => inView(61)).toBe(true);
-  await expect(go).toHaveCount(0);
+  // And it follows again from there.
+  await seekTo(page, 61 * STEP + 1000);
+  await expect.poll(() => marked(page)).toEqual([62]);
+  await expect.poll(() => inView(62)).toBe(true);
   await noOverflow(page);
 });
 
@@ -286,9 +301,9 @@ test('AU-08 (AC28, kit v24 report): the lock-screen title follows every ayah, al
   await expect.poll(() => marked(page)).toEqual([9]);
   await expect.poll(md).toEqual(want(9));
   expect((await audioState(page)).t).toBeLessThan(8 * STEP + 1500);
-  // The player's own buttons do the same.
-  await page.click('[data-next-ayah]');
-  await expect.poll(() => marked(page)).toEqual([10]);
+  // Kit v38 (D-203 A, Hamzeh): the fixed player's previous and next ayah buttons are gone; the
+  // lock-screen buttons above are the only ones, as before.
+  await expect(page.locator('[data-next-ayah], [data-prev-ayah]')).toHaveCount(0);
   // After a stop, the lock-screen next button starts nothing.
   await page.evaluate(() => (window as unknown as { __h: Record<string, (d: unknown) => void> }).__h.stop({ action: 'stop' }));
   await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'idle');
@@ -311,29 +326,24 @@ test('AU-09 (AC39 v1.3, AC41, AC42, AC45): policy on every reader-facing page; 4
   await serveAudio(page);
   await page.goto('/2/');
   await hydrated(page);
-  // The four per-ayah controls (play, play from here, bookmark, Tafseer): 44 px each, at least
-  // 8 px apart on one axis, none over the Quran text.
+  // Kit v38 (RQ-008 D-187 A): the one actions button of each ayah: 44 px, not over the Quran text.
+  // The panel's actions (44 px, 8 px apart) are checked in rq008-stage2.spec.ts (AC37).
   for (const id of ['#a3', `#a${n(2)}`]) {
     const row = await page.$eval(id, (r) => {
       const tx = r.querySelector('p.ayah')!.getBoundingClientRect();
-      const bs = ['button.ap', 'button.apf', 'button.bm', 'a.tf-link'].map((s) => r.querySelector(s)!.getBoundingClientRect());
-      let gap = Infinity;
-      for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
-        const a = bs[i], b = bs[j];
-        gap = Math.min(gap, Math.max(b.left - a.right, a.left - b.right, b.top - a.bottom, a.top - b.bottom));
-      }
-      return { sizes: bs.map((b) => [b.width, b.height]), gap, overText: bs.some((b) => !(b.right <= tx.left || b.left >= tx.right)) };
+      const b = r.querySelector('button.ayah-act')!.getBoundingClientRect();
+      return { size: [b.width, b.height], overText: !(b.right <= tx.left || b.left >= tx.right) };
     });
-    for (const [w, h] of row.sizes) { expect(w, id).toBeGreaterThanOrEqual(44); expect(h, id).toBeGreaterThanOrEqual(44); }
-    expect(row.gap, id).toBeGreaterThanOrEqual(8);
+    expect(row.size[0], id).toBeGreaterThanOrEqual(44); expect(row.size[1], id).toBeGreaterThanOrEqual(44);
     expect(row.overText, id).toBe(false);
   }
-  for (const sel of ['[data-play-surah]', '[data-prev-ayah]', '[data-next-ayah]', '[data-audio-more] summary']) {
+  for (const sel of ['[data-play-surah]', '[data-reciter-btn]']) {
     const b = (await page.locator(sel).boundingBox())!;
     expect(b.height, sel).toBeGreaterThanOrEqual(44);
   }
-  expect(await page.$eval('[data-prev-ayah] svg', (s) => getComputedStyle(s).transform)).not.toBe('none');
   await playSurah(page);
+  // Only directional icons mirror in RTL: the mini-player's "go to the playing ayah" (RQ-008 AC92).
+  expect(await page.$eval('[data-mini-go] svg', (s) => getComputedStyle(s).transform)).not.toBe('none');
   await seekTo(page, 2 * STEP + 1000);
   await expect.poll(() => marked(page)).toEqual([3]);
   for (const mode of ['light', 'dark']) {
@@ -358,12 +368,12 @@ test('AU-10 (AC47, AC51, AC49): text size changes keep playing; bookmark and pla
   await hydrated(page);
   await page.waitForTimeout(300);
   expect(Math.abs((await page.$eval('#a20', (e) => e.getBoundingClientRect().top)) - top0)).toBeLessThanOrEqual(1);
-  await page.click('button.bm[data-a="20"]');
-  await expect(page.locator('button.bm[data-a="20"]')).toHaveAttribute('aria-pressed', 'true');
+  await ayahAction(page, 20, 'bookmark');
+  await expect.poll(() => bookmarked(page, 20)).toBe(true);
   expect((await audioState(page)).paused).toBe(true);
-  await page.click('button.ap[data-ap="20"]');
+  await ayahAction(page, 20, 'play-ayah');
   await expect.poll(async () => (await audioState(page)).paused).toBe(false);
-  await expect(page.locator('button.bm[data-a="20"]')).toHaveAttribute('aria-pressed', 'true');
+  expect(await bookmarked(page, 20)).toBe(true);
   await page.click('[data-larger]');
   await page.waitForTimeout(300);
   expect((await audioState(page)).paused).toBe(false);
@@ -376,7 +386,7 @@ test('AU-11 (kit v22 report): the Arabic interface lists the reciters and plays 
   await hydrated(page);
   await playSurah(page);
   await expect(page.locator('[data-audio-status]')).toHaveAttribute('data-reason', '');
-  await page.locator('[data-audio-more] summary').click();
+  await page.locator('[data-reciter-btn]').click();
   expect(await page.$$eval('[data-reciter]', (r) => r.map((x) => (x as HTMLInputElement).value))).toEqual(['7', '97']);
   await expect(page.locator('[data-audio-source]')).toContainText('Murattal');
   // When the Worker offers no reciter, the player says so (not the generic outage message).
@@ -385,7 +395,7 @@ test('AU-11 (kit v22 report): the Arabic interface lists the reciters and plays 
   await p2.goto('/2/');
   await hydrated(p2);
   // QA FIND-8: opening the details first (no play tap) still says why play is disabled.
-  await p2.locator('[data-audio-more] summary').click();
+  await p2.locator('[data-reciter-btn]').click();
   await expect(p2.locator('[data-audio-dead]')).toHaveText(`${t('ar', 'audioNoReciter')} [reciters-empty]`);
   await expect(p2.locator('[data-play-surah]')).toBeDisabled();
   await expect(p2.locator('[data-audio-status]')).toHaveAttribute('data-reason', 'reciters-empty');
@@ -403,7 +413,7 @@ test('AU-12 (diagnosis): a file that redirects to another host is blocked by the
   await page.context().route(`https://${AUDIO_HOST}/**`, (r) => r.fulfill({ status: 302, headers: { location: 'https://redirect-target.invalid/x.mp3' } }));
   await page.goto('/en/1/');
   await hydrated(page);
-  await page.click('button.ap[data-ap="1"]');
+  await ayahAction(page, 1, 'play-ayah');
   await expect(page.locator('[data-audio-status]')).toHaveText(`${t('en', 'audioUnavailable')} [csp-media-redirect]`, { timeout: 10000 });
   await expect(page.locator('[data-audio-status]')).toHaveAttribute('data-reason', 'csp-media-redirect');
   // The violation is the point of this test; clear it so the shared CSP guard does not fail.
@@ -415,11 +425,15 @@ test('AU-13 (P-1, D-121): "play from here" beside each ayah plays the surah from
   for (const lang of ['en', 'ar'] as const) {
     await page.goto(lang === 'en' ? '/en/2/' : '/2/');
     await hydrated(page);
-    await expect(page.locator('button.apf')).toHaveCount(n(2));
+    // Kit v38 (RQ-008 AC27, AC28): "Play from here" is the first action of the ayah actions panel.
+    await expect(page.locator('button.ayah-act')).toHaveCount(n(2));
     await expect(page.locator('[data-play-from]')).toHaveCount(0); // the bar no longer has its own
-    const f = page.locator('button.apf[data-apf="5"]');
-    await expect(f).toHaveAttribute('aria-label', t(lang, 'audioPlayFrom', { a: 5 }));
+    await openAyah(page, 5);
+    const f = page.locator('dialog[data-ayah-panel] [data-act-play-from]');
+    await expect(f).toHaveText(t(lang, 'playFromHere'));
     await f.click();
+    await expect(page.locator('dialog[data-ayah-panel]')).toHaveJSProperty('open', false);
+    await expect(page.locator('[data-mini-player]')).toBeVisible();
     await expect(page.locator('[data-audio-player]')).toHaveAttribute('data-mode', 'surah');
     await expect.poll(async () => { const a = await audioState(page); return !a.paused && a.ready >= 3; }).toBe(true);
     expect(await marked(page)).toEqual([5]);
@@ -439,44 +453,52 @@ test('AU-14 (TOG-1, QA FIND-5, FIND-6): the per-ayah icon and name swap between 
   for (const lang of ['en', 'ar'] as const) {
     await page.goto(lang === 'en' ? '/en/2/' : '/2/');
     await hydrated(page);
-    const b = page.locator('button.ap[data-ap="4"]');
-    // Shown or not (a flex item's display is blockified, so only 'none' matters).
-    const icon = () => b.evaluate((x) => ({ play: getComputedStyle(x.querySelector('.ap-play')!).display !== 'none', pause: getComputedStyle(x.querySelector('.ap-pause')!).display !== 'none' }));
-    await expect(b).toHaveAttribute('aria-label', t(lang, 'audioPlayAyah', { a: 4 }));
-    expect(await icon()).toEqual({ play: true, pause: false });
+    // Kit v38: the ayah actions panel's "Play this ayah" (RQ-008 AC28): its visible text is its name,
+    // and it and its icon change to pause while that ayah plays.
+    const b = page.locator('dialog[data-ayah-panel] [data-act-play-ayah]');
+    const icon = () => b.evaluate((x) => x.querySelector('svg path')!.getAttribute('d')!.startsWith('M7 5h'));
+    await openAyah(page, 4);
+    await expect(b).toHaveText(t(lang, 'audioPlayAyah', { a: 4 }));
+    expect(await icon()).toBe(false);
     await b.click();
     await expect.poll(async () => (await audioState(page)).paused).toBe(false);
-    await expect(b).toHaveAttribute('aria-label', t(lang, 'audioPauseAyah', { a: 4 }));
-    await expect.poll(icon).toEqual({ play: false, pause: true });
-    // The main control: its visible label is its name and changes; neither control has aria-pressed.
+    await openAyah(page, 4);
+    await expect(b).toHaveText(t(lang, 'audioPauseAyah', { a: 4 }));
+    expect(await icon()).toBe(true);
+    // The main control: its visible label is its name and changes; no play control has aria-pressed.
+    await page.locator('[data-act-close]').click();
     await expect(page.locator('[data-pause]')).toHaveText(t(lang, 'audioPause'));
-    expect(await page.$$eval('button.ap[aria-pressed], button.apf[aria-pressed], [data-pause][aria-pressed]', (x) => x.length)).toBe(0);
+    expect(await page.$$eval('[data-act-play-ayah][aria-pressed], [data-act-play-from][aria-pressed], [data-pause][aria-pressed], [data-tfp-play][aria-pressed]', (x) => x.length)).toBe(0);
+    await openAyah(page, 4);
     await b.click();
     await expect.poll(async () => (await audioState(page)).paused).toBe(true);
-    await expect(b).toHaveAttribute('aria-label', t(lang, 'audioPlayAyah', { a: 4 }));
-    await expect.poll(icon).toEqual({ play: true, pause: false });
+    await openAyah(page, 4);
+    await expect(b).toHaveText(t(lang, 'audioPlayAyah', { a: 4 }));
+    expect(await icon()).toBe(false);
+    await page.locator('[data-act-close]').click();
     await expect(page.locator('[data-pause]')).toHaveText(t(lang, 'audioResume'));
   }
 });
 
-test('AU-15 (QA FIND-1, FIND-4): the reciter and source disclosure is named and marked; the credit is always visible; Latin text is isolated', async ({ page }) => {
+test('AU-15 (QA FIND-1, FIND-4; RQ-008 AC51, AC52): the reciter button is named by its text and says whether it is open; the credit and source are behind it; Latin text is isolated', async ({ page }) => {
   await serveAudio(page);
   for (const lang of ['ar', 'en'] as const) {
     await page.goto(lang === 'en' ? '/en/2/' : '/2/');
     await hydrated(page);
-    const sum = page.locator('[data-audio-more] summary');
+    const sum = page.locator('[data-reciter-btn]');
     // Named by its visible text (no aria-label hiding the reciter's name), starting with the label.
     expect(await sum.getAttribute('aria-label')).toBeNull();
-    await expect(sum).toHaveAccessibleName(new RegExp(`^${esc(t(lang, 'audioMoreLabel'))}`));
-    const marker = () => sum.evaluate((x) => { const m = getComputedStyle(x, '::before'); return { w: parseFloat(m.width), t: m.transform }; });
-    const closed = await marker();
-    expect(closed.w).toBeGreaterThan(0);
-    // The credit is outside the disclosure, visible while it is closed (AC31).
+    await expect(sum).toHaveAccessibleName(new RegExp(`^${esc(t(lang, 'audioReciter'))}`));
+    await expect(sum).toHaveAttribute('aria-expanded', 'false');
+    // Kit v38 (D-188 A, AC52): the credit and the source details are behind the reciter button.
+    await expect(page.locator('[data-audio-credit]')).toBeHidden();
+    await sum.click();
+    await expect(sum).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-reciter]')).toHaveCount(2);
     await expect(page.locator('[data-audio-credit]')).toBeVisible();
     await expect(page.locator('[data-audio-credit]')).toHaveText(t(lang, 'audioCredit'));
-    await sum.click();
-    await expect(page.locator('[data-reciter]')).toHaveCount(2);
-    expect((await marker()).t).not.toBe(closed.t); // the marker turns when open
+    // Once the list is in, the button shows the chosen reciter's name as Quran Foundation gives it.
+    await expect(sum).toHaveText(t(lang, 'reciterChip', { name: lang === 'ar' ? AR_WORD(7) : MOCK_RECITER_NAMES[7] }));
     if (lang === 'ar') {
       const dd = await page.$$eval('[data-audio-source] dd bdi', (b) => b.map((x) => [x.textContent, x.getAttribute('lang')]));
       expect(dd).toContainEqual(['Murattal', 'en']);
@@ -499,6 +521,9 @@ test('AU-16 (AC3, AC26, QA RISK-2): keys and scrolling request nothing; the firs
   // AC3: reading, key presses, pointer presses and scrolling request no audio metadata and no file.
   await page.keyboard.press('Shift');
   await page.locator('p.ayah[data-r="2:1"]').click(); // a press on the Quran text, not a control
+  // Kit v38 (RQ-008 AC26): that opens the ayah actions panel, which requests nothing either.
+  await expect(page.locator('dialog[data-ayah-panel]')).toHaveJSProperty('open', true);
+  await page.keyboard.press('Escape');
   await page.mouse.wheel(0, 600);
   await page.waitForTimeout(500);
   expect(seen.filter((x) => x.url.includes('/api/audio'))).toEqual([]);
@@ -506,7 +531,7 @@ test('AU-16 (AC3, AC26, QA RISK-2): keys and scrolling request nothing; the firs
   const plays = () => page.evaluate(() => (window as unknown as { __plays: { src: string | null; ev: string }[] }).__plays);
   // First tap: play() is called inside the tap at once, before the address is known (the iOS
   // unlock that worked on Hamzeh's iPhone with kit v24); then the file plays.
-  await page.click('button.ap[data-ap="3"]');
+  await ayahAction(page, 3, 'play-ayah');
   await expect.poll(async () => { const a = await audioState(page); return !a.paused && a.ready >= 3; }).toBe(true);
   const first = await plays();
   expect(first[0], 'the first play() runs inside the tap').toEqual({ src: null, ev: 'click' });
@@ -514,7 +539,7 @@ test('AU-16 (AC3, AC26, QA RISK-2): keys and scrolling request nothing; the firs
   // A later tap: the address is known, so play() with the address runs inside the tap, and no
   // second unlock call is made.
   const n0 = first.length;
-  await page.click('button.ap[data-ap="6"]');
+  await ayahAction(page, 6, 'play-ayah');
   await expect.poll(() => marked(page)).toEqual([6]);
   const later = (await plays()).slice(n0);
   expect(later.length).toBeGreaterThan(0);
@@ -592,7 +617,7 @@ test('AU-19 (AC24, P-5): when the file really stops arriving, playback gives up 
   });
   await page.goto('/en/2/');
   await hydrated(page);
-  await page.click('button.apf[data-apf="47"]');
+  await ayahAction(page, 47, 'play-from');
   await expect.poll(async () => (await audioState(page)).t, { timeout: 20000 }).toBeGreaterThan(46 * STEP + 1000);
   expect(await marked(page)).toEqual([47]);
   // Plays to about 250 s, then the position stops; 15 s later it gives up. Track when it last moved.

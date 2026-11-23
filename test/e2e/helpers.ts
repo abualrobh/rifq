@@ -73,7 +73,7 @@ async function primeAudio(page: Page, goto: Page['goto'], avoid = '') {
   const s = avoid === '/1/' ? 2 : 1;
   await goto(`/${s}/`);
   await hydrated(page);
-  await page.click('button.ap[data-ap="1"]');
+  await ayahAction(page, 1, 'play-ayah');
   await page.waitForFunction(() => { const a = document.querySelector('audio[data-audio]') as HTMLAudioElement | null; return !!a && !a.paused && a.readyState >= 2; });
   await page.evaluate(() => { (document.querySelector('audio[data-audio]') as HTMLAudioElement).playbackRate = 0.0625; (window as unknown as { __inplace: number }).__inplace = 1; });
 }
@@ -193,4 +193,31 @@ export async function setNight(page: Page, on: boolean) {
     await expect(page).toHaveURL(back);
     await hydrated(page).catch(() => undefined);
   }
+}
+
+// Kit v38 (RQ-008 D-187 A, AC26 to AC37): the per-ayah controls of kit v37 (play this ayah, play from
+// here, bookmark, Tafseer link) are in the ayah actions panel, opened by the ayah's actions button.
+export type AyahAction = 'play-from' | 'play-ayah' | 'bookmark' | 'copy' | 'tafseer';
+export async function openAyah(page: Page, a: number) {
+  await page.locator(`button.ayah-act[data-act="${a}"]:not([data-pending])`).click();
+  await expect(page.locator('dialog[data-ayah-panel]')).toHaveJSProperty('open', true);
+  await expect(page.locator('dialog[data-ayah-panel] [data-act-title]')).toBeFocused();
+}
+// Chooses one action for ayah a. Bookmark and copy keep the panel open (AC30, AC32); with close it is
+// then closed with its Close button.
+export async function ayahAction(page: Page, a: number, action: AyahAction, close = action === 'bookmark' || action === 'copy') {
+  await openAyah(page, a);
+  await page.locator(`dialog[data-ayah-panel] [data-act-${action}]`).click();
+  if (close && (await page.locator('dialog[data-ayah-panel]').evaluate((d) => (d as HTMLDialogElement).open))) {
+    await page.locator('dialog[data-ayah-panel] [data-act-close]').click();
+    await expect(page.locator('dialog[data-ayah-panel]')).toHaveJSProperty('open', false);
+  }
+}
+// AC31: the bookmark mark of an ayah in the reader.
+export const bookmarked = (page: Page, a: number) => page.locator(`li#a${a}`).evaluate((r) => r.classList.contains('is-bm') && !!r.querySelector('[data-bm-mark]'));
+// Kit v38: the reader has no link to the Tafseer page any more (the panel replaced it); the page
+// itself is still reached by its address, from old links. An in-place change to it, as a reader's
+// click on such a link would make.
+export async function clickLink(page: Page, href: string) {
+  await page.evaluate((h) => { const a = document.createElement('a'); a.href = h; a.setAttribute('data-test-link', ''); document.querySelector('main')!.append(a); a.click(); a.remove(); }, href);
 }

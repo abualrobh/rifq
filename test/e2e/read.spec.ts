@@ -174,7 +174,7 @@ test('TP1-23: text, controls and focus meet WCAG 2.2 AA contrast in both themes'
       };
       const out: Record<string, number> = {};
       const sel: Record<string, string> = {
-        ayah: 'p.ayah', body: '.surah-title', link: '.surah-nav a', button: '.btn', banner: '.banner', hint: '.hint', mark: '[data-results] mark', footer: '.site-footer summary', bookmark: 'button.bm',
+        ayah: 'p.ayah', body: '.surah-title', link: '.surah-nav a', button: '.btn', banner: '.banner', hint: '.hint', mark: '[data-results] mark', footer: '.site-footer summary', bookmark: 'button.ayah-act',
       };
       for (const [k, s] of Object.entries(sel)) {
         const el = document.querySelector(s);
@@ -250,6 +250,14 @@ test('TP1-29: reading, settings and language change send no personal data and no
   await hydrated(page);
   expect(seen.length).toBeGreaterThan(0);
   for (const s of seen) {
+    // Kit v38 (Hamzeh, kit v37 test; RQ-008 AC70): the Settings screen asks RIFQ's Worker for the
+    // reciter list so its reciter row can show the name, with the interface language only.
+    if (new URL(s.url).pathname === '/api/audio/reciters') {
+      expect(s.method).toBe('POST');
+      expect(['{"lang":"ar"}', '{"lang":"en"}']).toContain(s.body);
+      expect(s.headers.cookie).toBeUndefined();
+      continue;
+    }
     expect(s.method, s.url).toBe('GET');
     expect(s.body).toBeNull();
     expect(new URL(s.url).search, 'no query string').toMatch(/^(\?astro-retry=\d+)?$/);
@@ -263,7 +271,7 @@ for (const lang of ['ar', 'en'] as const) {
     for (const path of lang === 'ar' ? ['/', '/2/', '/surahs/'] : ['/en/', '/en/2/', '/en/surahs/']) {
       await page.goto(path);
       await hydrated(page);
-      const names = await page.$$eval('a[href], button, input:not([type=hidden])', (els) => els.filter((e) => !(e as HTMLElement).hidden || e.matches('button.bm')).map((e) => {
+      const names = await page.$$eval('a[href], button, input:not([type=hidden])', (els) => els.filter((e) => !(e as HTMLElement).hidden || e.matches('button.ayah-act')).map((e) => {
         const el = e as HTMLElement;
         // A control's label: a label pointing at it, or the label it sits in (radio choices).
         const lab = el.id ? document.querySelector(`label[for="${el.id}"]`)?.textContent : el.closest('label')?.textContent ?? null;

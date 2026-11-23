@@ -7,7 +7,7 @@
 // RIFQ_SHOTS (private folder, optional): R8-SHOTS writes screenshots of each new screen there.
 import type { BrowserContext, Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-import { test, expect, surahs, src, MOBILE, DESKTOP, hydrated, noOverflow, logRemoval, topAyah } from './helpers.ts';
+import { test, expect, surahs, src, MOBILE, DESKTOP, hydrated, noOverflow, logRemoval, topAyah, ayahAction } from './helpers.ts';
 import { juzStarts } from '../../src/core/source-adapter.ts';
 import { t, type Lang } from '../../src/core/strings.ts';
 
@@ -353,7 +353,7 @@ test('R8-11 (AC24): another RIFQ tab changes bookmarks: the Saved screen and the
   const other = await context.newPage();
   await other.goto('/2/');
   await hydrated(other);
-  await other.locator('button.bm[data-a="7"]').click();
+  await ayahAction(other, 7, 'bookmark');
   await expect(page.locator('[data-bm="2:7"]')).toBeVisible();
   await expect(homeTab.locator('[data-bm-card="2:7"]')).toBeVisible();
 });
@@ -524,6 +524,9 @@ test('R8-16 (AC86, AC87, AC88, AC90, AC95): the new screens make only RIFQ reque
   for (const s of seen) {
     const u = new URL(s.url);
     expect(u.origin).toBe('http://127.0.0.1:8812');
+    // Kit v38 (Hamzeh, kit v37 test; AC70): Settings asks for the reciter list to show the reciter's
+    // name; the body is the interface language only, no device data.
+    if (u.pathname === '/api/audio/reciters') { expect(s.method).toBe('POST'); expect(['{"lang":"ar"}', '{"lang":"en"}']).toContain(s.body); continue; }
     expect(s.method, s.url).toBe('GET');
     expect(u.search, s.url).toBe('');
     expect(decodeURIComponent(s.url)).not.toMatch(/rifq\.|[{}"]|\[/);
@@ -563,7 +566,7 @@ test('R8-18 (AC5, AC6): a recitation keeps playing when the reader uses tab bar 
   await page.setViewportSize(MOBILE);
   await page.goto('/1/');
   await hydrated(page);
-  await page.click('button.ap[data-ap="1"]');
+  await ayahAction(page, 1, 'play-ayah');
   await page.waitForFunction(() => { const a = document.querySelector('audio[data-audio]') as HTMLAudioElement | null; return !!a && !a.paused && a.readyState >= 2; });
   await page.evaluate(() => { (document.querySelector('audio[data-audio]') as HTMLAudioElement).playbackRate = 0.0625; (window as unknown as { __same: number }).__same = 1; });
   for (const id of ['home', 'search', 'saved', 'settings', 'read']) {
@@ -612,8 +615,9 @@ for (const lang of LANGS) {
       await page.waitForTimeout(800);
       const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
       out[path || 'home'] = Math.round(cls * 1000) / 1000;
-      // AC93 sets the limit for home and reader pages; Saved and Settings are measured and reported.
-      if (path === '' || path === '2/') expect(cls, `${path || 'home'} CLS`).toBeLessThanOrEqual(0.1);
+      // AC93 sets the limit for home and reader pages; kit v38 (D-202 A, P-17, QA v37 FIND-BO): the
+      // Saved screen too. Settings is measured and reported.
+      if (path === '' || path === '2/' || path === 'saved/') expect(cls, `${path || 'home'} CLS`).toBeLessThanOrEqual(0.1);
     }
     test.info().annotations.push({ type: 'cls', description: JSON.stringify(out) });
   });
