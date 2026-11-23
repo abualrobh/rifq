@@ -49,6 +49,8 @@ type Props = {
 // P-6: the reader hash that opens the Tafseer panel on ayah N.
 export const TF_HASH = /^#a(\d{1,4});tafseer$/;
 type Msg = { key: Key; ref?: boolean } | null;
+// FIND-BX: how long a click on the ayah waits for a second click (a double click selects a word).
+export const DOUBLE_CLICK_MS = 350;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
 const playIcon = <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></svg>;
@@ -99,6 +101,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
   const actDlg = useRef<HTMLDialogElement>(null);
   const tfDlg = useRef<HTMLDialogElement>(null);
   const actA = useRef(0);
+  const actAt = useRef(0);
   const tfOpen = useRef(false);
   const tfLast = useRef(0);
   const seq = useRef(0);
@@ -163,7 +166,9 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     setMsg(null);
     if (focus && a) focusAct(a);
   }
-  useEffect(() => { if (act) openModal(actDlg.current, '[data-act-title]'); }, [act]);
+  // FIND-BX: a slower double click (past DOUBLE_CLICK_MS) has its second click land on the dimmed
+  // area just after the panel opened; that click does not close it again, so the panel never flickers.
+  useEffect(() => { if (act) { actAt.current = performance.now(); openModal(actDlg.current, '[data-act-title]'); } }, [act]);
 
   function playFrom(a: number) {
     if (!engine) return;
@@ -266,6 +271,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     for (const b of document.querySelectorAll<HTMLButtonElement>('button.ayah-act')) { b.removeAttribute('data-pending'); b.removeAttribute('tabindex'); }
     syncMarks();
     let down: { x: number; y: number; t: number } | null = null;
+    let pend = 0;
     const onDown = (e: PointerEvent) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; };
     const onClick = (e: MouseEvent) => {
       const el = e.target as Element;
@@ -277,7 +283,20 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
       const sel = getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim()) return;
       if (down && e.detail > 0 && (performance.now() - down.t > 600 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10)) return;
-      openAct(Number(row.dataset.a));
+      // Kit v39 (QA v38 FIND-BX): a double (or triple) click or tap selects a word (or line) as usual
+      // and opens nothing. A pointer click on the ayah opens the panel only after the double-click
+      // interval has passed with no second click; the second click cancels it. A click with no
+      // pointer (detail 0: keyboard, assistive technology) opens at once, as does the actions button.
+      clearTimeout(pend);
+      if (e.detail > 1) { pend = 0; return; }
+      const a = Number(row.dataset.a);
+      if (e.detail === 0) { openAct(a); return; }
+      pend = window.setTimeout(() => {
+        pend = 0;
+        const sel2 = getSelection();
+        if (sel2 && !sel2.isCollapsed && sel2.toString().trim()) return;
+        openAct(a);
+      }, DOUBLE_CLICK_MS);
     };
     list?.addEventListener('pointerdown', onDown, { passive: true });
     list?.addEventListener('click', onClick);
@@ -297,6 +316,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     return () => {
       list?.removeEventListener('pointerdown', onDown);
       list?.removeEventListener('click', onClick);
+      clearTimeout(pend);
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('hashchange', onPop);
@@ -396,7 +416,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     <>
       <dialog ref={actDlg} className="sheet" aria-modal="true" aria-label={act ? t(lang, 'ayahActions', { a: act }) : undefined} data-ayah-panel
         onCancel={(e) => { e.preventDefault(); closeAct(); }} onClose={() => { if (actA.current) closeAct(); }}
-        onClick={(e) => { if (e.target === e.currentTarget) closeAct(); }} onKeyDown={trap}>{actBody}</dialog>
+        onClick={(e) => { if (e.target === e.currentTarget && !(e.detail > 1 && performance.now() - actAt.current < 800)) closeAct(); }} onKeyDown={trap}>{actBody}</dialog>
       {tafseer && <dialog ref={tfDlg} className="sheet sheet-tall" aria-modal="true" aria-labelledby={tfA ? 'tfp-title' : undefined} data-tf-panel
         onCancel={(e) => { e.preventDefault(); closeTf(); }} onClose={() => { if (tfOpen.current) closeTf(); }}
         onClick={(e) => { if (e.target === e.currentTarget) closeTf(); }} onKeyDown={trap}>{tfBody}</dialog>}

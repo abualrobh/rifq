@@ -14,7 +14,8 @@
 // One surah file per reciter with per-ayah timings (D-110 B). The browser plays the file directly
 // from the approved audio host (D-112 B, AC39 media-src); RIFQ's Worker gives only the address and
 // the timings (/api/audio). Nothing is requested before the reader chooses play or opens the
-// reciter list (AC3); the audio element never preloads; nothing plays on its own.
+// reciter list (AC3); the audio element never preloads; nothing plays on its own. D-206 A changed
+// AC3 for one place: the Settings screen asks for the reciter list (language only) when it opens.
 //
 // iPhone (AC26 to AC29, D-115 B): iOS lets an element play only from inside a tap. The first tap
 // calls play() at once on the element, before the address is fetched, which unlocks it (kit v24 and
@@ -528,8 +529,11 @@ function create(el: HTMLAudioElement, dev: boolean) {
     // AC74: the reciter's name as QF gives it for the new interface language. Kit v38: also when
     // nothing is loaded any more but the list was already asked for in this tab (play or the list
     // opened before), so the reader's reciter button and Settings show the name in both languages.
+    // Kit v39 (QA v38 FIND-BV, D-210): through loadReciters, which shares one request per language
+    // (recJob), so this path and the Settings screen opening in the new language (D-206 A) never ask
+    // for the same list twice; whichever comes first makes the request and the other waits for it.
     const lang = pageLang();
-    if ((snap.phase === 'active' || x.rid !== null) && !x.lists[lang]) void fetchReciters(lang).catch(() => undefined);
+    if ((snap.phase === 'active' || x.rid !== null) && !x.lists[lang]) void loadReciters(lang).catch(() => undefined);
   });
 
   return {

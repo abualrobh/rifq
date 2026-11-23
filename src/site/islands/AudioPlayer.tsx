@@ -49,7 +49,8 @@ export default function AudioPlayer({ lang, s, count, names, dev = false }: Prop
   const info = { count, names };
 
   useEffect(() => { engine?.paint(); }, [engine]);
-  // The reciter list is loaded when it is opened (RQ-006 AC3), as the full player's list was.
+  // The reciter list is loaded when it is opened (RQ-006 AC3), as the full player's list was. (D-206 A:
+  // the Settings screen, not this page, also asks for it when it opens.)
   useEffect(() => { if (open) void engine?.loadReciters(lang); }, [open, engine, lang]);
 
   const msg = snap.msg && snap.msg.at === s ? snap.msg : null;

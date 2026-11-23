@@ -229,6 +229,12 @@ const ar = {
   tafseerPanelTitle: 'التفسير · {name} {a}',
   closeTafseer: 'إغلاق التفسير',
   reciterChip: 'القارئ: {name}',
+  // Kit v39, D-208 C (RQ-008 AC43): the Tafseer previous and next buttons show the target ayah as
+  // their visible label (the existing audioNowAyah, «الآية {a}»); these are their accessible names,
+  // which keep the direction and contain the visible label (WCAG 2.5.3). Not in RQ-008's table: new
+  // strings for the B-09 Arabic review and Hamzeh's review.
+  prevAyahTo: 'الآية السابقة: الآية {a}',
+  nextAyahTo: 'الآية التالية: الآية {a}',
   // Privacy page "Listening" item (D-112, RQ-006 AC40): the wording proposed in RQ-006 v1.1,
   // shown only when PRIVACY_LISTENING_ON is true. It stays off until Hamzeh approves it.
   pvListenL: 'الاستماع',
@@ -469,6 +475,9 @@ const en: typeof ar = {
   tafseerPanelTitle: 'Tafseer · {name} {a}',
   closeTafseer: 'Close Tafseer',
   reciterChip: 'Reciter: {name}',
+  // Kit v39, D-208 C (see the Arabic block).
+  prevAyahTo: 'Previous ayah: Ayah {a}',
+  nextAyahTo: 'Next ayah: Ayah {a}',
   pvListenL: 'Listening',
   pvListen: "when you play a recitation, our server asks Quran Foundation for the audio file's address and the ayah timings. Your address and device details are not passed to them in that request. Your browser then plays the file directly from the audio server that Quran Foundation's service points to (download.quranicaudio.com), which receives your network address and basic browser details and can see which recitation you play. We don't keep a record of what you listen to. We keep the file address and ayah timings for no more than 7 days.",
   // Privacy page, D-099 approved text (see the Arabic block above).

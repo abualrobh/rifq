@@ -307,6 +307,7 @@ export default function TafseerView({ lang, s, count, prevCount, last, dev = fal
     );
   }
 
+  const chevron = (d: 'prev' | 'next') => <svg className="tf-dir" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={d === 'prev' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6'} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
   const atStart = s === 1 && a === 1;
   const atEnd = s === last && a === count;
   return (
@@ -314,8 +315,17 @@ export default function TafseerView({ lang, s, count, prevCount, last, dev = fal
       <div aria-live="polite" aria-busy={view.kind === 'loading'}>{body}</div>
       <p className="tf-credit" data-tf-credit><BidiText text={t(lang, 'tafseerCredit')} lang={lang} /></p>
       <nav className="tf-nav" aria-label={t(lang, 'ayahNavLabel')}>
-        {!atStart && <button type="button" className="btn" data-tf-prev onClick={() => go(a - 1)}>{t(lang, 'prevAyah')}</button>}
-        {!atEnd && <button type="button" className="btn" data-tf-next onClick={() => go(a + 1)}>{t(lang, 'nextAyah')}</button>}
+        {/* Kit v39, D-208 C (RQ-008 AC43): the buttons show the ayah they go to (audioNowAyah: "Ayah 4" / "Ayah 6"
+            in English), on the Tafseer page and in the panel alike (one view, AC39). The
+            accessible name keeps the direction, "Next ayah: Ayah 6" (prevAyahTo, nextAyahTo). At a
+            surah edge the target is in another surah, so the button keeps its kit v38 label
+            ("Previous ayah" / "Next ayah") and today's behaviour (P-8). The chevrons mirror in RTL. */}
+        {!atStart && (a > 1
+          ? <button type="button" className="btn tf-step" data-tf-prev aria-label={t(lang, 'prevAyahTo', { a: a - 1 })} onClick={() => go(a - 1)}>{chevron('prev')}{t(lang, 'audioNowAyah', { a: a - 1 })}</button>
+          : <button type="button" className="btn tf-step" data-tf-prev data-tf-edge onClick={() => go(a - 1)}>{chevron('prev')}{t(lang, 'prevAyah')}</button>)}
+        {!atEnd && (a < count
+          ? <button type="button" className="btn tf-step" data-tf-next aria-label={t(lang, 'nextAyahTo', { a: a + 1 })} onClick={() => go(a + 1)}>{t(lang, 'audioNowAyah', { a: a + 1 })}{chevron('next')}</button>
+          : <button type="button" className="btn tf-step" data-tf-next data-tf-edge onClick={() => go(a + 1)}>{t(lang, 'nextAyah')}{chevron('next')}</button>)}
       </nav>
     </div>
   );

@@ -131,7 +131,7 @@ main:focus { outline: none; }
 .pager { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
 mark { background: var(--mark-bg); color: var(--mark-fg); }
 
-.home-title { font-size: 1.75rem; font-weight: 700; margin-block: 1rem; }
+.home-title { font-size: 1.75rem; font-weight: 700; margin-block: 1rem; overflow-wrap: anywhere; }
 h2 { font-size: 1.15rem; font-weight: 700; margin-block: 1.5rem .5rem; }
 h2:focus { outline: none; }
 h2:focus-visible { outline: 3px solid var(--focus); }
@@ -151,7 +151,7 @@ h2:focus-visible { outline: 3px solid var(--focus); }
 /* Surah index (RQ-004) and the reader side list. Each row is at least 48 px (P-3: 44 px minimum).
    The label stays one inline text run (no flex inside it), so bidi ordering and the space between
    number and name are kept in every browser; the count is a separate box at the row end. */
-.surah-list { list-style: none; padding: 0; margin: .5rem 0 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 0 1.5rem; }
+.surah-list { list-style: none; padding: 0; margin: .5rem 0 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr)); gap: 0 1.5rem; }
 .surah-list > li { border-bottom: 1px solid var(--line); }
 .surah-list > li[hidden] { display: none; }
 .surah-list a { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 3rem; padding: .5rem .25rem; box-sizing: border-box; color: var(--fg); text-decoration: none; border-radius: .625rem; }
@@ -195,7 +195,11 @@ bdi[data-ltr-run] { white-space: nowrap; }
    font. In kit v37 the English links were two rows in the fallback font and one row once Tajawal
    arrived, which moved the whole page (layout shift 0.24 on English reader pages). */
 @media (max-width: 51.99rem) {
-  .reader-main > .surah-nav:not(.surah-nav-end) { display: grid; grid-template-columns: repeat(2, max-content); justify-content: start; }
+  /* Kit v39 (QA v38 FIND-BU, D-205): the columns may shrink below their label (minmax(0, ...)) and
+     the labels wrap at their spaces, so at 200% text the two columns never make the page wider than
+     the screen. At normal sizes both columns are still exactly their labels' width (no layout shift). */
+  .reader-main > .surah-nav:not(.surah-nav-end) { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); justify-content: start; }
+  .reader-main > .surah-nav:not(.surah-nav-end) a { min-width: 0; overflow-wrap: anywhere; }
 }
 .surah-title { font-size: 1.5rem; font-weight: 700; margin-block: .25rem; }
 /* Gold ornament line under the reader title: decoration only. */
@@ -267,7 +271,11 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, v
 /* RQ-008 (kit v37): at phone width the mini-player sits directly above the tab bar (AC6, AC55). */
 .mini { position: fixed; inset-inline: 0; bottom: var(--tabbar-h, var(--tabbar-fb)); z-index: 6; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .375rem max(.75rem, calc((100% - var(--page-w)) / 2 + .75rem)); padding-bottom: max(.375rem, env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--control-border); box-shadow: 0 -2px 10px rgb(0 0 0 / .1); max-height: 50vh; overflow-y: auto; }
 .mini .btn.icon-btn { flex: none; min-width: 2.75rem; min-height: 2.75rem; }
-.mini-info { flex: 1 1 10rem; min-width: 0; }
+/* D-207 B (kit v39): previous, play/pause and next, then the text, go-to and close. On a phone the
+   text wraps under the three buttons with go-to and close at its end (two rows); on wider screens
+   it is one row. 44 px targets, 8 px apart. */
+.mini-info { flex: 1 1 14rem; min-width: 0; }
+[dir="rtl"] .mini-dir { transform: scaleX(-1); }
 .mini-info p { margin: 0; overflow-wrap: anywhere; line-height: 1.35; }
 .mini-now { font-weight: 700; }
 .mini-label { font-weight: 400; color: var(--muted); }
@@ -345,6 +353,11 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, v
 .tf-source dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; font-size: .9rem; }
 .tf-source dd { margin: 0; }
 .tf-nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-block: .5rem; }
+/* Kit v39 (D-208 C): previous and next show the target ayah with a chevron; the chevrons point the
+   reading direction (mirrored in RTL), as AC92 allows for directional icons. */
+.tf-step { display: inline-flex; align-items: center; gap: .35rem; }
+.tf-step svg { flex: none; display: block; }
+[dir="rtl"] .tf-dir { transform: scaleX(-1); }
 
 /* ---------- RQ-008 stage 1 (kit v37): tab bar, home, Saved and Settings screens ----------
    Existing D-102 tokens only; gold is decoration only (D-191 A); control borders use the 3:1
@@ -506,5 +519,30 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, v
 :root.rifq-bm main:has([data-saved]) { min-height: 100vh; min-height: 100lvh; }
 /* Kit v38: the Settings reciter line keeps its space while the name is loading. */
 .set-reciter-now { min-height: 1.6em; margin: .25rem 0; }
+
+/* Kit v39 (QA v38 FIND-CB, D-205): large text (Safari aA 200%, browser text zoom). client/tabbar.ts
+   sets html.rifq-tall-text when the screen is less than 40 lines of text tall (its height in rem), so
+   the fixed bottom area gives more room to reading: the tab bar keeps its five icons and labels, one
+   line each, but with 44 px (not 2.75rem) targets and less padding; the mini-player leaves out its
+   decorative "now playing" word (the region's name says it) and the reciter and credit line (the
+   credit stays behind the reciter button, D-203 A); its loading, ended or not-available line still
+   shows. Nothing is cut off and nothing overlaps (AC7, AC91). */
+@media (max-width: 51.99rem) {
+  /* The sticky header may take a second row rather than push a control off the screen. */
+  :root.rifq-tall-text .site-header { flex-wrap: wrap; }
+  /* The brand keeps its mark and its name for screen readers; its visible name gives way, so the
+     header stays one row where it can (Home is in the tab bar). */
+  :root.rifq-tall-text .brand-name { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  :root.rifq-tall-text .brand { min-width: 44px; justify-content: center; }
+  :root.rifq-tall-text .tabbar a { min-height: 44px; min-width: 44px; padding: 2px 4px; gap: 0; line-height: 1.2; }
+  :root.rifq-tall-text .tabbar svg { width: 18px; height: 18px; }
+  :root.rifq-tall-text .mini { padding-block: 4px; gap: 8px; }
+  :root.rifq-tall-text .mini .btn.icon-btn { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
+  :root.rifq-tall-text .mini-label, :root.rifq-tall-text .mini-sub[data-mini-sub="credit"] { display: none; }
+  /* The buttons share the first row (go-to and close at its end); the surah and ayah line takes the
+     row under them. */
+  :root.rifq-tall-text .mini-info { order: 9; flex: 1 1 100%; }
+  :root.rifq-tall-text .mini-go { margin-inline-start: auto; }
+}
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

@@ -11,6 +11,8 @@
 //   chosen reciter's name as Quran Foundation gives it, in the Arabic and the English interface
 //   alike. So the list (a POST of {lang} only) is asked for when this screen opens; this screen is
 //   where the reciter list lives. The name line keeps its space, so it moves nothing when it fills.
+//   D-206 A (2026-11-23, QA v38 FIND-BY): this request when Settings opens is an approved change to
+//   RQ-006 AC3; the reader page itself still requests nothing before play or opening the list.
 // - Data on this device: clear last reading position (RQ-003 v1.3 behaviour, D-184 A), clear recently
 //   read (D-183 A, AC74), and a link to the Saved screen for bookmarks.
 // - A link to the privacy page.
@@ -99,6 +101,8 @@ export default function SettingsScreen({ lang, counts, names, audio, dev }: Prop
   }
 
   const { snap, engine } = useRecitation(dev);
+  // D-206 A (RQ-006 AC3 as changed): the list is asked for when Settings opens, once per language
+  // per tab, shared with the engine's own request after a language switch (FIND-BV).
   useEffect(() => { if (audio && engine) void engine.loadReciters(lang); }, [audio, engine, lang]);
   const list = snap.lists[lang] ?? null;
   // The name in this interface language once its list is in; until then, as the reader page does,
