@@ -106,7 +106,9 @@ main:focus { outline: none; }
 .size-label { font-size: .85rem; color: var(--muted); }
 /* Design review H-2: at phone width the size and night controls fold into one Display button, so
    the sticky header is a single row. The panel opens over the text and does not move it. */
-@media (max-width: 40rem) {
+/* Kit v37: also from 52rem to 72rem, where the header holds the tab row (D-179 A), so the header
+   stays one row (a phone held sideways is about 844 px wide). */
+@media (max-width: 40rem), (min-width: 52rem) and (max-width: 72rem) {
   .display-toggle { display: inline-flex; align-items: center; }
   .display-panel { display: none; position: absolute; top: 100%; inset-inline-end: .5rem; z-index: 6; background: var(--surface); border: 1px solid var(--line); border-radius: .75rem; padding: .5rem; box-shadow: 0 4px 12px rgb(0 0 0 / .15); }
   .display-panel.open { display: flex; }
@@ -244,7 +246,7 @@ bdi[data-ltr-run] { white-space: nowrap; }
 .ap-dead[hidden] { display: none; }
 /* RQ-006 v1.3: the full player sits above the mini-player when both show (D-130, AC63: never
    overlapping). --mini-h is the mini-player's measured height, set only while it is shown. */
-.player { bottom: var(--mini-h, 0px); }
+.player { bottom: calc(var(--mini-h, 0px) + var(--tabbar-h, var(--tabbar-fb))); }
 /* QA v26 FIND-F (SC 2.4.11, AC43, AC67 d): an ayah control that gets keyboard focus is scrolled
    clear of the sticky player. --player-h is the player's measured height (AudioPlayer); the fallback
    is its least height plus its margin. The mini-player's height is kept by the page's scroll padding
@@ -255,9 +257,10 @@ body:has([data-player]) .ayah-row :is(a, button, [tabindex]) { scroll-margin-bot
    is loaded. The page keeps room for it (AC49, AC67 g), so it never covers the last ayah, the footer
    links or the go-to-current control. It reflows at 320 px (SC 1.4.10): parts wrap, nothing scrolls
    sideways. No animation (AC67 h). */
-html:has(.mini) { scroll-padding-bottom: calc(var(--mini-h, 4.5rem) + 1rem); }
-body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + .5rem); }
-.mini { position: fixed; inset-inline: 0; bottom: 0; z-index: 6; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .375rem max(.75rem, calc((100% - var(--page-w)) / 2 + .75rem)); padding-bottom: max(.375rem, env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--control-border); box-shadow: 0 -2px 10px rgb(0 0 0 / .1); max-height: 50vh; overflow-y: auto; }
+html:has(.mini) { scroll-padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, var(--tabbar-fb)) + 1rem); }
+body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, var(--tabbar-fb)) + .5rem); }
+/* RQ-008 (kit v37): at phone width the mini-player sits directly above the tab bar (AC6, AC55). */
+.mini { position: fixed; inset-inline: 0; bottom: var(--tabbar-h, var(--tabbar-fb)); z-index: 6; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .375rem max(.75rem, calc((100% - var(--page-w)) / 2 + .75rem)); padding-bottom: max(.375rem, env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--control-border); box-shadow: 0 -2px 10px rgb(0 0 0 / .1); max-height: 50vh; overflow-y: auto; }
 .mini .btn.icon-btn { flex: none; min-width: 2.75rem; min-height: 2.75rem; }
 .mini-info { flex: 1 1 10rem; min-width: 0; }
 .mini-info p { margin: 0; overflow-wrap: anywhere; line-height: 1.35; }
@@ -297,7 +300,7 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + .5rem); }
 .bm .bm-on { display: none; }
 .bm[aria-pressed="true"] .bm-on { display: inline; }
 .bm[aria-pressed="true"] .bm-off { display: none; }
-.toast { position: sticky; bottom: 0; margin: 0; background: var(--bg); color: var(--fg); padding: .25rem 0; min-height: 1.5rem; font-weight: 600; }
+.toast { position: sticky; bottom: var(--tabbar-h, var(--tabbar-fb)); margin: 0; background: var(--bg); color: var(--fg); padding: .25rem 0; min-height: 1.5rem; font-weight: 600; }
 .toast:empty { padding: 0; min-height: 0; }
 
 /* RQ-005 Tafseer. The per-ayah link in the reader is a 44 px target. On the Tafseer screen the
@@ -338,5 +341,108 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + .5rem); }
 .tf-source dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; overflow-wrap: anywhere; font-size: .9rem; }
 .tf-source dd { margin: 0; }
 .tf-nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-block: .5rem; }
+
+/* ---------- RQ-008 stage 1 (kit v37): tab bar, home, Saved and Settings screens ----------
+   Existing D-102 tokens only; gold is decoration only (D-191 A); control borders use the 3:1
+   --control-border. --tabbar-h is the phone bar's measured height (client/tabbar.ts; 0 from 52rem,
+   where the bar is hidden); --tabbar-fb is its stand-in before it is measured. */
+:root { --tabbar-fb: 0px; }
+@media (max-width: 51.99rem) {
+  :root { --tabbar-fb: 4.5rem; }
+  /* AC6: the page keeps room for the bar, so the footer and the privacy link can be read, and a
+     focused element is scrolled clear of it (2.4.11). */
+  body:has(.tabbar-bottom) { padding-bottom: calc(var(--tabbar-h, var(--tabbar-fb)) + .5rem); }
+  html:has(.tabbar-bottom) { scroll-padding-bottom: calc(var(--tabbar-h, var(--tabbar-fb)) + .5rem); }
+  /* With the mini-player as well: room for both (these must win over the two rules above). */
+  body:has(.tabbar-bottom):has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, var(--tabbar-fb)) + .5rem); }
+  html:has(.tabbar-bottom):has(.mini) { scroll-padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, var(--tabbar-fb)) + 1rem); }
+  .mini { padding-bottom: .375rem; }
+}
+.tabbar ul { list-style: none; margin: 0; padding: 0; display: flex; }
+.tabbar li { flex: 1 1 0; min-width: 0; display: flex; }
+.tabbar a { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .15rem; min-height: 2.75rem; min-width: 2.75rem; box-sizing: border-box; padding: .4rem .15rem; border-radius: .75rem; color: var(--muted); text-decoration: none; font-size: .8rem; font-weight: 500; line-height: 1.25; text-align: center; overflow-wrap: anywhere; }
+.tabbar a:hover { color: var(--fg); background: var(--selected); }
+.tabbar svg { flex: none; display: block; }
+/* AC2: the current item: bold label, the primary colour and an indicator bar (not colour alone). */
+.tabbar a[aria-current="page"] { color: var(--primary); font-weight: 700; }
+:root.dark .tabbar a[aria-current="page"] { color: var(--link); }
+.tabbar a[aria-current="page"]::before { content: ""; position: absolute; inset-inline: 22%; top: 0; height: 3px; border-radius: 0 0 3px 3px; background: currentColor; }
+.tabbar-bottom { position: fixed; inset-inline: 0; bottom: 0; z-index: 7; background: var(--surface); border-top: 1px solid var(--control-border); padding-inline: .25rem; padding-bottom: env(safe-area-inset-bottom); }
+.tabbar-top { display: none; }
+@media (min-width: 52rem) {
+  /* D-179 A (AC8): the same five items as a row in the top header; no bottom bar. */
+  .tabbar-bottom { display: none; }
+  .tabbar-top { display: block; margin-inline: auto; }
+  .tabbar-top ul { gap: .25rem; }
+  .tabbar-top li { flex: none; }
+  .tabbar-top a { flex-direction: row; gap: .4rem; padding: .35rem .7rem; font-size: .95rem; white-space: nowrap; overflow-wrap: normal; }
+  .tabbar-top a[aria-current="page"]::before { top: auto; bottom: 0; inset-inline: .7rem; border-radius: 3px 3px 0 0; }
+}
+@media (forced-colors: active) {
+  .tabbar a[aria-current="page"]::before { background: CanvasText; forced-color-adjust: none; }
+}
+
+/* Home (AC9 to AC21). One column, 48rem at most. */
+.home { max-width: 48rem; margin-inline: auto; }
+.home-goto .search { margin-block: .5rem 1rem; }
+.home-sec { margin-block: 1.25rem; }
+.home-sec h2 { margin-block: 0 .25rem; }
+.home-sec-head { display: flex; justify-content: space-between; align-items: center; gap: .25rem 1rem; flex-wrap: wrap; }
+.home-sec-head a { display: inline-flex; align-items: center; min-height: 2.75rem; font-size: .95rem; }
+.home-saved > .msg { margin-block: 1rem; }
+/* Continue card (AC11): the existing filled card; the gold circle and arrow are decoration only. */
+.home-continue a { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .15rem .75rem; padding: 1.1rem 1.25rem; }
+.cc-kicker { grid-column: 1; font-size: .9rem; font-weight: 500; }
+.cc-name { grid-column: 1; font-size: 1.5rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.cc-sub { grid-column: 1; font-size: .95rem; font-weight: 500; }
+.cc-go { grid-column: 2; grid-row: 1 / span 3; align-self: end; display: inline-flex; align-items: center; justify-content: center; width: 3rem; height: 3rem; border-radius: 50%; background: var(--gold); color: var(--primary); }
+:root.dark .cc-go { color: var(--on-primary); }
+.cc-go svg { display: block; stroke: currentColor; }
+[dir="rtl"] .cc-go svg { transform: scaleX(-1); }
+/* AC93 (P-4): room kept before the home island loads (the early script sets rifq-last, rifq-bm). */
+.reserve-last, .reserve-bm { display: none; }
+:root.rifq-last .reserve-last { display: block; visibility: hidden; }
+:root.rifq-bm .reserve-bm { display: grid; visibility: hidden; }
+:root.rifq-bm .reserve-empty { display: none; }
+/* mySaved row (AC14): up to 3 bookmark cards. */
+.bm-cards { list-style: none; padding: 0; margin: .5rem 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); gap: .6rem; }
+.bm-cards a { display: flex; flex-direction: column; gap: .1rem; min-height: 3.5rem; box-sizing: border-box; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: .875rem; background: var(--surface); color: var(--fg); text-decoration: none; overflow-wrap: anywhere; }
+.bm-cards a:hover { background: var(--selected); }
+.bm-card-title { font-weight: 700; }
+.bm-card-kind { font-size: .8rem; color: var(--muted); }
+/* Juz grid (AC17): 6 per row at 390 px; 44 px targets, so 5 per row on the narrowest phones. */
+.juz-grid { list-style: none; padding: 0; margin: .5rem 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(max(2.75rem, calc((100% - 2.5rem) / 6)), 1fr)); gap: .5rem; }
+.juz-grid a { display: flex; align-items: center; justify-content: center; min-height: 2.75rem; box-sizing: border-box; border: 1px solid var(--line); border-radius: .75rem; background: var(--surface); color: var(--primary); font-weight: 700; text-decoration: none; }
+:root.dark .juz-grid a { color: var(--link); }
+.juz-grid a:hover { background: var(--selected); text-decoration: underline; }
+/* Recently read (AC19): chips. */
+.chips { list-style: none; padding: 0; margin: .5rem 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+.chips a { display: inline-flex; align-items: center; min-height: 2.75rem; box-sizing: border-box; padding: .25rem 1rem; border-radius: 1.5rem; background: var(--selected); color: var(--primary); text-decoration: none; overflow-wrap: anywhere; }
+:root.dark .chips a { color: var(--link); }
+.chips a:hover { text-decoration: underline; }
+@media (forced-colors: active) { .chips a, .bm-cards a, .juz-grid a { border: 1px solid LinkText; } }
+
+/* Settings (AC70 to AC78). */
+.set-sec { margin-block: 1rem; padding: .25rem 1rem .5rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); }
+.set-sec > h2 { margin-block: .6rem .25rem; }
+.set-sec .msg:empty { margin: 0; }
+.set-size { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.set-choices { list-style: none; padding: 0; margin: 0; }
+.set-choices a { display: flex; align-items: center; gap: .5rem; min-height: 2.75rem; }
+.set-choices a[aria-current] { font-weight: 700; color: var(--fg); text-decoration: none; }
+.set-check { display: inline-block; inline-size: 1.25rem; text-align: center; }
+.set-link { display: inline-flex; align-items: center; min-height: 2.75rem; }
+/* AC71: the light/dark switch. Its state follows the html .dark class (set before paint), shown
+   by the knob's position as well as its colour. Track border 3:1 (--control-border). */
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; min-height: 2.75rem; padding: .25rem 0; margin-block-end: .25rem; border: 0; background: none; color: var(--fg); font: inherit; font-weight: 500; text-align: start; cursor: pointer; }
+.switch:disabled { cursor: default; }
+.switch-track { position: relative; flex: none; width: 3.25rem; height: 1.75rem; box-sizing: border-box; border: 2px solid var(--control-border); border-radius: 1rem; background: var(--surface); }
+.switch-thumb { position: absolute; top: 50%; inset-inline-start: .15rem; width: 1.15rem; height: 1.15rem; margin-top: -.575rem; border-radius: 50%; background: var(--control-border); }
+:root.dark .switch-track { background: var(--primary); border-color: var(--primary); }
+:root.dark .switch-thumb { inset-inline-start: calc(100% - 1.3rem); background: var(--on-primary); }
+@media (forced-colors: active) {
+  .switch-track { border-color: ButtonText; }
+  .switch-thumb { forced-color-adjust: none; background: ButtonText; }
+}
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

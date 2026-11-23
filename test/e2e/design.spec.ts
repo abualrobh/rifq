@@ -1,7 +1,7 @@
 // Design round 1 (D-102): the light (cream) and dark palettes as CSS custom properties, the night
 // reading setting switching between them, the self-hosted Tajawal interface font, the unchanged
 // Quran font (D-069), contrast in both modes, and the phone, tablet and desktop layouts.
-import { test, expect, MOBILE, hydrated, noOverflow } from './helpers.ts';
+import { test, expect, MOBILE, hydrated, noOverflow, setNight } from './helpers.ts';
 
 const TABLET = { width: 834, height: 1194 };
 const WIDE = { width: 1440, height: 960 };
@@ -31,13 +31,13 @@ test('DS-01: light is the default palette; the night setting switches to the dar
   // prefers-color-scheme is not used: the mode follows the reading setting only, as before.
   expect(await tokens(page, Object.keys(LIGHT))).toEqual(LIGHT);
   expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(247, 244, 236)');
-  await page.click('[data-night]');
+  await setNight(page, true);
   expect(await tokens(page, Object.keys(DARK))).toEqual(DARK);
   expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(14, 23, 20)');
   await page.goto('/');
   await hydrated(page);
   expect(await tokens(page, ['bg'])).toEqual({ bg: DARK.bg });
-  await page.click('[data-night]');
+  await setNight(page, false);
   expect(await tokens(page, ['bg'])).toEqual({ bg: LIGHT.bg });
 });
 
@@ -57,23 +57,29 @@ test('DS-02: body text and links meet 4.5:1 on background and surface in both mo
   for (const mode of ['light', 'dark']) {
     await page.goto('/');
     await hydrated(page);
-    if (mode === 'dark') await page.click('[data-night]');
+    if (mode === 'dark') await setNight(page, true);
     await expect(page.locator('[data-continue]')).toBeVisible();
-    await expect(page.locator('[data-bm-link]')).toBeVisible();
-    const r = await page.evaluate(() => {
+    // Kit v37 (RQ-008): the bookmark list and clear button are on the Saved screen; home has the
+    // continue card, the bookmark cards and the "All surahs" link in place of the index card.
+    const measure = (sel: Record<string, string>) => page.evaluate((sels) => {
       const rgb = (c: string) => c.match(/[\d.]+/g)!.slice(0, 3).map(Number);
       const lum = (c: string) => { const m = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]; };
       const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
       const bg = (el: Element | null): string => { for (let e = el; e; e = e.parentElement) { const c = getComputedStyle(e).backgroundColor; if (!/rgba\(.*, 0\)|transparent/.test(c)) return c; } return getComputedStyle(document.documentElement).backgroundColor; };
       const o: Record<string, number> = {};
-      for (const [k, s] of Object.entries({ title: '.home-title', link: '.footer-links a', bookmark: '[data-bm-link]', continue: '[data-continue]', index: '.index-card-title', hint: '.hint', button: '[data-clear-last]' })) {
+      for (const [k, s] of Object.entries(sels)) {
         const el = document.querySelector(s);
         if (el) o[k] = ratio(getComputedStyle(el).color, bg(el));
       }
       return o;
-    });
+    }, sel);
+    const r = await measure({ title: '.home-title', link: '.footer-links a', continue: '[data-continue]', index: '[data-all-surahs]', hint: '.hint', card: '[data-bm-card]' });
+    await page.goto('/saved/');
+    await hydrated(page);
+    await expect(page.locator('[data-bm-link]')).toBeVisible();
+    Object.assign(r, await measure({ bookmark: '[data-bm-link]', button: '[data-clear-last]' }));
     for (const [k, v] of Object.entries(r)) { out[`${mode}.page.${k}`] = Math.round(v * 100) / 100; expect(v, `${mode} ${k}`).toBeGreaterThanOrEqual(4.5); }
-    expect(Object.keys(r).length).toBe(7);
+    expect(Object.keys(r).length).toBe(8);
   }
   test.info().annotations.push({ type: 'contrast', description: JSON.stringify(out) });
 });
@@ -116,17 +122,17 @@ test('DS-04: Tajawal files and licence are served from this site; the policy all
 
 for (const vp of [MOBILE, TABLET, WIDE]) {
   for (const lang of ['ar', 'en'] as const) {
-    test(`DS-05: home, index, reader and privacy fit at ${vp.width}px with 44 px targets, ${lang}`, async ({ page }) => {
+    test(`DS-05: home, index, reader, privacy, Saved, Settings and Search fit at ${vp.width}px with 44 px targets, ${lang}`, async ({ page }) => {
       await page.setViewportSize(vp);
       await page.addInitScript(() => { try { localStorage.setItem('rifq.saves', '{"v":1,"b":[[1,1],[2,5]],"l":[2,40]}'); } catch { /* none */ } });
       const pre = lang === 'ar' ? '/' : '/en/';
-      for (const path of [pre, `${pre}surahs/`, `${pre}2/`, `${pre}privacy/`]) {
+      for (const path of [pre, `${pre}surahs/`, `${pre}2/`, `${pre}privacy/`, `${pre}saved/`, `${pre}settings/`, `${pre}search/`]) {
         await page.goto(path);
         await hydrated(page);
         if (path === pre) await expect(page.locator('[data-continue]')).toBeVisible();
         if (path.endsWith('surahs/')) await expect(page.locator('#sq')).toBeVisible();
         await noOverflow(page);
-        const small = await page.$$eval('.site-header a, .site-header button, .btn, .surah-nav a, [data-index-link], [data-continue], [data-surah-link], .bookmarks a', (els) => els
+        const small = await page.$$eval('.site-header a, .site-header button, .btn, .surah-nav a, [data-index-link], [data-continue], [data-surah-link], .bookmarks a, nav[data-tabbar] a, [data-bm-card], [data-home-juz-link], [data-recent-chip], .switch, [data-set-lang-link]', (els) => els
           .filter((e) => (e as HTMLElement).offsetParent !== null)
           .map((e) => [e.className || e.tagName, Math.round(e.getBoundingClientRect().height)] as [string, number])
           .filter(([, h]) => h < 44));
@@ -140,7 +146,7 @@ test('DS-06: the gold colour is never used for text', async ({ page }) => {
   for (const mode of ['light', 'dark']) {
     await page.goto('/2/');
     await hydrated(page);
-    if (mode === 'dark') await page.click('[data-night]');
+    if (mode === 'dark') await setNight(page, true);
     const gold = mode === 'light' ? 'rgb(201, 166, 75)' : 'rgb(212, 180, 92)';
     for (const path of ['/', '/surahs/', '/2/']) {
       await page.goto(path);

@@ -1,4 +1,6 @@
-// RQ-003 v1.3 AC14 to AC23 (D-103): the clear last reading position button on the home page.
+// RQ-003 v1.3 AC14 to AC23 (D-103): the clear last reading position button. Kit v37 (RQ-008 AC22,
+// D-184 A): the home Saved panel moved, unchanged, to the Saved screen (/saved/, /en/saved/), so
+// these tests open that screen where they opened the home page.
 // Every test uses a disposable profile and made-up references; each removal goes through the
 // product and is logged (D-051).
 import type { BrowserContext, Page } from '@playwright/test';
@@ -6,19 +8,19 @@ import { test, expect, surahs, MOBILE, DESKTOP, hydrated, noOverflow, logRemoval
 import { t } from '../../src/core/strings.ts';
 
 const KEY = 'rifq.saves';
-const home = (lang: 'ar' | 'en') => (lang === 'ar' ? '/' : '/en/');
+const home = (lang: 'ar' | 'en') => (lang === 'ar' ? '/saved/' : '/en/saved/');
 const stored = (page: Page) => page.evaluate((k) => localStorage.getItem(k), KEY);
 const seed = (ctx: BrowserContext, value: unknown) => ctx.addInitScript(([k, v]) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem(k as string, v as string); sessionStorage.setItem('seeded', '1'); } }, [KEY, JSON.stringify(value)]);
 const nameOf = (lang: 'ar' | 'en', s: number) => (lang === 'ar' ? surahs[s - 1].ar : surahs[s - 1].en);
 
 test('CL-01 (AC14): the button shows only when a last position is saved, with or without bookmarks', async ({ page, context }) => {
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await expect(page.locator('[data-saved-status]')).toBeAttached();
   await expect(page.locator('[data-clear-last]')).toHaveCount(0);
   await seed(context, { v: 1, b: [], l: [2, 40] });
   const p2 = await context.newPage();
-  await p2.goto('/');
+  await p2.goto('/saved/');
   await hydrated(p2);
   await expect(p2.locator('[data-continue]')).toBeVisible();
   await expect(p2.locator('[data-clear-last]')).toHaveText(t('ar', 'clearLast'));
@@ -45,7 +47,7 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
     expect(JSON.parse((await stored(page))!).l).toEqual([2, 40]);
     await page.click('[data-clear-last]');
     await page.click('[data-clear-last-confirm]');
-    logRemoval('CL-02', `removed last position 2:40 through the home page (${lang}, ${vp.width}px), disposable profile`);
+    logRemoval('CL-02', `removed last position 2:40 through the Saved screen (${lang}, ${vp.width}px), disposable profile`);
     await expect(page.locator('[data-saved-status]')).toHaveText(t(lang, 'clearLastDone'));
     await expect(page.locator('[data-continue]')).toHaveCount(0);
     await expect(page.locator('[data-clear-last]')).toHaveCount(0);
@@ -60,26 +62,26 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
   });
 }
 
-test('CL-03 (AC18): another open home tab hides the shortcut too, until a new position is saved', async ({ context }) => {
+test('CL-03 (AC18): another open Saved tab hides the shortcut too, until a new position is saved', async ({ context }) => {
   await seed(context, { v: 1, b: [], l: [3, 3] });
   const a = await context.newPage(), b = await context.newPage();
-  for (const p of [a, b]) { await p.goto('/'); await hydrated(p); await expect(p.locator('[data-continue]')).toBeVisible(); }
+  for (const p of [a, b]) { await p.goto('/saved/'); await hydrated(p); await expect(p.locator('[data-continue]')).toBeVisible(); }
   await a.click('[data-clear-last]');
   await a.click('[data-clear-last-confirm]');
-  logRemoval('CL-03', 'removed last position 3:3 through the home page, disposable profile');
+  logRemoval('CL-03', 'removed last position 3:3 through the Saved screen, disposable profile');
   await expect(b.locator('[data-continue]')).toHaveCount(0);
   await expect(b.locator('[data-clear-last]')).toHaveCount(0);
   await b.goto('/2/#a40');
   await hydrated(b);
   await b.waitForTimeout(3800);
-  await b.goto('/');
+  await b.goto('/saved/');
   await hydrated(b);
   await expect(b.locator('[data-continue]')).toHaveAttribute('href', '/2/#a40');
 });
 
 test('CL-04 (AC19): a write that fails shows the failure message and keeps the shortcut', async ({ page, context }) => {
   await seed(context, { v: 1, b: [[1, 1]], l: [2, 7] });
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await page.evaluate(() => { Storage.prototype.setItem = function () { throw new DOMException('full', 'QuotaExceededError'); }; });
   await page.click('[data-clear-last]');
@@ -92,7 +94,7 @@ test('CL-04 (AC19): a write that fails shows the failure message and keeps the s
 
 test('CL-05 (AC19): blocked storage: no button, the storage message instead', async ({ page }) => {
   await page.addInitScript(() => { Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new DOMException('blocked', 'SecurityError'); } }); });
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await expect(page.locator('[data-storage-blocked]')).toHaveText(t('ar', 'storageBlocked'));
   await expect(page.locator('[data-clear-last]')).toHaveCount(0);
@@ -129,16 +131,18 @@ for (const lang of ['ar', 'en'] as const) {
 
 test('CL-07 (AC22): choose, cancel, confirm and reload make no request for the clear action', async ({ page, context, seen }) => {
   await seed(context, { v: 1, b: [[1, 1]], l: [2, 40] });
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   const n = seen.length;
   await page.click('[data-clear-last]');
   await page.click('[data-clear-last-cancel]');
   await page.click('[data-clear-last]');
   await page.click('[data-clear-last-confirm]');
-  logRemoval('CL-07', 'removed last position 2:40 through the home page, disposable profile');
+  logRemoval('CL-07', 'removed last position 2:40 through the Saved screen, disposable profile');
   await expect(page.locator('[data-saved-status]')).toHaveText(t('ar', 'clearLastDone'));
-  expect(seen.slice(n), 'no request while clearing').toEqual([]);
+  // Kit v37: a font file of this site may load late for the new status text; that is not a request
+  // about the clear action, so only other requests are counted.
+  expect(seen.slice(n).filter((x) => !new URL(x.url).pathname.startsWith('/fonts/')), 'no request while clearing').toEqual([]);
   await page.reload();
   await hydrated(page);
   for (const s of seen) {
@@ -151,7 +155,7 @@ test('CL-07 (AC22): choose, cancel, confirm and reload make no request for the c
 test('CL-08 (AC23): a saved position not in the source shows the AC10 message and the button with its plain name', async ({ page, context }) => {
   const c2 = surahs[1].items.length;
   await seed(context, { v: 1, b: [], l: [2, c2 + 1] });
-  await page.goto('/');
+  await page.goto('/saved/');
   await hydrated(page);
   await expect(page.locator('[data-bad-last]')).toHaveText(t('ar', 'badRef', { s: 2, a: c2 + 1 }));
   const btn = page.locator('[data-clear-last]');
@@ -159,7 +163,7 @@ test('CL-08 (AC23): a saved position not in the source shows the AC10 message an
   expect(await btn.getAttribute('aria-label')).toBeNull();
   await btn.click();
   await page.click('[data-clear-last-confirm]');
-  logRemoval('CL-08', `removed made-up last position 2:${c2 + 1} through the home page, disposable profile`);
+  logRemoval('CL-08', `removed made-up last position 2:${c2 + 1} through the Saved screen, disposable profile`);
   await expect(page.locator('[data-bad-last]')).toHaveCount(0);
   expect(JSON.parse((await stored(page))!).l).toBeNull();
 });

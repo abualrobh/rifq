@@ -3,6 +3,7 @@
 // invisible (space reserved) until this island loads, so reading never waits for it.
 import { useEffect, useRef, useState } from 'react';
 import { addBookmark, getStorage, isBookmarked, load, removeBookmark, setLast } from '../../core/store.ts';
+import { addRecent } from '../../core/recent.ts';
 import { t, type Lang } from '../../core/strings.ts';
 import { topRow } from './Settings.tsx';
 
@@ -115,7 +116,9 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
         const a = Number(el.dataset.a);
         if (!best || a < best) best = a;
       }
-      if (best) setLast(st, [s, best]);
+      // RQ-008 AC20 (D-182 A, kit v37): the surah joins recently read only when this rule records
+      // an ayah in it (addRecent does nothing when it is already first).
+      if (best && setLast(st, [s, best])) addRecent(st, s);
     };
     void fontsReady.then(() => {
       if (stopped) return;

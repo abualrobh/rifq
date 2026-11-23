@@ -16,9 +16,12 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
 const name = lang === 'ar' ? surah.ar : surah.en;
 const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
 ---
-<Layout lang={lang} title={`${t(lang, 'tafseerTitle')}: ${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={tafseerPath(other, surah.n)}>
+<Layout lang={lang} title={`${t(lang, 'tafseerTitle')}: ${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={tafseerPath(other, surah.n)} tab="read" textSize>
   <nav class="surah-nav" aria-label={t(lang, 'navLabel')}>
     <a href={surahPath(lang, surah.n)} data-back>{t(lang, 'backToReading')}</a>
+    {/* RQ-008 D-181 C (AC75, kit v37): the language link moved here from the header. Same id and
+        behaviour as before (TafseerView keeps it on the shown ayah, RQ-005 AC19, RQ-007 AC3). */}
+    <a id="lang-switch" href={tafseerPath(other, surah.n)} lang={other} hreflang={other} aria-label={t(lang, 'otherLangLabel')} data-tf-lang>{t(lang, 'otherLang')}</a>
   </nav>
   {dev && <p class="msg" role="note" data-tafseer-dev><Bidi text={t(lang, 'tafseerDevNote')} lang={lang} /></p>}
   <h1 class="surah-title">{t(lang, 'tafseerTitle')}: <bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{surah.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{name}</span></h1>

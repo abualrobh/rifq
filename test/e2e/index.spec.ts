@@ -159,7 +159,13 @@ for (const vp of [MOBILE, { width: 834, height: 1194 }, { width: 1440, height: 9
     await noOverflow(page);
     const h = await page.$$eval('[data-index-list] a', (as) => as.map((a) => a.getBoundingClientRect().height));
     expect(Math.min(...h)).toBeGreaterThanOrEqual(44);
-    await page.click('#lang-switch');
+    // Kit v37 (D-181 C): the language is switched in Settings; then Home and "All surahs".
+    await page.click('nav[data-tabbar]:visible a[data-tab="settings"]');
+    await hydrated(page);
+    await page.click('[data-set-lang-link="en"]');
+    await expect(page).toHaveURL(/\/en\/settings\/$/);
+    await page.click('nav[data-tabbar]:visible a[data-tab="home"]');
+    await page.click('a[data-all-surahs]');
     await expect(page).toHaveURL(/\/en\/surahs\/$/);
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await hydrated(page);

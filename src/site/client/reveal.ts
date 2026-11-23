@@ -2,10 +2,11 @@
 // the mini-player (RQ-006 AC7, AC64, AC69). Used by the recitation engine (automatic scrolling) and
 // by in-place navigation (a link to an ayah, "go to the playing ayah").
 
-// The top edge of whatever is fixed or sticky at the bottom of the screen (player, mini-player).
+// The top edge of whatever is fixed or sticky at the bottom of the screen (player, mini-player,
+// and since kit v37 the phone tab bar, RQ-008 AC6, AC54; hidden from 52rem, where it is skipped).
 export function bottomEdge(): number {
   let edge = innerHeight;
-  for (const sel of ['[data-player]', '[data-mini-player]']) {
+  for (const sel of ['[data-player]', '[data-mini-player]', 'nav[data-tabbar="bottom"]']) {
     const el = document.querySelector(sel);
     if (!el) continue;
     const r = el.getBoundingClientRect();

@@ -1,0 +1,17 @@
+---
+// RQ-008 Saved tab (AC22 to AC25, kit v37): today's home Saved panel (RQ-003 v1.3), unchanged:
+// continue reading, clear last position with its confirm step (D-184 A), the full bookmark list with
+// Remove, Clear all with its confirm step, the same messages, focus moves and announcements, and
+// the device-only note (bookmarksNote).
+import Layout from '../layouts/Layout.astro';
+import Saved from '../islands/Saved.tsx';
+import { counts, names } from '../lib/data';
+import { t, savedPath, type Lang } from '../../core/strings.ts';
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const other: Lang = lang === 'ar' ? 'en' : 'ar';
+---
+<Layout lang={lang} title={`${t(lang, 'tabSaved')} - ${t(lang, 'siteName')}`} alt={savedPath(other)} tab="saved">
+  <h1 class="home-title">{t(lang, 'tabSaved')}</h1>
+  <Saved lang={lang} counts={counts} names={names} client:idle />
+</Layout>

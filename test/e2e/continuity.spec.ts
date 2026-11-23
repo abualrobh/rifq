@@ -83,29 +83,34 @@ test('CN-01 (AC62, AC63, AC65, AC28, AC33, AC71, D-130): playing surah 2 continu
   await expect(page.locator('[data-mini-ayah]')).toHaveText(t('ar', 'audioNowAyah', { a: 5 }));
   const mediaTitle = () => page.evaluate(() => navigator.mediaSession.metadata?.title ?? '');
   const docs0 = seen.length;
-  // The route (20 in-place changes): every page type, both languages, header, footer, index row,
-  // surah navigation, Tafseer link and back, language switch, browser back and forward.
+  // The route (23 in-place changes): every page type, both languages, header, footer, index row,
+  // surah navigation, Tafseer link and back, tab bar, language switch in Settings (kit v37, RQ-008
+  // D-181 C), browser back and forward.
+  const tab = (id: string) => () => page.click(`nav[data-tabbar]:visible a[data-tab="${id}"]`);
   const steps: [string, () => Promise<unknown>, RegExp | string][] = [
     ['home (brand)', () => page.click('a.brand'), '/'],
-    ['index (card)', () => page.click('a.index-card'), '/surahs/'],
+    ['index (All surahs)', () => page.click('a[data-all-surahs]'), '/surahs/'],
     ['reader 3 (index row)', () => page.click('a[data-surah-link="3"]'), '/3/'],
     ['reader 4 (next)', () => page.click('a[data-next]'), '/4/'],
     ['tafseer 4:1', () => page.click('#a1 a.tf-link'), /\/tafseer\/4\/#a1/],
     ['back to reading', () => page.click('a[data-back]'), /\/4\/#a1$/],
     ['privacy (footer)', () => page.click('[data-privacy-link]'), '/privacy/'],
-    ['privacy en (switch)', () => page.click('#lang-switch'), '/en/privacy/'],
-    ['home en (brand)', () => page.click('a.brand'), '/en/'],
-    ['index en', () => page.click('a.index-card'), '/en/surahs/'],
+    ['settings (tab bar)', tab('settings'), '/settings/'],
+    ['settings en (language)', () => page.click('[data-set-lang-link="en"]'), '/en/settings/'],
+    ['home en (tab bar)', tab('home'), '/en/'],
+    ['index en', () => page.click('a[data-all-surahs]'), '/en/surahs/'],
     ['reader en 2 (row)', () => page.click('a[data-surah-link="2"]'), '/en/2/'],
     ['reader en 3 (next)', () => page.click('a[data-next]'), '/en/3/'],
     ['tafseer en 3:2', () => page.click('#a2 a.tf-link'), /\/en\/tafseer\/3\/#a2/],
     ['browser back', () => page.goBack(), '/en/3/'],
     ['browser forward', () => page.goForward(), /\/en\/tafseer\/3\/#a2/],
     ['back to reading en', () => page.click('a[data-back]'), /\/en\/3\/#a2$/],
-    ['reader ar 3 (switch)', () => page.click('#lang-switch'), /\/3\/#a\d+$/],
-    ['home ar', () => page.click('a.brand'), '/'],
-    ['browser back ar', () => page.goBack(), /\/3\/#a\d+$/],
-    ['index ar', () => page.click('[data-index-link] >> nth=0'), '/surahs/'],
+    ['settings en (tab bar)', tab('settings'), '/en/settings/'],
+    ['settings ar (language)', () => page.click('[data-set-lang-link="ar"]'), '/settings/'],
+    ['home ar (brand)', () => page.click('a.brand'), '/'],
+    ['browser back ar', () => page.goBack(), '/settings/'],
+    ['saved ar (tab bar)', tab('saved'), '/saved/'],
+    ['index ar (Read tab, no other position yet)', tab('read'), /\/(surahs\/|\d+\/#a\d+)$/],
   ];
   let i = 0;
   for (const [what, click, path] of steps) {
@@ -119,7 +124,7 @@ test('CN-01 (AC62, AC63, AC65, AC28, AC33, AC71, D-130): playing surah 2 continu
     await expect(page.locator('[data-mini-surah]')).toContainText(`2. ${lang === 'en' ? surahs[1].en : surahs[1].ar}`);
     await noOverflow(page);
   }
-  expect(i).toBe(20);
+  expect(i).toBe(steps.length);
   // AC71: during and after 20 changes, pages and assets from RIFQ's origin only, the audio file from
   // the approved host only, no /api/ call but the audio metadata asked before, no /dev/ route, and
   // only the page asked for (no prefetching).
@@ -138,11 +143,12 @@ test('CN-01 (AC62, AC63, AC65, AC28, AC33, AC71, D-130): playing surah 2 continu
   expect(after.filter((s) => s.url.endsWith('/api/audio/reciters')).length).toBeLessThanOrEqual(1);
   const pages = after.filter((s) => new URL(s.url).hostname === '127.0.0.1' && (/\/$/.test(new URL(s.url).pathname)));
   // One fetch per change at most (back and forward may be answered by the router without one).
-  expect(pages.length).toBeLessThanOrEqual(20);
+  expect(pages.length).toBeLessThanOrEqual(steps.length);
   for (const h of hits) { expect(h.headers.cookie).toBeUndefined(); expect(h.headers.referer).toBeUndefined(); expect(h.headers.authorization).toBeUndefined(); }
   // Nothing about the pages visited is stored on the device.
   const keys = await page.evaluate(() => [Object.keys(localStorage), Object.keys(sessionStorage)]);
-  expect(keys[0].every((k) => k === 'rifq.settings' || k === 'rifq.saves')).toBe(true);
+  // Kit v37: recently read (RQ-008 AC20) is the one new device-only item (surah numbers only).
+  expect(keys[0].every((k) => k === 'rifq.settings' || k === 'rifq.saves' || k === 'rifq.recent')).toBe(true);
   expect(keys[1]).toEqual([]);
 });
 
@@ -278,7 +284,7 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('data-state', 'paused');
   await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('aria-label', t('ar', 'miniPlay', { s: 1, a: Number(await mini(page).getAttribute('data-a')) }));
   // A paused recitation stays paused at the same point across a change (AC62).
-  await hop(page, () => page.click('a.index-card'), '/surahs/');
+  await hop(page, () => page.click('a[data-all-surahs]'), '/surahs/');
   await page.click('[data-mini-toggle]');
   await expect.poll(async () => (await audioState(page))!.paused).toBe(false);
   // AC75: the end of the surah while elsewhere: the ended state, announced, link still there.
@@ -503,8 +509,13 @@ test('CN-07 (AC74, AC14, AC41, AC67 e): the language switch keeps playing and ch
   await seekTo(page, 6 * STEP + 500);
   await expect.poll(() => marked(page)).toEqual([7]);
   await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('aria-label', t('ar', 'miniPause', { s: 2, a: 7 }));
-  await hop(page, () => page.click('#lang-switch'), /\/en\/2\/#a\d+$/);
+  // Kit v37 (D-181 C): the language is switched in Settings; the Read tab then opens the playing
+  // surah's page at the saved position (the playing ayah, D-117 A).
+  await hop(page, () => page.click('nav[data-tabbar]:visible a[data-tab="settings"]'), '/settings/');
+  await hop(page, () => page.click('[data-set-lang-link="en"]'), '/en/settings/');
   expect(await page.evaluate(() => [document.documentElement.lang, document.documentElement.dir])).toEqual(['en', 'ltr']);
+  await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('aria-label', t('en', 'miniPause', { s: 2, a: 7 }));
+  await hop(page, () => page.click('nav[data-tabbar]:visible a[data-tab="read"]'), /\/en\/2\/#a\d+$/);
   await expect(page.locator('[data-mini-toggle]')).toHaveAttribute('aria-label', t('en', 'miniPause', { s: 2, a: 7 }));
   await expect(page.locator('[data-mini-surah]')).toHaveText(`2. ${surahs[1].en}`);
   await expect(page.locator('[data-mini-reciter]')).toHaveText(MOCK_RECITER_NAMES[7]);
@@ -521,7 +532,11 @@ test('CN-07 (AC74, AC14, AC41, AC67 e): the language switch keeps playing and ch
 test('CN-08 (AC70, R-9): settings, search, bookmarks, index filter, Tafseer and the development banner after in-place changes during playback', async ({ page }) => {
   await serveAudio(page, len);
   await playSurah(page, 2);
-  await page.click('[data-night]');
+  // Kit v37 (RQ-008 AC71): night mode on the Settings screen, reached in place; Back to the reader.
+  await hop(page, () => page.click('nav[data-tabbar]:visible a[data-tab="settings"]'), '/settings/');
+  await hydrated(page);
+  await page.click('[data-night-switch]');
+  await hop(page, () => page.goBack(), '/2/');
   if (await page.locator('[data-display-toggle]').isVisible()) await page.click('[data-display-toggle]');
   await page.click('[data-larger]');
   const look = () => page.evaluate(() => [document.documentElement.classList.contains('dark'), document.documentElement.style.getPropertyValue('--ayah-size')]);
@@ -541,7 +556,7 @@ test('CN-08 (AC70, R-9): settings, search, bookmarks, index filter, Tafseer and 
   await expect(page.locator('[data-results] li, [data-search] a[href*="#a255"]').first()).toBeVisible();
   expect(await sameDoc(page)).toBe(true);
   // Index filter (RQ-004).
-  await hop(page, () => page.click('a.index-card'), '/surahs/');
+  await hop(page, () => page.click('a[data-all-surahs]'), '/surahs/');
   await page.fill('[data-index-filter] input', '114');
   await expect(page.locator('[data-index-list] > li[data-row]:not([hidden])')).toHaveCount(1);
   await page.fill('[data-index-filter] input', '');
@@ -562,7 +577,7 @@ test('CN-09 (AC72 gate-off part, AC66): an answer that is not an RIFQ page is lo
   for (const [status, type] of [[401, 'text/plain'], [503, 'text/plain'], [429, 'text/plain'], [500, 'text/html']] as const) {
     await hop(page, () => page.click('a.brand'), '/');
     await page.route('**/surahs/', (r) => r.fulfill({ status, contentType: type, body: status === 500 ? '<p>error</p>' : 'refused' }), { times: 2 });
-    await page.click('a.index-card');
+    await page.click('a[data-all-surahs]');
     await page.waitForURL('**/surahs/');
     // A full load: the document is new, the answer shows as the browser shows it, nothing plays.
     await expect.poll(() => sameDoc(page).catch(() => false), { message: String(status) }).toBe(false);
@@ -580,7 +595,7 @@ test('CN-09 (AC72 gate-off part, AC66): an answer that is not an RIFQ page is lo
   for (const body of ['<p>missing</p>', index]) {
     await hop(page, () => page.click('a.brand'), '/');
     await page.route('**/surahs/', (r) => r.fulfill({ status: 404, contentType: 'text/html', body }), { times: 2 });
-    await page.click('a.index-card');
+    await page.click('a[data-all-surahs]');
     await page.waitForURL('**/surahs/');
     await expect.poll(() => sameDoc(page).catch(() => false), { message: '404 ' + body.length }).toBe(false);
     await page.unroute('**/surahs/');
@@ -600,7 +615,7 @@ test('CN-13 (QA v26 FIND-G, AC62): Back and Forward to RIFQ\'s own 404 page stay
   await hydrated(page);
   await tag(page);
   await hop2(page, () => page.click('main a[href="/"]'));
-  await hop2(page, () => page.click('a.index-card'));
+  await hop2(page, () => page.click('a[data-all-surahs]'));
   await hop2(page, () => page.click('a[data-surah-link="2"]'));
   await hydrated(page);
   await page.click('[data-play-surah]');
@@ -644,7 +659,7 @@ test('CN-10 (AC73, P-13 in Chromium): 50 in-place changes during surah 2; no rel
   const h0 = await heap();
   const route: [() => Promise<unknown>, RegExp | string][] = [
     [() => page.click('a.brand'), /\/(en\/)?$/],
-    [() => page.click('a.index-card'), /surahs\/$/],
+    [() => page.click('a[data-all-surahs]'), /surahs\/$/],
     [() => page.click('a[data-surah-link="3"]'), /\/3\/$/],
     [() => page.click('#a1 a.tf-link'), /tafseer\/3\//],
     [() => page.click('[data-privacy-link]'), /privacy\/$/],
@@ -654,7 +669,8 @@ test('CN-10 (AC73, P-13 in Chromium): 50 in-place changes during surah 2; no rel
     const [click, path] = route[i % route.length];
     await hop(page, click, path);
     if (i % 10 === 2) counts.push(await listeners()); // on a reader page (surah 3), with its islands
-    if (i % 10 === 9) await hop(page, () => page.click('#lang-switch'), /./);
+    // Kit v37 (D-181 C): the language switch is in Settings; the route goes on from that page.
+    if (i % 10 === 9) { await hop(page, () => page.click('nav[data-tabbar]:visible a[data-tab="settings"]'), /settings\/$/); await hop(page, () => page.click('[data-set-lang-link]:not([aria-current])'), /settings\/$/); }
   }
   const h1 = await heap();
   expect(await sameDoc(page)).toBe(true);

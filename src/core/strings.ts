@@ -186,6 +186,31 @@ const ar = {
   miniGo: 'الانتقال إلى الآية الجارية تلاوتها، {s}:{a}',
   miniClose: 'إغلاق المشغّل',
   miniEnded: 'انتهت التلاوة.',
+  // RQ-008 v1.0 stage 1 (kit v37): tab bar, home, Saved and Settings screens. Strings as drafted in
+  // RQ-008's table, except clearRecentFailed (not in the table; modelled on clearLastFailed). New
+  // strings; they need the B-09 Arabic review and Hamzeh's review.
+  tabBarLabel: 'التنقل الرئيسي',
+  tabHome: 'الرئيسية',
+  tabRead: 'اقرأ',
+  tabSaved: 'المحفوظات',
+  tabSettings: 'الإعدادات',
+  mySaved: 'محفوظاتي',
+  viewAll: 'عرض الكل',
+  bookmarkKind: 'علامة',
+  continueCard: 'تابِع القراءة',
+  cardAyahJuz: 'الآية {a} · الجزء {j}',
+  allSurahs: 'كل السور',
+  recentTitle: 'قرأتَ مؤخرًا',
+  textSize: 'حجم الخط',
+  appearance: 'المظهر',
+  interfaceLanguage: 'لغة الواجهة',
+  langArabic: 'العربية',
+  deviceData: 'البيانات على هذا الجهاز',
+  clearRecent: 'إزالة السور المقروءة مؤخرًا',
+  clearRecentConfirm: 'تأكيد الإزالة',
+  clearRecentDone: 'أُزيلت السور المقروءة مؤخرًا من هذا الجهاز. لم تتغير علاماتك ولا موضع قراءتك.',
+  clearRecentFailed: 'تعذرت إزالة السور المقروءة مؤخرًا من هذا الجهاز لأن التخزين محظور أو ممتلئ. القراءة متاحة كالمعتاد.',
+  settingsNotRemembered: 'لن يُحفظ هذا الإعداد على هذا الجهاز لأن التخزين محظور أو ممتلئ.',
   // Privacy page "Listening" item (D-112, RQ-006 AC40): the wording proposed in RQ-006 v1.1,
   // shown only when PRIVACY_LISTENING_ON is true. It stays off until Hamzeh approves it.
   pvListenL: 'الاستماع',
@@ -387,6 +412,29 @@ const en: typeof ar = {
   miniGo: 'Go to the playing ayah, {s}:{a}',
   miniClose: 'Close player',
   miniEnded: 'The recitation has ended.',
+  // RQ-008 stage 1 (see the Arabic block).
+  tabBarLabel: 'Main',
+  tabHome: 'Home',
+  tabRead: 'Read',
+  tabSaved: 'Saved',
+  tabSettings: 'Settings',
+  mySaved: 'My saved',
+  viewAll: 'View all',
+  bookmarkKind: 'Bookmark',
+  continueCard: 'Continue reading',
+  cardAyahJuz: 'Ayah {a} · Juz {j}',
+  allSurahs: 'All surahs',
+  recentTitle: 'Recently read',
+  textSize: 'Text size',
+  appearance: 'Appearance',
+  interfaceLanguage: 'Interface language',
+  langArabic: 'Arabic',
+  deviceData: 'Data on this device',
+  clearRecent: 'Clear recently read',
+  clearRecentConfirm: 'Confirm',
+  clearRecentDone: 'Recently read removed from this device. Your bookmarks and reading position did not change.',
+  clearRecentFailed: 'Could not remove recently read from this device, because storage is blocked or full. Reading still works.',
+  settingsNotRemembered: 'This setting will not be remembered on this device because storage is blocked or full.',
   pvListenL: 'Listening',
   pvListen: "when you play a recitation, our server asks Quran Foundation for the audio file's address and the ayah timings. Your address and device details are not passed to them in that request. Your browser then plays the file directly from the audio server that Quran Foundation's service points to (download.quranicaudio.com), which receives your network address and basic browser details and can see which recitation you play. We don't keep a record of what you listen to. We keep the file address and ayah timings for no more than 7 days.",
   // Privacy page, D-099 approved text (see the Arabic block above).
@@ -440,6 +488,10 @@ export const ayahPath = (lang: Lang, s: number, a: number) => `${surahPath(lang,
 export const tafseerPath = (lang: Lang, s: number, a?: number) => `${homePath(lang)}tafseer/${s}/${a ? `#a${a}` : ''}`;
 // D-099: the privacy page, linked from every page's footer.
 export const privacyPath = (lang: Lang) => `${homePath(lang)}privacy/`;
+// RQ-008 stage 1 (kit v37): the Search, Saved and Settings screens of the tab bar.
+export const searchPath = (lang: Lang) => `${homePath(lang)}search/`;
+export const savedPath = (lang: Lang) => `${homePath(lang)}saved/`;
+export const settingsPath = (lang: Lang) => `${homePath(lang)}settings/`;
 // The one external address on the privacy page: a plain link, nothing is loaded from it.
 export const CLOUDFLARE_PRIVACY_URL = 'https://www.cloudflare.com/privacypolicy/';
 // Privacy items in page order: [label key, text key]. The hosting item is built separately.

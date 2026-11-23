@@ -1,5 +1,9 @@
 // Font size and night mode (RQ-001 AC8). The ayah at the top of the screen stays in place when the
 // size or theme changes. Settings stay on the device and are never sent anywhere.
+// RQ-008 (kit v37): the night toggle left the header (Hamzeh, 21 Nov; AC72); the light/dark switch
+// is on the Settings screen (islands/SettingsScreen.tsx), which uses read() and apply() below. The
+// header keeps the text-size Display control on reader and Tafseer pages only (D-193 A, "What moves
+// where"); on other pages this island shows nothing and only keeps --header-h measured.
 import { useEffect, useState } from 'react';
 import { t, type Lang } from '../../core/strings.ts';
 
@@ -8,7 +12,8 @@ export const SIZES = [1.25, 1.5, 1.75, 2, 2.5];
 type S = { size: number; dark: boolean };
 const DEFAULT: S = { size: 1.5, dark: false };
 
-function read(): S {
+export type { S as SettingsValue };
+export function read(): S {
   try {
     const v = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
     return { size: SIZES.includes(v?.size) ? v.size : DEFAULT.size, dark: v?.dark === true };
@@ -55,24 +60,26 @@ export function topRow(): { el: Element; top: number } | null {
   return cover ? { el: cover, top: cover.getBoundingClientRect().top } : null;
 }
 
-function apply(s: S) {
+// Returns false when the setting could not be stored (RQ-008 AC76); it still applies to the page.
+export function apply(s: S): boolean {
   const anchor = topRow();
   const d = document.documentElement;
   d.style.setProperty('--ayah-size', s.size + 'rem');
   d.classList.toggle('dark', s.dark);
   if (anchor) window.scrollBy({ top: anchor.el.getBoundingClientRect().top - anchor.top, behavior: 'instant' as ScrollBehavior });
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, ...reciterField() })); } catch { /* reading continues without saved settings */ }
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, ...reciterField() }));
+    const v = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
+    return v?.size === s.size && v?.dark === s.dark;
+  } catch { return false; /* reading continues without saved settings */ }
 }
 
-export default function Settings({ lang }: { lang: Lang }) {
+export default function Settings({ lang, size = false }: { lang: Lang; size?: boolean }) {
   const [s, setS] = useState<S>(DEFAULT);
   // Phone width: the controls sit behind one Display button (design review H-2). The panel opens
   // over the text, so opening it never moves the reading place. Wider screens show them inline.
   const [open, setOpen] = useState(false);
-  // Until the island has read the saved setting, the night button stays invisible (it keeps its
-  // space so the header does not move). Without JavaScript it never shows, so no dead control.
-  const [ready, setReady] = useState(false);
-  useEffect(() => { setS(read()); setReady(true); }, []);
+  useEffect(() => { setS(read()); }, []);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
@@ -91,6 +98,7 @@ export default function Settings({ lang }: { lang: Lang }) {
   }, []);
   const change = (n: S) => { apply(n); setS(n); };
   const i = SIZES.indexOf(s.size);
+  if (!size) return null;
   return (
     <div className="settings" role="group" aria-label={t(lang, 'settingsLabel')}>
       <button type="button" className="btn display-toggle" data-display-toggle aria-expanded={open} aria-controls="display-panel" onClick={() => setOpen(!open)}>{t(lang, 'display')}</button>
@@ -99,17 +107,6 @@ export default function Settings({ lang }: { lang: Lang }) {
       <span className="size-label" data-size-label>{t(lang, 'fontSize', { n: i + 1, m: SIZES.length })}</span>
       <button type="button" className="btn" data-larger aria-label={t(lang, 'larger')} disabled={i >= SIZES.length - 1} onClick={() => change({ ...s, size: SIZES[Math.min(SIZES.length - 1, i + 1)] })}><bdi dir="ltr">A+</bdi></button>
       </div>
-      {/* Night toggle (D-102): an icon button outside the Display panel, so it is always one tap
-          away. It names the action it will take, and the label and title change with the state:
-          a moon in light mode (switch to dark), a sun in dark mode (switch to light). The icons
-          follow the html .dark class, which the layout's early script sets, so the right icon
-          shows before this island loads. */}
-      <button type="button" className={ready ? 'btn icon-btn night-btn' : 'btn icon-btn night-btn pending'} data-night data-mode={s.dark ? 'dark' : 'light'}
-        aria-label={t(lang, s.dark ? 'toLight' : 'toDark')} title={t(lang, s.dark ? 'toLight' : 'toDark')}
-        onClick={() => change({ ...s, dark: !s.dark })}>
-        <svg className="icon-moon" data-icon="moon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round"/></svg>
-        <svg className="icon-sun" data-icon="sun" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.9"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round"/></svg>
-      </button>
     </div>
   );
 }

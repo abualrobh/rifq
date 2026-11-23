@@ -1,0 +1,14 @@
+---
+// RQ-008 Search tab (kit v37). The Go to view (AC59 to AC69) is stage 3 and not built yet; until
+// then this screen holds today's search form (RQ-002) unchanged, the same as the home box.
+import Layout from '../layouts/Layout.astro';
+import Search from '../islands/Search.tsx';
+import { t, searchPath, type Lang } from '../../core/strings.ts';
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const other: Lang = lang === 'ar' ? 'en' : 'ar';
+---
+<Layout lang={lang} title={`${t(lang, 'searchOpen')} - ${t(lang, 'siteName')}`} alt={searchPath(other)} tab="search">
+  <h1 class="home-title">{t(lang, 'searchOpen')}</h1>
+  <Search lang={lang} client:idle />
+</Layout>

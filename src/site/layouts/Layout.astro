@@ -5,6 +5,7 @@ import '../styles/global.css';
 import { ClientRouter } from 'astro:transitions';
 import Settings from '../islands/Settings.tsx';
 import Bidi from '../components/Bidi.astro';
+import TabBar, { type Tab } from '../components/TabBar.astro';
 import { dev, record, audioOn } from '../lib/data';
 import { t, homePath, privacyPath, type Lang } from '../../core/strings.ts';
 // inPlace (RQ-006 v1.3, D-126 1A): pages a reader can open (A1: home, index, reader, Tafseer,
@@ -13,9 +14,13 @@ import { t, homePath, privacyPath, type Lang } from '../../core/strings.ts';
 // (AC72). Development pages pass false: always full loads, no mini-player (A1, AC66).
 // notFound: RIFQ's own 404 page, which answers with status 404; its second marker lets the router
 // place it in the tab too (QA v26 FIND-G: Back or Forward to it keeps the recitation playing).
-interface Props { lang: Lang; title: string; alt: string; wide?: boolean; inPlace?: boolean; notFound?: boolean }
-const { lang, title, alt, wide = false, inPlace = true, notFound = false } = Astro.props;
-const other: Lang = lang === 'ar' ? 'en' : 'ar';
+// RQ-008 stage 1 (kit v37): tab: the tab bar item of this page (AC2; none on privacy and 404).
+// textSize: the header keeps the text-size control on reader and Tafseer pages only (D-193 A).
+// The header has no night button (Hamzeh, AC72) and no language link (D-181 C): the light/dark
+// switch and the interface language are on the Settings screen, and the Tafseer page has its own
+// language link (AC75). `alt` (the same page in the other language) is kept for callers that use it.
+interface Props { lang: Lang; title: string; alt: string; wide?: boolean; inPlace?: boolean; notFound?: boolean; tab?: Tab; textSize?: boolean }
+const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSize = false } = Astro.props;
 ---
 <!doctype html>
 <html lang={lang} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
@@ -35,7 +40,10 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
     {inPlace && notFound && <meta name="rifq-not-found" content="1" />}
     {inPlace && <ClientRouter fallback="swap" />}
     {inPlace && <script>import '../client/nav.ts';</script>}
-    <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem')}catch(e){}})();</script>
+    <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem');var w=JSON.parse(localStorage.getItem('rifq.saves')||'{}');if(w&&w.v===1){if(w.l)d.classList.add('rifq-last');if(w.b&&w.b.length)d.classList.add('rifq-bm')}}catch(e){}})();</script>
+    {/* RQ-008 AC93 (kit v37): the early script above also marks whether a last position and
+        bookmarks are saved (rifq-last, rifq-bm: yes/no only, nothing is read out or sent), so the
+        home page keeps room for its continue card and bookmark cards before its island loads. */}
   </head>
   <!-- wide: home, the surah index and reader pages use the wider tablet and desktop layout. -->
   <body class={wide ? 'wide' : undefined}>
@@ -43,8 +51,8 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
     <a class="skip" href="#content">{t(lang, 'skip')}</a>
     <header class="site-header">
       <a class="brand" href={homePath(lang)}><svg class="brand-mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path class="brand-arch-outer" d="M6 27V14a10 10 0 0120 0v13" fill="none" stroke-width="2.2" stroke-linecap="round"/><path class="brand-arch-inner" d="M11 27V16a5 5 0 0110 0v11" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg>{t(lang, 'siteName')}</a>
-      <a id="lang-switch" href={alt} lang={other} hreflang={other} aria-label={t(lang, 'otherLangLabel')}>{t(lang, 'otherLang')}</a>
-      <Settings lang={lang} client:idle />
+      {inPlace && <TabBar lang={lang} tab={tab} variant="top" />}
+      <Settings lang={lang} size={textSize} client:idle />
     </header>
     <main id="content" tabindex="-1"><slot /></main>
     {/* RQ-006 v1.3: the one audio element of the tab and the mini-player, carried into every page
@@ -52,6 +60,10 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
     {inPlace && audioOn && <audio data-audio preload="none" transition:persist="rifq-audio"></audio>}
     {inPlace && audioOn && <div class="mini-root" data-mini-root data-dev={dev ? '1' : '0'} transition:persist="rifq-mini"></div>}
     {inPlace && audioOn && <script>import '../client/mini-mount.ts';</script>}
+    {/* RQ-008 AC1, P-1: the phone tab bar comes after the content and the mini-player in reading
+        and tab order, and before the footer; it is fixed at the bottom of the screen. */}
+    {inPlace && <TabBar lang={lang} tab={tab} variant="bottom" />}
+    {inPlace && <script>import '../client/tabbar.ts';</script>}
     <footer class="site-footer">
       <details data-source-details>
         <summary>{t(lang, 'source')}</summary>

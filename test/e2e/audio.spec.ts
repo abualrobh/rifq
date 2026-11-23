@@ -5,7 +5,7 @@
 // Not provable here (Chromium, no phone): AC26, AC27, AC29 and AC57 on the reference phone, and the
 // lock screen part of AC28 and AC54. Those need Hamzeh's iPhone test.
 import type { Page, Route } from '@playwright/test';
-import { test, expect, src, surahs, MOBILE, hydrated, noOverflow } from './helpers.ts';
+import { test, expect, src, surahs, MOBILE, hydrated, noOverflow, setNight } from './helpers.ts';
 import { t } from '../../src/core/strings.ts';
 import { AUDIO_HOST } from '../../src/core/audio.ts';
 import { AR_WORD, MOCK_RECITER_NAMES } from '../mock/qf-mock.ts';
@@ -166,7 +166,7 @@ test('AU-04 (AC14, AC15, AC19, AC30): reciter list from the data; changing recit
   expect(tt).toBeLessThan(3 * STEP + 1500);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('rifq.settings')!).reciter)).toBe(97);
   // The text size and night setting keep the reciter, and the reciter keeps them.
-  await page.click('[data-night]');
+  await setNight(page, true); // kit v37: on the Settings screen (RQ-008 AC71)
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('rifq.settings')!))).toMatchObject({ dark: true, reciter: 97 });
   await page.reload();
   await hydrated(page);
@@ -337,7 +337,7 @@ test('AU-09 (AC39 v1.3, AC41, AC42, AC45): policy on every reader-facing page; 4
   await seekTo(page, 2 * STEP + 1000);
   await expect.poll(() => marked(page)).toEqual([3]);
   for (const mode of ['light', 'dark']) {
-    if (mode === 'dark') await page.click('[data-night]');
+    if (mode === 'dark') { await setNight(page, true); await seekTo(page, 2 * STEP + 1000); await expect.poll(() => marked(page)).toEqual([3]); }
     const r = await page.$eval('#a3', (el) => {
       const lum = (c: string) => { const m = c.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]; };
       const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
