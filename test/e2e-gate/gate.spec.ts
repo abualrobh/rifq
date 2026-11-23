@@ -88,6 +88,8 @@ for (const lang of ['ar', 'en'] as const) {
     await page.fill('#q', PHRASE);
     await page.press('#q', 'Enter');
     await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'authAgain'));
+    // Kit v39: the search is on the Go to screen; reading continues back on the reader.
+    await page.goBack();
     await page.click('a[data-next]');
     await expect(page.locator('p.ayah[data-r]').first()).toBeVisible();
   });
