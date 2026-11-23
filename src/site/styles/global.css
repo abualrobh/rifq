@@ -549,6 +549,12 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, v
   :root.rifq-tall-text .reader-head .rh-titles { grid-column: 1 / -1; grid-row: 2; }
   :root.rifq-tall-text .reader-head { padding-inline: .25rem; }
   :root.rifq-tall-text .reader-head .display-toggle { padding-inline: .4rem; white-space: normal; line-height: 1.2; }
+  /* At large text the reader header scrolls away with the page instead of staying on screen, so
+     the reading area is the whole screen above the tab bar and the mini-player (FIND-CB). Back and
+     Go to are also in the tab bar (Home, Search); scrolling up shows the header again. The ayah
+     rows then need no room for it when they are scrolled to. */
+  :root.rifq-tall-text .reader-head { position: static; }
+  :root.rifq-tall-text .ayah-row, :root.rifq-tall-text .ayah-row :is(a, button, [tabindex]) { scroll-margin-top: .5rem; }
   :root.rifq-tall-text .tabbar a { min-height: 44px; min-width: 44px; padding: 2px 4px; gap: 0; line-height: 1.2; }
   :root.rifq-tall-text .tabbar svg { width: 18px; height: 18px; }
   :root.rifq-tall-text .mini { padding-block: 4px; gap: 8px; }

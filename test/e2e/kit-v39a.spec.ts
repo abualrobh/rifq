@@ -99,7 +99,9 @@ for (const lang of LANGS) {
 // the mini-player when a recitation is loaded), in screen pixels of an 844 px tall phone.
 async function space(page: Page, kind: Zoom) {
   return page.evaluate((k) => {
-    const head = document.querySelector('.site-header')!.getBoundingClientRect().bottom;
+    // Kit v39: at large text the reader header scrolls away (not sticky): it then hides nothing.
+    const hd = document.querySelector('.site-header')!;
+    const head = getComputedStyle(hd).position === 'sticky' ? hd.getBoundingClientRect().bottom : Math.max(0, hd.getBoundingClientRect().bottom);
     const bar = document.querySelector('nav[data-tabbar="bottom"]')!.getBoundingClientRect();
     const m = document.querySelector('[data-mini-player]')?.getBoundingClientRect();
     const top = m ? m.top : bar.top;

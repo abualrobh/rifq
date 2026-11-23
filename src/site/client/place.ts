@@ -4,9 +4,13 @@
 // Moved here from islands/Settings.tsx in kit v38 so the router does not import an island; the
 // Settings island re-exports both functions unchanged.
 
-// Bottom edge of the sticky header: rows above it are hidden behind the header.
+// Bottom edge of the sticky header: rows above it are hidden behind the header. Kit v39: at large
+// text the reader header is not sticky (it scrolls away with the page, html.rifq-tall-text), so
+// nothing is hidden behind it and the reading area starts at the top of the screen.
 export function headerBottom(): number {
-  return document.querySelector('.site-header')?.getBoundingClientRect().bottom ?? 0;
+  const h = document.querySelector('.site-header');
+  if (!h || getComputedStyle(h).position !== 'sticky') return 0;
+  return h.getBoundingClientRect().bottom;
 }
 
 // The reading place: the first ayah that starts below the sticky header. If none starts on screen
