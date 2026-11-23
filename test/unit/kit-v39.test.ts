@@ -92,7 +92,8 @@ const AR = [
   cp(0x627, 0x644, 0x646, 0x633, 0x627, 0x621),
   cp(0x627, 0x644, 0x628, 0x642, 0x645),
 ];
-const EN_NAMES = ['Al-Fatihah', 'Al-Baqarah', 'Ali Imran', 'An-Nisa', 'Al-Baqm'];
+// Made-up English names (not the surahs' names), with and without an article.
+const EN_NAMES = ['Al-Qudwah', 'Al-Baqlun', 'Ali Zamran', 'An-Nifal', 'Al-Baqmun'];
 const data = (lang: 'ar' | 'en'): GotoData => ({
   lang,
   folded: ['', ...AR.map(foldName)],
@@ -142,15 +143,15 @@ test('Go to (AC63, D-190 C, D-050): the juz keyword in Arabic (with or without t
   assert.equal(kinds('JUZ 2', 'en'), 'juz 2 1:2');
   assert.equal(kinds('juz 31', 'en'), 'juzMissing');
   assert.equal(kinds('juz 30', 'ar'), 'latinOnly');
-  assert.equal(kinds('baqarah', 'ar'), 'latinOnly');
+  assert.equal(kinds('baqlun', 'ar'), 'latinOnly');
 });
 
 test('Go to (AC61, D-091, D-190 C): English names match in the English interface only, with and without the article', () => {
-  assert.equal(kinds('Al-Baqarah', 'en'), 'surah 2');
-  assert.equal(kinds('baqa', 'en'), 'surah 2');
+  assert.equal(kinds('Al-Baqlun', 'en'), 'surah 2');
+  assert.equal(kinds('baql', 'en'), 'surah 2');
   assert.equal(kinds('baq', 'en'), 'surah 2,surah 5');
-  assert.equal(kinds('Al-Baqarah 255', 'en'), 'ayah 2:255');
-  assert.equal(kinds('nisa 177', 'en'), 'refMissing');
+  assert.equal(kinds('Al-Baqlun 255', 'en'), 'ayah 2:255');
+  assert.equal(kinds('nifal 177', 'en'), 'refMissing');
   // Arabic names still match in the English interface.
   assert.equal(kinds(AR[3], 'en'), 'surah 4');
 });

@@ -246,8 +246,9 @@ for (const lang of LANGS) {
       [`${t('ar', 'kindJuz')} 31`, 'juzMissing'],
       [`${t('ar', 'kindJuz')} 0`, 'juzMissing'],
     ];
-    if (lang === 'en') cases.push(['juz 30', ['juz 30']], ['Juz 2', ['juz 2']], ['Al-Baqarah 255', ['ayah 2:255']], ['baqarah', ['surah 2']], ['juz 99', 'juzMissing']);
-    else cases.push(['juz 30', 'latinOnly'], ['Al-Baqarah', 'latinOnly']);
+    // English names come from the file (no surah name is written in the repository, D-157).
+    if (lang === 'en') cases.push(['juz 30', ['juz 30']], ['Juz 2', ['juz 2']], [`${surahs[1].en} 255`, ['ayah 2:255']], [surahs[1].en.toLowerCase(), ['surah 2']], ['juz 99', 'juzMissing']);
+    else cases.push(['juz 30', 'latinOnly'], [surahs[1].en, 'latinOnly']);
     for (const [q, want] of cases) {
       await goto(page, q);
       if (typeof want === 'string') {
