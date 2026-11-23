@@ -7,7 +7,7 @@ import Settings from '../islands/Settings.tsx';
 import Bidi from '../components/Bidi.astro';
 import TabBar, { type Tab } from '../components/TabBar.astro';
 import { dev, record, audioOn } from '../lib/data';
-import { t, homePath, privacyPath, type Lang } from '../../core/strings.ts';
+import { t, homePath, privacyPath, searchPath, type Lang } from '../../core/strings.ts';
 // inPlace (RQ-006 v1.3, D-126 1A): pages a reader can open (A1: home, index, reader, Tafseer,
 // privacy, 404) change in place with Astro's client router (src/site/client/nav.ts), so a recitation
 // keeps playing; they carry the rifq-page marker the router checks before placing a page in the tab
@@ -19,8 +19,13 @@ import { t, homePath, privacyPath, type Lang } from '../../core/strings.ts';
 // The header has no night button (Hamzeh, AC72) and no language link (D-181 C): the light/dark
 // switch and the interface language are on the Settings screen, and the Tafseer page has its own
 // language link (AC75). `alt` (the same page in the other language) is kept for callers that use it.
-interface Props { lang: Lang; title: string; alt: string; wide?: boolean; inPlace?: boolean; notFound?: boolean; tab?: Tab; textSize?: boolean }
-const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSize = false } = Astro.props;
+// Kit v39 (RQ-008 stage 3, AC50): reader pages pass `reader`. Their header shows Back (P-18), the
+// surah name as the page heading with the line "Surah {s} · {n} ayat · Juz {j}" (P-19), a Go to
+// button that opens the Go to screen, and the text-size button (D-193 A); no brand, no night button,
+// no language link. Back goes to the previous RIFQ page in this tab (client/nav.ts), else Home.
+type Reader = { s: number; name: string; meta: string };
+interface Props { lang: Lang; title: string; alt: string; wide?: boolean; inPlace?: boolean; notFound?: boolean; tab?: Tab; textSize?: boolean; reader?: Reader }
+const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSize = false, reader } = Astro.props;
 ---
 <!doctype html>
 <html lang={lang} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
@@ -49,9 +54,12 @@ const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSi
   <body class={wide ? 'wide' : undefined}>
     {dev && <p class="banner" role="note" data-dev-banner><Bidi text={t(lang, 'devBanner')} lang={lang} /></p>}
     <a class="skip" href="#content">{t(lang, 'skip')}</a>
-    <header class="site-header">
-      <a class="brand" href={homePath(lang)}><svg class="brand-mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path class="brand-arch-outer" d="M6 27V14a10 10 0 0120 0v13" fill="none" stroke-width="2.2" stroke-linecap="round"/><path class="brand-arch-inner" d="M11 27V16a5 5 0 0110 0v11" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg><span class="brand-name">{t(lang, 'siteName')}</span></a>
+    <header class={reader ? 'site-header reader-head' : 'site-header'}>
+      {reader && <a class="btn icon-btn rh-back" href={homePath(lang)} aria-label={t(lang, 'back')} title={t(lang, 'back')} data-reader-back><svg class="rh-dir" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg></a>}
+      {reader && <div class="rh-titles"><h1 class="surah-title rh-title"><bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{reader.s}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{reader.name}</span></h1><p class="rh-meta" data-reader-meta>{reader.meta}</p></div>}
+      <a class={reader ? 'brand brand-hidden' : 'brand'} href={homePath(lang)}><svg class="brand-mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path class="brand-arch-outer" d="M6 27V14a10 10 0 0120 0v13" fill="none" stroke-width="2.2" stroke-linecap="round"/><path class="brand-arch-inner" d="M11 27V16a5 5 0 0110 0v11" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg><span class="brand-name">{t(lang, 'siteName')}</span></a>
       {inPlace && <TabBar lang={lang} tab={tab} variant="top" />}
+      {reader && <a class="btn icon-btn rh-goto" href={searchPath(lang)} aria-label={t(lang, 'goTo')} title={t(lang, 'goTo')} data-reader-goto><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" /><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg></a>}
       <Settings lang={lang} size={textSize} client:idle />
     </header>
     <main id="content" tabindex="-1"><slot /></main>

@@ -2,7 +2,7 @@
 // this island loads still works: the Worker answers it with a results page, and the query travels
 // in the request body, never in a URL. Once loaded, the island sends the same POST with fetch.
 // The query is kept in memory only and is never written to storage.
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, type FormEvent, type Ref } from 'react';
 import type { Offer, SearchOk } from '../../core/api.ts';
 import { segment } from '../../core/highlight.ts';
 import { MAX_CHARS, validate } from '../../core/query.ts';
@@ -31,19 +31,21 @@ function Text({ text, hl }: { text: string; hl: number[] }) {
   return <>{segment(text, hl).map((p, i) => (p.hl ? <mark key={i}>{p.text}</mark> : p.text))}</>;
 }
 
-export default function Search({ lang }: { lang: Lang }) {
-  const input = useRef<HTMLInputElement>(null);
+// Kit v39 (RQ-008 AC66): the word search part of the search, used by the Go to view (GoTo.tsx), which
+// has its own input. run(q) is today's search (RQ-002), unchanged: validation (D-050, 100 characters),
+// the browser's counter (D-058), POST /api/search with the query in the body only, results with
+// highlights and pages. Offers from the Worker are shown only when the Go to view has no direct
+// result of its own (showOffers), so the same place is never listed twice.
+export type WordSearchApi = { run: (q: string) => void };
+export function WordSearch({ lang, ref, showOffers = true }: { lang: Lang; ref?: Ref<WordSearchApi>; showOffers?: boolean }) {
   const statusRef = useRef<HTMLParagraphElement>(null);
   const lastQ = useRef('');
-  const [len, setLen] = useState(0);
   const [state, setStateRaw] = useState<State>({ kind: 'idle' });
   // Counts finished searches (shown as data-seq), so tests and assistive tools can tell a new
   // answer from the previous one even when the text is the same.
   const [seq, setSeq] = useState(0);
   const setState = (s: State) => { setStateRaw(s); if (s.kind !== 'loading') setSeq((n) => n + 1); };
-
-  // Text typed before the island loaded stays in the input (it is uncontrolled); count it now.
-  useEffect(() => { setLen([...(input.current?.value ?? '')].length); }, []);
+  useImperativeHandle(ref, () => ({ run(q: string) { lastQ.current = q; void go(q, 1); } }));
 
   async function go(q: string, page: number) {
     const bad = validate(q);
@@ -83,20 +85,12 @@ export default function Search({ lang }: { lang: Lang }) {
     }
   }
 
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    const q = input.current?.value ?? '';
-    lastQ.current = q;
-    void go(q, 1);
-  }
-
-  const over = len > MAX_CHARS;
   const d = state.kind === 'done' ? state.data : null;
   const pages = d ? Math.ceil(d.total / PAGE) : 0;
   const statusText = state.kind === 'loading' ? t(lang, 'searching')
     : state.kind === 'msg' ? state.text
     // Design review M-5: a reference or surah offer with no word match is not "no results".
-    : d ? (d.total > 0 ? t(lang, 'resultCount', { n: d.total }) : d.offers.length ? t(lang, 'offerCount', { n: d.offers.length }) : t(lang, 'noResults')) : '';
+    : d ? (d.total > 0 ? t(lang, 'resultCount', { n: d.total }) : showOffers && d.offers.length ? t(lang, 'offerCount', { n: d.offers.length }) : t(lang, 'noResults')) : '';
   const offerLabel = (o: Offer) => (o.kind === 'ayah' ? t(lang, 'offerAyah', { s: o.s, a: o.a, name: '' }) : t(lang, 'offerSurah', { s: o.s, name: '' }));
   // Design review H-1: surah names in the interface language, from the source as stored, isolated
   // with <bdi> so they never reorder the numbers around them.
@@ -104,8 +98,58 @@ export default function Search({ lang }: { lang: Lang }) {
   const nameOf = (x: { name: string; en: string }) => (lang === 'en' ? x.en : x.name);
 
   return (
+    <div className="word-search" data-word-search aria-busy={state.kind === 'loading'}>
+        <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" className={state.kind === 'msg' && state.alert ? 'msg alert' : 'msg'} data-search-status data-seq={seq}>{statusText}</p>
+        {showOffers && d && d.ref === 'missing' && <p className="msg" data-ref-missing>{t(lang, 'refMissing')}</p>}
+        {showOffers && d && d.offers.length > 0 && (
+          <nav aria-label={t(lang, 'offersLabel')}>
+            <ul className="offers">
+              {d.offers.map((o) => (
+                <li key={`${o.kind}${o.s}:${o.kind === 'ayah' ? o.a : 0}`}>
+                  <a data-offer={o.kind === 'ayah' ? `${o.s}:${o.a}` : `${o.s}`} href={o.kind === 'ayah' ? ayahPath(lang, o.s, o.a) : surahPath(lang, o.s)}>
+                    {offerLabel(o)}<bdi lang={nameLang} data-offer-name>{nameOf(o)}</bdi>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
+        {d && d.results.length > 0 && (
+          <ol className="results" data-results>
+            {d.results.map((r) => (
+              <li key={`${r.s}:${r.a}`} data-res={`${r.s}:${r.a}`}>
+                <a href={ayahPath(lang, r.s, r.a)} data-res-link><bdi lang={nameLang} data-res-name>{nameOf(r)}</bdi>{t(lang, 'resultRef', { s: r.s, a: r.a })}</a>
+                <p className="ayah" lang="ar" dir="rtl" data-res-text><Text text={r.text} hl={r.hl} /></p>
+              </li>
+            ))}
+          </ol>
+        )}
+        {d && pages > 1 && (
+          <nav aria-label={t(lang, 'pagesLabel')} className="pager">
+            <button type="button" className="btn" data-prev-page disabled={d.page <= 1} onClick={() => go(lastQ.current, d.page - 1)}>{t(lang, 'prevPage')}</button>
+            <span data-page-label>{t(lang, 'resultsPage', { p: d.page, n: pages })}</span>
+            <button type="button" className="btn" data-next-page disabled={d.page >= pages} onClick={() => go(lastQ.current, d.page + 1)}>{t(lang, 'nextPage')}</button>
+          </nav>
+        )}
+    </div>
+  );
+}
+
+// Today's search form (RQ-002), kept for pages that still use it; RQ-008 stage 3 moved home, the
+// Search screen and the reader to the Go to view.
+export default function Search({ lang }: { lang: Lang }) {
+  const input = useRef<HTMLInputElement>(null);
+  const words = useRef<WordSearchApi>(null);
+  const [len, setLen] = useState(0);
+  useEffect(() => { setLen([...(input.current?.value ?? '')].length); }, []);
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    words.current?.run(input.current?.value ?? '');
+  }
+  const over = len > MAX_CHARS;
+  return (
     <section className="search" data-search>
-      <form method="post" action="/api/search" role="search" data-astro-reload="" onSubmit={onSubmit} aria-busy={state.kind === 'loading'}>
+      <form method="post" action="/api/search" role="search" data-astro-reload="" onSubmit={onSubmit}>
         <input type="hidden" name="lang" value={lang} />
         <label htmlFor="q" className="search-label">{t(lang, 'searchLabel')}</label>
         <div className="search-row">
@@ -119,38 +163,7 @@ export default function Search({ lang }: { lang: Lang }) {
         <p id="q-hint" className="hint">{t(lang, 'searchHint')} <BidiText text={t(lang, 'searchPlaceholderForm')} lang={lang} /></p>
         <p id="q-count" className={over ? 'hint over' : 'hint'} data-count>{over ? t(lang, 'tooLong', { n: len }) : t(lang, 'charCount', { n: len })}</p>
       </form>
-      <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" className={state.kind === 'msg' && state.alert ? 'msg alert' : 'msg'} data-search-status data-seq={seq}>{statusText}</p>
-      {d && d.ref === 'missing' && <p className="msg" data-ref-missing>{t(lang, 'refMissing')}</p>}
-      {d && d.offers.length > 0 && (
-        <nav aria-label={t(lang, 'offersLabel')}>
-          <ul className="offers">
-            {d.offers.map((o) => (
-              <li key={`${o.kind}${o.s}:${o.kind === 'ayah' ? o.a : 0}`}>
-                <a data-offer={o.kind === 'ayah' ? `${o.s}:${o.a}` : `${o.s}`} href={o.kind === 'ayah' ? ayahPath(lang, o.s, o.a) : surahPath(lang, o.s)}>
-                  {offerLabel(o)}<bdi lang={nameLang} data-offer-name>{nameOf(o)}</bdi>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      )}
-      {d && d.results.length > 0 && (
-        <ol className="results" data-results>
-          {d.results.map((r) => (
-            <li key={`${r.s}:${r.a}`} data-res={`${r.s}:${r.a}`}>
-              <a href={ayahPath(lang, r.s, r.a)} data-res-link><bdi lang={nameLang} data-res-name>{nameOf(r)}</bdi>{t(lang, 'resultRef', { s: r.s, a: r.a })}</a>
-              <p className="ayah" lang="ar" dir="rtl" data-res-text><Text text={r.text} hl={r.hl} /></p>
-            </li>
-          ))}
-        </ol>
-      )}
-      {d && pages > 1 && (
-        <nav aria-label={t(lang, 'pagesLabel')} className="pager">
-          <button type="button" className="btn" data-prev-page disabled={d.page <= 1} onClick={() => go(lastQ.current, d.page - 1)}>{t(lang, 'prevPage')}</button>
-          <span data-page-label>{t(lang, 'resultsPage', { p: d.page, n: pages })}</span>
-          <button type="button" className="btn" data-next-page disabled={d.page >= pages} onClick={() => go(lastQ.current, d.page + 1)}>{t(lang, 'nextPage')}</button>
-        </nav>
-      )}
+      <WordSearch ref={words} lang={lang} />
     </section>
   );
 }

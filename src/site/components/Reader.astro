@@ -1,12 +1,12 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import Search from '../islands/Search.tsx';
 import ReaderTools from '../islands/ReaderTools.tsx';
 import AudioPlayer from '../islands/AudioPlayer.tsx';
 import AyahPanels from '../islands/AyahPanels.tsx';
 import SurahList from './SurahList.astro';
 import { surahs, tafseerOn, audioOn, dev, juz, juzByStartsOk } from '../lib/data';
-import { t, homePath, indexPath, surahPath, type Lang } from '../../core/strings.ts';
+import { t, surahPath, ayatLabel, type Lang } from '../../core/strings.ts';
+import { splitAyahNumber } from '../../core/ayah-number.ts';
 import type { Surah } from '../../core/source-adapter.ts';
 interface Props { surah: Surah; lang: Lang }
 const { surah, lang } = Astro.props;
@@ -16,21 +16,19 @@ const prev = surah.n > 1 ? surahPath(lang, surah.n - 1) : null;
 const next = surah.n < last ? surahPath(lang, surah.n + 1) : null;
 const name = lang === 'ar' ? surah.ar : surah.en;
 const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
+// AC50 (P-19): the header line "Surah {s} · {n} ayat · Juz {j}", with the juz of the surah's first
+// ayah in the file, as on index rows (D-090 D); without a juz in the file the line ends at the count.
+const j0 = surah.items[0]?.jozz;
+const meta = Number.isInteger(j0) ? t(lang, 'surahMeta', { s: surah.n, n: ayatLabel(lang, surah.items.length), j: j0 as number }) : t(lang, 'gotoSurahSub', { s: surah.n, n: ayatLabel(lang, surah.items.length) });
 ---
-<Layout lang={lang} title={`${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={surahPath(other, surah.n)} wide tab="read" textSize>
+<Layout lang={lang} title={`${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={surahPath(other, surah.n)} wide tab="read" textSize reader={{ s: surah.n, name, meta }}>
   <div class="reader-grid">
   <div class="reader-main">
-  <nav class="surah-nav" aria-label={t(lang, 'navLabel')}>
-    <a href={homePath(lang)}>{t(lang, 'home')}</a>
-    <a href={indexPath(lang)} data-index-link>{t(lang, 'surahIndex')}</a>
-    {prev && <a rel="prev" data-prev href={prev}>{t(lang, 'prevSurah')}</a>}
-    {next && <a rel="next" data-next href={next}>{t(lang, 'nextSurah')}</a>}
-  </nav>
-  <h1 class="surah-title"><bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{surah.n}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{name}</span></h1>
-  <details class="reader-search" data-reader-search>
-    <summary class="btn" data-search-toggle>{t(lang, 'searchOpen')}</summary>
-    <Search lang={lang} client:idle />
-  </details>
+  {/* Kit v39 (RQ-008 stage 3, AC50, AC58): the reader's header (layout) holds Back, the surah name
+      (the page heading), its line, Go to and text size. The top links of kit v38 (home, surah index,
+      previous and next surah) and the search button are gone: the tab bar, the home "All surahs"
+      link, the Go to screen and the previous and next surah links at the end of the surah replace
+      them (AC58). */}
   {/* RQ-008 AC51 (kit v38, D-203 A): the Play surah row and the reciter button at the top of the
       surah, below its title. It scrolls with the page: no recitation panel is fixed on screen; the
       mini-player above the tab bar is the only player (AC55). Its space is kept before it loads
@@ -43,7 +41,16 @@ const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
   <ol class="ayat" aria-label={t(lang, 'ayatLabel')} data-surah={surah.n}>
     {surah.items.map((a) => (
       <li class="ayah-row" id={`a${a.aya_no}`} data-s={a.sora} data-a={a.aya_no}>
-        <p class="ayah" lang="ar" dir="rtl" data-r={`${a.sora}:${a.aya_no}`}>{a.aya_text}</p>
+        {/* RQ-008 D-186 B (AC98 to AC107, P-23): the stored number, the digits after the last no-break
+            space of aya_text, is wrapped in one element that the CSS draws the Mushaf-style
+            end-of-ayah ornament on. The no-break space stays outside it, so the last word and the
+            ornament never part. The element's text content is the stored text byte for byte (AC99):
+            nothing is added, removed or changed; the digits stay real text in the Quran font, read
+            once by screen readers (AC100, AC101). An ayah not ending that way is shown as stored,
+            with no ornament (AC107; the build lists it). */}
+        {(() => { const x = splitAyahNumber(a.aya_text); return x
+          ? <p class="ayah" lang="ar" dir="rtl" data-r={`${a.sora}:${a.aya_no}`}>{x.head}<span class="ayah-no">{x.no}</span></p>
+          : <p class="ayah" lang="ar" dir="rtl" data-r={`${a.sora}:${a.aya_no}`}>{a.aya_text}</p>; })()}
         {/* RQ-008 AC26 (kit v38, D-187 A): one actions button per ayah replaces the four per-ayah
             controls of kit v37 (play, play from here, bookmark, Tafseer link); they are in the ayah
             actions panel (islands/AyahPanels.tsx), which a tap on the ayah also opens. 44 px target,
@@ -55,8 +62,8 @@ const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
   </ol>
   <AyahPanels lang={lang} s={surah.n} count={surah.items.length} names={{ ar: surah.ar, en: surah.en }} prevCount={prevCount} last={last} juz={juz} juzOk={juzByStartsOk} tafseer={tafseerOn} audio={audioOn} dev={dev} client:idle />
   <nav class="surah-nav surah-nav-end" aria-label={t(lang, 'navLabel')}>
-    {prev && <a rel="prev" href={prev}>{t(lang, 'prevSurah')}</a>}
-    {next && <a rel="next" class="next-btn" href={next}>{t(lang, 'nextSurah')}</a>}
+    {prev && <a rel="prev" data-prev href={prev}>{t(lang, 'prevSurah')}</a>}
+    {next && <a rel="next" data-next class="next-btn" href={next}>{t(lang, 'nextSurah')}</a>}
   </nav>
   </div>
   {/* Tablet and desktop widths (mockups): the surah index beside the text, current surah marked.
