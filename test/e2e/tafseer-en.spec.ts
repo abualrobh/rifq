@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { BUILD, expect, hydrated, MOBILE, sliceOf, src, STRICT, test, utf8, setNight, clickLink } from './helpers.ts';
 import { CASE, CLOSE, EN_CASE, enPassageText, MOCK_EN_ID, MOCK_TAFSIR_ID, OPEN, passageText } from '../mock/qf-mock.ts';
 import { sanitize, visibleText } from '../../src/core/tafseer-html.ts';
-import { STRINGS } from '../../src/core/strings.ts';
+import { STRINGS, t } from '../../src/core/strings.ts';
 import { findPhrases, hasArabicLetters, indexFromSource } from '../../src/core/tafseer-quotes.ts';
 import { computeMarks, markedNodes, markedText } from '../../src/core/tafseer-marks.ts';
 
@@ -285,9 +285,11 @@ test('EN-11 (AC22): keyboard reaches every control with visible focus; note and 
     await page.keyboard.press('Tab');
     const f = await page.evaluate(() => { const e = document.activeElement as HTMLElement; return { n: e.getAttribute('aria-label') || e.textContent?.trim() || '', o: getComputedStyle(e).outlineStyle }; });
     if (f.n) { names.push(f.n); expect(f.o, f.n).not.toBe('none'); }
-    if (f.n === EN.nextAyah) break;
+    // Kit v39 (D-208 C, RQ-008 AC43): previous and next show the target ayah; their names keep the
+    // direction ("Next ayah: Ayah N").
+    if (f.n === t('en', 'nextAyahTo', { a: CASE.quoteExact + 1 })) break;
   }
-  for (const want of [EN.backToReading, EN.tafseerSourceDetails, EN.prevAyah, EN.nextAyah]) expect(names).toContain(want);
+  for (const want of [EN.backToReading, EN.tafseerSourceDetails, t('en', 'prevAyahTo', { a: CASE.quoteExact - 1 }), t('en', 'nextAyahTo', { a: CASE.quoteExact + 1 })]) expect(names).toContain(want);
   const live = page.locator('[aria-live="polite"]');
   await expect(live.locator('[data-tf-en-note]')).toHaveCount(1);
   await expect(live.locator('[data-tf-text][lang="en"]')).toHaveCount(1);

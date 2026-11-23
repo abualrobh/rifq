@@ -195,9 +195,10 @@ test('AC21: keyboard reaches every control with visible focus; the reference get
     await page.keyboard.press('Tab');
     const f = await page.evaluate(() => { const e = document.activeElement as HTMLElement; return { n: e.getAttribute('aria-label') || e.textContent?.trim() || '', o: getComputedStyle(e).outlineStyle }; });
     if (f.n) { names.push(f.n); expect(f.o, f.n).not.toBe('none'); }
-    if (f.n === 'Next ayah') break;
+    // Kit v39 (D-208 C, RQ-008 AC43): the buttons show the target ayah; the names keep the direction.
+    if (f.n === 'Next ayah: Ayah 25') break;
   }
-  for (const want of ['Back to reading', 'Tafseer source details', 'Previous ayah', 'Next ayah']) expect(names).toContain(want);
+  for (const want of ['Back to reading', 'Tafseer source details', 'Previous ayah: Ayah 23', 'Next ayah: Ayah 25']) expect(names).toContain(want);
   await page.keyboard.press('Enter');
   await expect(page.locator('[data-tf-ayah]')).toHaveAttribute('data-tf-ayah', '2:25');
   const focused = await page.evaluate(() => document.activeElement?.hasAttribute('data-tf-ref') && document.activeElement.closest('.tf-row')?.getAttribute('data-a'));

@@ -525,7 +525,8 @@ test('R8-16 (AC86, AC87, AC88, AC90, AC95): the new screens make only RIFQ reque
     const u = new URL(s.url);
     expect(u.origin).toBe('http://127.0.0.1:8812');
     // Kit v38 (Hamzeh, kit v37 test; AC70): Settings asks for the reciter list to show the reciter's
-    // name; the body is the interface language only, no device data.
+    // name; the body is the interface language only, no device data (D-206 A: approved change to
+    // RQ-006 AC3).
     if (u.pathname === '/api/audio/reciters') { expect(s.method).toBe('POST'); expect(['{"lang":"ar"}', '{"lang":"en"}']).toContain(s.body); continue; }
     expect(s.method, s.url).toBe('GET');
     expect(u.search, s.url).toBe('');

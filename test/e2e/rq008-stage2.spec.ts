@@ -336,7 +336,7 @@ test.describe('with a recitation (made-up silent file answered locally)', () => 
       await page.goto(P(lang, '2/'));
       await hydrated(page);
       // AC51: the row below the title, not fixed; Play surah and the reciter button (no name before
-      // any request: nothing is asked for before play or the list, RQ-006 AC3).
+      // any request: nothing is asked for before play or the list, RQ-006 AC3; D-206 A changed AC3 for the Settings screen only).
       const row = page.locator('[data-surah-audio]');
       expect(await row.evaluate((e) => getComputedStyle(e).position)).toBe('static');
       expect(await row.evaluate((e) => e.getBoundingClientRect().top < document.querySelector('ol.ayat')!.getBoundingClientRect().top)).toBe(true);

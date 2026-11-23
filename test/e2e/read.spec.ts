@@ -251,7 +251,8 @@ test('TP1-29: reading, settings and language change send no personal data and no
   expect(seen.length).toBeGreaterThan(0);
   for (const s of seen) {
     // Kit v38 (Hamzeh, kit v37 test; RQ-008 AC70): the Settings screen asks RIFQ's Worker for the
-    // reciter list so its reciter row can show the name, with the interface language only.
+    // reciter list so its reciter row can show the name, with the interface language only. D-206 A
+    // (2026-11-23) approved this as a change to RQ-006 AC3.
     if (new URL(s.url).pathname === '/api/audio/reciters') {
       expect(s.method).toBe('POST');
       expect(['{"lang":"ar"}', '{"lang":"en"}']).toContain(s.body);
