@@ -174,8 +174,9 @@ test('AC72: in-place page changes behind the gate; a lock-out answer is loaded i
   const r = await fetch(baseURL + '/surahs/', { headers: { authorization: 'Basic ' + Buffer.from('e2e:e2e-made-up-password').toString('base64') } });
   await r.arrayBuffer();
   test.skip(r.status !== 429, `the gate did not lock this address out (status ${r.status})`);
-  await page.click('[data-index-link] >> nth=0');
-  await page.waitForURL('**/surahs/');
+  // Kit v39 (RQ-008 AC58): the reader has no index link any more; the tab bar's Home is used.
+  await page.click('nav[data-tabbar]:visible a[data-tab="home"]');
+  await page.waitForURL((u) => new URL(u).pathname === '/');
   await expect.poll(same).toBe(false);
   await expect(page.locator('body')).toContainText('Too many failed sign-in attempts');
 });
