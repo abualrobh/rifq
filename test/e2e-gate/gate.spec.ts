@@ -67,7 +67,7 @@ test('no-script form search works under the gate', async ({ browser }) => {
   const ctx = await browser.newContext({ javaScriptEnabled: false });
   const page = await ctx.newPage();
   await page.goto('/2/');
-  await openSearch(page);
+  await openSearch(page, false); // kit v39: no JavaScript, so no island to wait for
   await page.fill('#q', PHRASE);
   await page.press('#q', 'Enter');
   await page.waitForURL('**/api/search');

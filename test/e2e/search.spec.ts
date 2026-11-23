@@ -1,7 +1,7 @@
 // RQ-002 browser tests against the local build. Queries are picked from the source by program at
 // run time (never typed by hand), and expected results come from a brute-force scan of the source.
 // The search form is the D-027 rules approved under D-072 and D-073 (src/core/variants.ts).
-import { test, expect, src, surahs, N, MOBILE, STRICT, hydrated, noOverflow, utf8, sliceOf, NET4G, openSearch } from './helpers.ts';
+import { test, expect, src, surahs, N, MOBILE, STRICT, hydrated, noOverflow, utf8, sliceOf, NET4G, openSearch, settle } from './helpers.ts';
 import { NOT_WORD, WORD_SPLIT } from '../../src/core/fold.ts';
 import { foldQuery, foldTerm } from '../../src/core/variants.ts';
 import { t } from '../../src/core/strings.ts';
@@ -33,6 +33,7 @@ async function searchUi(page: Page, q: string) {
   await page.fill('#q', q);
   await page.press('#q', 'Enter');
   await expect(st).not.toHaveAttribute('data-seq', String(before));
+  await settle(page);
 }
 const uiRefs = (page: Page) => page.$$eval('[data-results] li[data-res]', (ls) => ls.map((l) => l.getAttribute('data-res')!));
 
@@ -191,6 +192,7 @@ for (const [lang, vp] of [['ar', null], ['en', MOBILE]] as const) {
       await page.fill('#q', i % 2 ? PHRASE : COMMON);
       await page.press('#q', 'Enter');
       await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'resultCount', { n: brute(i % 2 ? PHRASE : COMMON).length }));
+      await settle(page);
     }
     await page.fill('#q', PHRASE);
     await page.press('#q', 'Enter');

@@ -169,6 +169,13 @@ export const NET4G = { offline: false, latency: 150, downloadThroughput: 200_000
 // button opens the Go to screen, which has the search input (#q). On home and the Search screen the
 // input is on the page. This opens the Go to screen from a reader page (a plain link, so it also works
 // without JavaScript).
+// Kit v39: after a finished word search the island moves focus to its status line in the next
+// animation frame (RQ-002). A key pressed before that frame can land on the status line instead of
+// the input; this waits two frames so the next action starts after it.
+export async function settle(page: Page) {
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null)))));
+}
+
 export async function openSearch(page: Page, waitIsland = true) {
   if (await page.locator('#q').count()) return;
   await page.locator('header [data-reader-goto]').click();

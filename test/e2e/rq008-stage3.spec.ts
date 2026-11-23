@@ -6,7 +6,7 @@
 // folder, optional): R10-SHOTS writes screenshots there.
 import type { BrowserContext, Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-import { test, expect, surahs, src, MOBILE, hydrated, noOverflow, utf8, sliceOf } from './helpers.ts';
+import { test, expect, surahs, src, MOBILE, hydrated, noOverflow, utf8, sliceOf, settle } from './helpers.ts';
 import { juzOfAyah } from '../../src/core/recent.ts';
 import { juzStarts } from '../../src/core/source-adapter.ts';
 import { splitAyahNumber } from '../../src/core/ayah-number.ts';
@@ -331,6 +331,7 @@ for (const lang of LANGS) {
     expect(seen.slice(from).filter((s) => new URL(s.url).pathname === '/api/search').length).toBe(0);
     await box.locator('[data-goto-word]').click();
     await expect(page.locator('[data-search-status]')).not.toHaveText('');
+    await settle(page);
     const posts = seen.slice(from).filter((s) => new URL(s.url).pathname === '/api/search');
     expect(posts.length).toBe(1);
     expect(posts[0].method).toBe('POST');
