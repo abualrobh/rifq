@@ -104,7 +104,13 @@ export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home
     '36',
   ].filter((x) => x.trim());
 
-  const onKey = (e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Escape' && q) { e.preventDefault(); chip(''); } };
+  // Enter runs the word search here, not through the browser's implicit form submission (which a
+  // form with one field and no submit button did not always make: a missed search in the e2e run).
+  // Esc clears the box.
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); words.current?.run(e.currentTarget.value); return; }
+    if (e.key === 'Escape' && q) { e.preventDefault(); chip(''); }
+  };
 
   return (
     <section className="goto search" data-search data-goto data-goto-home={home ? '1' : '0'}>
