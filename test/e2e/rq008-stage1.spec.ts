@@ -575,10 +575,14 @@ test('R8-18 (AC5, AC6): a recitation keeps playing when the reader uses tab bar 
     await page.waitForFunction((x) => document.querySelector(`nav[data-tabbar="bottom"] a[data-tab="${x}"]`)?.getAttribute('aria-current') === 'page' || x === 'read', id);
     expect(await page.evaluate(() => (window as unknown as { __same?: number }).__same)).toBe(1);
     expect(await page.evaluate(() => !(document.querySelector('audio[data-audio]') as HTMLAudioElement).paused)).toBe(true);
-    // AC6: the mini-player sits directly above the tab bar and does not cover it.
-    const mini = await page.locator('[data-mini-player]').boundingBox();
-    const bar = await bottomBar(page).boundingBox();
-    expect(Math.abs(mini!.y + mini!.height - bar!.y)).toBeLessThanOrEqual(1);
+    // AC6: the mini-player sits directly above the tab bar and does not cover it. Kit v39: measured
+    // once the page change has settled (the Read item has no current mark to wait for, so its
+    // check could run while the new page was being swapped in: both boxes are polled).
+    await expect.poll(async () => {
+      const mini = await page.locator('[data-mini-player]').boundingBox();
+      const bar = await bottomBar(page).boundingBox();
+      return mini && bar ? Math.abs(mini.y + mini.height - bar.y) : 99;
+    }, { message: id }).toBeLessThanOrEqual(1);
   }
 });
 });
