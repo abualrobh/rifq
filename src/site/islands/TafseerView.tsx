@@ -28,6 +28,14 @@
 // FIND-BB); a <<...>> quotation split by markup inside an English line is one right-to-left element;
 // a line that is Arabic apart from a few Latin words is right to left with those words isolated;
 // nested brackets and curly quotes around Arabic runs (FIND-BA). No character is added or changed.
+//
+// RQ-008 stage 2 (kit v38, AC38 to AC49, A2): the same view is also shown in the Tafseer panel over
+// the reader (islands/AyahPanels.tsx). The panel passes a `host`: it says which ayah to open first,
+// shows that ayah in the panel's own Quran section (show) and moves to the next or previous surah
+// at an edge (edge). Without a host (the Tafseer page) nothing changes: the hash, the static rows,
+// the back link and the language link work exactly as in kit v37. What this view renders is the
+// same in both places, so the passage, range, bracket display, messages, English note, source
+// details, credit and the previous and next buttons are the same code and the same markup.
 import { goReplace } from '../client/nav.ts';
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { sanitize, type Node } from '../../core/tafseer-html.ts';
@@ -46,7 +54,11 @@ type View =
   | { kind: 'ok'; d: Ok }
   | { kind: 'none' } | { kind: 'unavailable' } | { kind: 'not_configured' } | { kind: 'auth' };
 
-type Props = { lang: Lang; s: number; count: number; prevCount: number; last: number; dev?: boolean };
+// The Tafseer panel (RQ-008, kit v38). start: the first ayah shown (1 to count). show(n, focus):
+// show ayah n in the panel's Quran section (focus: move focus to its reference line, as the page
+// does). edge(dir): move to the previous surah's last ayah (-1) or the next surah's first ayah (+1).
+export type TafseerHost = { start: number; show: (n: number, focus: boolean) => void; edge: (dir: -1 | 1) => void };
+type Props = { lang: Lang; s: number; count: number; prevCount: number; last: number; dev?: boolean; host?: TafseerHost };
 
 // "#a5" or "#a5;from=2:4" (the ayah the reader left in the reader, for the back link, AC18).
 export function parseHash(h: string, count: number): { a: number; from: [number, number] | null } {
@@ -155,7 +167,7 @@ export function englishNodes(text: string, nodes: (Node | MNode)[]): MNode[] {
   return quoteGroups(headingBlocks(text, nodes as MNode[]).nodes);
 }
 
-export default function TafseerView({ lang, s, count, prevCount, last, dev = false }: Props) {
+export default function TafseerView({ lang, s, count, prevCount, last, dev = false, host }: Props) {
   const [a, setA] = useState(1);
   const [view, setView] = useState<View>({ kind: 'loading' });
   const from = useRef<[number, number] | null>(null);
@@ -166,6 +178,7 @@ export default function TafseerView({ lang, s, count, prevCount, last, dev = fal
   const fromPart = () => (from.current ? `;from=${from.current[0]}:${from.current[1]}` : '');
 
   const show = useCallback((n: number, focus: boolean) => {
+    if (host) { host.show(n, focus); return; }
     const rows = document.querySelectorAll<HTMLElement>('.tf-row');
     rows.forEach((r, i) => { r.hidden = i !== n - 1; });
     try { history.replaceState(history.state, '', `#a${n}${fromPart()}`); } catch { /* the view still works */ }
@@ -175,7 +188,7 @@ export default function TafseerView({ lang, s, count, prevCount, last, dev = fal
     const sw = document.getElementById('lang-switch') as HTMLAnchorElement | null;
     if (sw) sw.href = `${tafseerPath(lang === 'ar' ? 'en' : 'ar', s)}#a${n}${fromPart()}`;
     if (focus) rows[n - 1]?.querySelector<HTMLElement>('[data-tf-ref]')?.focus();
-  }, [lang, s]);
+  }, [lang, s, host]);
 
   const load = useCallback(async (n: number) => {
     const key = `${s}:${n}`;
@@ -208,6 +221,13 @@ export default function TafseerView({ lang, s, count, prevCount, last, dev = fal
   }, [s, lang]);
 
   useEffect(() => {
+    if (host) {
+      const n = host.start >= 1 && host.start <= count ? host.start : 1;
+      setA(n);
+      show(n, false);
+      void load(n);
+      return;
+    }
     const h = parseHash(location.hash, count);
     from.current = h.from ?? [s, h.a];
     setA(h.a);
@@ -223,11 +243,12 @@ export default function TafseerView({ lang, s, count, prevCount, last, dev = fal
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
-  }, [count, s, show, load]);
+  }, [count, s, show, load, host]);
 
   const go = (n: number) => {
     moved.current = true;
     if (n >= 1 && n <= count) { setA(n); show(n, true); void load(n); return; }
+    if (host) { if (n < 1 && s > 1) host.edge(-1); if (n > count && s < last) host.edge(1); return; }
     // Across a surah edge: the next or previous surah's Tafseer page, replacing this history entry
     // (in place since RQ-006 v1.3, so a recitation keeps playing, AC62)
     // so the browser's Back button still returns to the reader (AC18).

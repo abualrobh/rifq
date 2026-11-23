@@ -6,6 +6,7 @@
 // where"); on other pages this island shows nothing and only keeps --header-h measured.
 import { useEffect, useState } from 'react';
 import { t, type Lang } from '../../core/strings.ts';
+import { headerBottom, topRow } from '../client/place.ts';
 
 export const SETTINGS_KEY = 'rifq.settings';
 export const SIZES = [1.25, 1.5, 1.75, 2, 2.5];
@@ -42,23 +43,8 @@ export function writeReciter(id: number): boolean {
   } catch { return false; }
 }
 
-// Bottom edge of the sticky header: rows above it are hidden behind the header.
-export function headerBottom(): number {
-  return document.querySelector('.site-header')?.getBoundingClientRect().bottom ?? 0;
-}
-
-// The reading place: the first ayah that starts below the sticky header. If none starts on screen
-// (one long ayah fills it), the ayah that covers the top of the reading area.
-export function topRow(): { el: Element; top: number } | null {
-  const h = headerBottom();
-  let cover: Element | null = null;
-  for (const el of document.querySelectorAll('.ayah-row')) {
-    const r = el.getBoundingClientRect();
-    if (r.top >= h - 1) return r.top < innerHeight ? { el, top: r.top } : cover ? { el: cover, top: cover.getBoundingClientRect().top } : null;
-    if (r.bottom > h) cover = el;
-  }
-  return cover ? { el: cover, top: cover.getBoundingClientRect().top } : null;
-}
+// headerBottom and topRow live in client/place.ts since kit v38 (the router uses them too).
+export { headerBottom, topRow };
 
 // Returns false when the setting could not be stored (RQ-008 AC76); it still applies to the page.
 export function apply(s: S): boolean {

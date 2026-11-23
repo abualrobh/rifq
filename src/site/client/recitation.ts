@@ -89,13 +89,15 @@ function create(el: HTMLAudioElement, dev: boolean) {
   const set = (p: Partial<Snap>) => { snap = { ...snap, ...p }; subs.forEach((f) => f()); };
   let seq = 0;
   // Messages are kept as keys, so they show in the language of the page on screen (AC74). `at` is
-  // the reader page the message belongs to: the full player shows it only there.
+  // the reader page the message belongs to: the Play surah row (kit v38) shows it only there.
   const say = (key: Key, alert = false, code = '', vars: Record<string, string | number> = {}, at = x.s) => set({ msg: { key, vars, code: dev ? code : '', alert, seq: ++seq, at } });
   const why = (code: string) => { set({ reason: code }); if (dev && code) console.warn('[RIFQ audio]', code); };
   const own = () => x.s > 0 && pageSurah() === x.s;
   const reciterName = (lang: Lang = pageLang()) => (x.lists[lang] ?? x.lists.ar ?? x.lists.en)?.find((r) => r.id === x.rid)?.name ?? '';
 
-  // ----- the page on screen: marks, per-ayah buttons, D-062 hand-over (AC6, AC43, AC50, AC65) -----
+  // ----- the page on screen: marks, D-062 hand-over (AC6, AC43, AC50, AC65) -----
+  // Kit v38: the per-ayah play buttons (button.ap) are gone (RQ-008 D-187 A); the ayah actions panel
+  // shows play or pause from this state itself. The loop below finds none and does nothing.
   function paint() {
     const mine = own();
     const on = !el.paused && x.mode !== 'idle';
@@ -523,9 +525,11 @@ function create(el: HTMLAudioElement, dev: boolean) {
     set({ page: pageSurah(), lang: pageLang() });
     paint();
     if (x.mode !== 'idle' && x.current) media(x.current, true); // AC74: title in the new language
-    // AC74: the reciter's name as QF gives it for the new interface language.
+    // AC74: the reciter's name as QF gives it for the new interface language. Kit v38: also when
+    // nothing is loaded any more but the list was already asked for in this tab (play or the list
+    // opened before), so the reader's reciter button and Settings show the name in both languages.
     const lang = pageLang();
-    if (snap.phase === 'active' && !x.lists[lang]) void fetchReciters(lang).catch(() => undefined);
+    if ((snap.phase === 'active' || x.rid !== null) && !x.lists[lang]) void fetchReciters(lang).catch(() => undefined);
   });
 
   return {

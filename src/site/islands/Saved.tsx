@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { clearBookmarks, clearLast, getStorage, load, refExists, removeBookmark, type Saves, type StorageLike } from '../../core/store.ts';
 import { ayahPath, t, type Lang } from '../../core/strings.ts';
+import { onDeviceChange } from '../client/device-events.ts';
 
 type Props = { lang: Lang; counts: number[]; names: [string, string][] };
 
@@ -31,9 +32,7 @@ export default function Saved({ lang, counts, names }: Props) {
   useEffect(() => {
     const s = getStorage(window);
     setSt(s); refresh(s); setReady(true);
-    const onStorage = () => refresh(s);
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    return onDeviceChange(() => refresh(s));
   }, []);
 
   const name = (s: number) => names[s - 1]?.[lang === 'ar' ? 0 : 1] ?? '';
@@ -67,6 +66,10 @@ export default function Saved({ lang, counts, names }: Props) {
       {ready && last && (lastOk
         ? <p className="continue"><a data-continue href={ayahPath(lang, last[0], last[1])}>{t(lang, 'continueReading', { name: name(last[0]), a: last[1] })}</a></p>
         : <p className="msg alert" data-bad-last>{t(lang, 'badRef', { s: last[0], a: last[1] })}</p>)}
+      {/* RQ-008 P-17 (kit v38, QA v37 FIND-BO): before the island loads, the continue link and the
+          clear-last button keep their room when the early script saw a saved position (html.rifq-
+          last), so the heading and list below do not move when they appear. Hidden, no text. */}
+      {!ready && <div className="reserve-last" aria-hidden="true"><p className="continue"><a>{'\u00a0'}</a></p><span className="btn saved-reserve-btn">{'\u00a0'}</span></div>}
       {/* AC14: shown only when a last position is saved (AC19: not when storage is blocked, since
           nothing can be read then). AC23: a reference not in the source keeps the button, with the
           plain button text as its name. */}

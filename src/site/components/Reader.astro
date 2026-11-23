@@ -3,9 +3,10 @@ import Layout from '../layouts/Layout.astro';
 import Search from '../islands/Search.tsx';
 import ReaderTools from '../islands/ReaderTools.tsx';
 import AudioPlayer from '../islands/AudioPlayer.tsx';
+import AyahPanels from '../islands/AyahPanels.tsx';
 import SurahList from './SurahList.astro';
-import { surahs, tafseerOn, audioOn, dev } from '../lib/data';
-import { t, homePath, indexPath, surahPath, tafseerPath, type Lang } from '../../core/strings.ts';
+import { surahs, tafseerOn, audioOn, dev, juz, juzByStartsOk } from '../lib/data';
+import { t, homePath, indexPath, surahPath, type Lang } from '../../core/strings.ts';
 import type { Surah } from '../../core/source-adapter.ts';
 interface Props { surah: Surah; lang: Lang }
 const { surah, lang } = Astro.props;
@@ -14,6 +15,7 @@ const last = surahs.length;
 const prev = surah.n > 1 ? surahPath(lang, surah.n - 1) : null;
 const next = surah.n < last ? surahPath(lang, surah.n + 1) : null;
 const name = lang === 'ar' ? surah.ar : surah.en;
+const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
 ---
 <Layout lang={lang} title={`${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={surahPath(other, surah.n)} wide tab="read" textSize>
   <div class="reader-grid">
@@ -29,35 +31,29 @@ const name = lang === 'ar' ? surah.ar : surah.en;
     <summary class="btn" data-search-toggle>{t(lang, 'searchOpen')}</summary>
     <Search lang={lang} client:idle />
   </details>
+  {/* RQ-008 AC51 (kit v38, D-203 A): the Play surah row and the reciter button at the top of the
+      surah, below its title. It scrolls with the page: no recitation panel is fixed on screen; the
+      mini-player above the tab bar is the only player (AC55). Its space is kept before it loads
+      (RQ-006 AC49), and without JavaScript only a short note shows (AC48). */}
+  {audioOn && <div class="surah-audio" data-surah-audio>
+    <noscript><p class="msg" data-audio-noscript>{t(lang, 'audioNoScript')}</p></noscript>
+    <AudioPlayer lang={lang} s={surah.n} count={surah.items.length} names={{ ar: surah.ar, en: surah.en }} dev={dev} client:idle />
+  </div>}
   <ReaderTools lang={lang} s={surah.n} count={surah.items.length} client:idle />
   <ol class="ayat" aria-label={t(lang, 'ayatLabel')} data-surah={surah.n}>
     {surah.items.map((a) => (
       <li class="ayah-row" id={`a${a.aya_no}`} data-s={a.sora} data-a={a.aya_no}>
         <p class="ayah" lang="ar" dir="rtl" data-r={`${a.sora}:${a.aya_no}`}>{a.aya_text}</p>
-        {/* Per-ayah controls, two columns: play this ayah and play from here (RQ-006 P-1, D-121),
-            then the bookmark and the Tafseer link. Each is a 44 px target, 8 px apart (AC42). Like the
-            play icon, the play-from icon is not mirrored in Arabic (only previous and next are). */}
-        <div class="ayah-tools">
-        {audioOn && <button type="button" class="ap" data-ap={a.aya_no} data-state="idle" aria-label={t(lang, 'audioPlayAyah', { a: a.aya_no })} data-pending tabindex="-1">
-          <svg class="ap-play" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></svg><svg class="ap-pause" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" /></svg>
-        </button>}
-        {audioOn && <button type="button" class="apf" data-apf={a.aya_no} aria-label={t(lang, 'audioPlayFrom', { a: a.aya_no })} title={t(lang, 'audioPlayFrom', { a: a.aya_no })} data-pending tabindex="-1">
-          <svg class="apf-icon" width="22" height="20" viewBox="0 0 26 24" aria-hidden="true" focusable="false"><path d="M4 4.5v15l10-7.5z" fill="currentColor" /><path d="M17 6h6M17 12h6M17 18h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
-        </button>}
-        <button type="button" class="bm" data-a={a.aya_no} aria-pressed="false" aria-label={t(lang, 'bookmarkOff', { a: a.aya_no })} data-pending tabindex="-1">
-          <span aria-hidden="true" class="bm-off">&#9734;</span><span aria-hidden="true" class="bm-on">&#9733;</span>
-        </button>
-        {tafseerOn && <a class="tf-link" href={tafseerPath(lang, a.sora, a.aya_no)} aria-label={t(lang, 'tafseerOf', { a: a.aya_no })} data-tf-link>{t(lang, 'tafseerShort')}</a>}
-        </div>
+        {/* RQ-008 AC26 (kit v38, D-187 A): one actions button per ayah replaces the four per-ayah
+            controls of kit v37 (play, play from here, bookmark, Tafseer link); they are in the ayah
+            actions panel (islands/AyahPanels.tsx), which a tap on the ayah also opens. 44 px target,
+            hidden with its space kept until the panel island loads, so without JavaScript no dead
+            control shows. A bookmarked ayah gets its mark here (AC31). */}
+        <div class="ayah-tools"><button type="button" class="ayah-act" data-act={a.aya_no} aria-label={t(lang, 'ayahActions', { a: a.aya_no })} aria-haspopup="dialog" data-pending tabindex="-1"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg></button></div>
       </li>
     ))}
   </ol>
-  {audioOn && <div class="player" data-player>
-    {/* RQ-006: the player keeps its space before it loads (AC49), and without JavaScript only a
-        short note shows (AC48). */}
-    <noscript><p class="msg" data-audio-noscript>{t(lang, 'audioNoScript')}</p></noscript>
-    <AudioPlayer lang={lang} s={surah.n} count={surah.items.length} names={{ ar: surah.ar, en: surah.en }} dev={dev} client:idle />
-  </div>}
+  <AyahPanels lang={lang} s={surah.n} count={surah.items.length} names={{ ar: surah.ar, en: surah.en }} prevCount={prevCount} last={last} juz={juz} juzOk={juzByStartsOk} tafseer={tafseerOn} audio={audioOn} dev={dev} client:idle />
   <nav class="surah-nav surah-nav-end" aria-label={t(lang, 'navLabel')}>
     {prev && <a rel="prev" href={prev}>{t(lang, 'prevSurah')}</a>}
     {next && <a rel="next" class="next-btn" href={next}>{t(lang, 'nextSurah')}</a>}

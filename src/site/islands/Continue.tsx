@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { getStorage, load, refExists, type Ref } from '../../core/store.ts';
 import { ayahPath, t, type Lang } from '../../core/strings.ts';
+import { onDeviceChange } from '../client/device-events.ts';
 
 type Props = { lang: Lang; counts: number[]; names: [string, string][] };
 
@@ -13,8 +14,7 @@ export default function Continue({ lang, counts, names }: Props) {
     const st = getStorage(window);
     const read = () => setLast(load(st).saves.l);
     read();
-    window.addEventListener('storage', read);
-    return () => window.removeEventListener('storage', read);
+    return onDeviceChange(read);
   }, []);
   if (!last) return null;
   if (!refExists(counts, last)) return <p className="msg alert" data-bad-last>{t(lang, 'badRef', { s: last[0], a: last[1] })}</p>;

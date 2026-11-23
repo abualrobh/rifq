@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { getStorage, load, refExists, type Saves } from '../../core/store.ts';
 import { juzOfAyah } from '../../core/recent.ts';
 import { ayahPath, savedPath, t, type Lang } from '../../core/strings.ts';
+import { onDeviceChange } from '../client/device-events.ts';
 
 type Props = { lang: Lang; counts: number[]; names: [string, string][]; juz: { juz: number; s: number; a: number }[]; juzOk: boolean };
 
@@ -20,9 +21,9 @@ export default function HomeSaved({ lang, counts, names, juz, juzOk }: Props) {
     const st = getStorage(window);
     const read = () => { const r = load(st); setOk(r.ok); setSaves(r.saves); };
     read(); setReady(true);
-    // AC24: a change made in another RIFQ tab shows without a reload.
-    window.addEventListener('storage', read);
-    return () => window.removeEventListener('storage', read);
+    // AC24: a change made in another RIFQ tab shows without a reload; kit v38: also after the
+    // back-forward cache or when the tab is shown again (client/device-events.ts).
+    return onDeviceChange(read);
   }, []);
 
   const name = (s: number) => names[s - 1]?.[lang === 'ar' ? 0 : 1] ?? '';

@@ -92,7 +92,7 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
         <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
       </button>
       {/* AC75, SC 4.1.3: the ended or not-available state is announced once, away from the playing
-          surah's page (there the full player speaks; no second announcement, P-9). */}
+          surah's page (there the Play surah row speaks, kit v38; no second announcement, P-9). */}
       <p className="sr-only" role="status" aria-live={own ? 'off' : 'polite'} data-mini-status>{status}</p>
     </section>
   );

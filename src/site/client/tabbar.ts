@@ -37,8 +37,16 @@ if (typeof document !== 'undefined' && !w.__rifqTabs) {
   window.addEventListener('storage', update);
   // The D-062 rule saves the position while the reader reads; refresh the link just before it is
   // followed, so it never points at an older place.
-  document.addEventListener('pointerdown', (e) => { if ((e.target as Element | null)?.closest?.('a[data-tab="read"]')) update(); }, { capture: true });
+  // QA v37 FIND-BP (kit v38): also on the click itself, which some assistive technology and switch
+  // access send without a pointer or key event (capture phase: before the router reads the address),
+  // and when the link gets focus or its menu is asked for (long press, "open in new tab").
+  const onRead = (e: Event) => { if ((e.target as Element | null)?.closest?.('a[data-tab="read"]')) update(); };
+  for (const ev of ['pointerdown', 'click', 'focusin', 'contextmenu']) document.addEventListener(ev, onRead, { capture: true });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.target as Element | null)?.closest?.('a[data-tab="read"]')) update(); }, { capture: true });
+  // Kit v38: a page shown again from the browser's back-forward cache, or a tab shown again, reads the
+  // device again (another tab or page may have saved a newer position meanwhile).
+  window.addEventListener('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) update(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') update(); });
   update();
   measure();
 }
