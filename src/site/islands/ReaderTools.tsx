@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getStorage, setLast } from '../../core/store.ts';
 import { addRecent } from '../../core/recent.ts';
 import { t, type Lang } from '../../core/strings.ts';
-import { topRow } from '../client/place.ts';
+import { headerBottom, topRow } from '../client/place.ts';
 import { revealRow } from '../client/reveal.ts';
 
 // Last position (RQ-003 AC4). U-24 is open; this build uses: among the ayat that have stayed
@@ -43,7 +43,7 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
     // Keep the language switch on the same ayah.
     const sw = document.getElementById('lang-switch') as HTMLAnchorElement | null;
     const rows = [...document.querySelectorAll<HTMLElement>('li.ayah-row')];
-    const headerH = () => document.querySelector('.site-header')?.getBoundingClientRect().bottom ?? 0;
+    const headerH = () => headerBottom(); // kit v39: 0 when the header is not sticky (large text)
     const onSwitch = () => {
       const top = topRow()?.el;
       if (sw && top) sw.hash = top.id;

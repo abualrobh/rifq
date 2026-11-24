@@ -4,6 +4,7 @@
 import { juzStarts, loadSource, surahsOf } from '../../core/source-adapter.ts';
 import { gate, type Mode } from '../../core/source-gate.ts';
 import { juzOfAyah } from '../../core/recent.ts';
+import { enKeys, foldName } from '../../core/surah-match.ts';
 
 const recordPath = process.env.RIFQ_RECORD;
 if (!recordPath) throw new Error('RIFQ_RECORD is not set. Run the build through scripts/build.ts.');
@@ -27,3 +28,7 @@ export const juz = juzStarts(src.list);
 // the 30 juz starts above and work the juz out from them (src/core/recent.ts juzOfAyah). This is
 // checked here against every ayah's own `jozz` in the file; if any differs, the card shows no juz.
 export const juzByStartsOk = src.list.every((x) => !Number.isInteger(x.jozz) || juzOfAyah(juz, x.sora, x.aya_no) === x.jozz);
+// RQ-008 Go to (kit v39): the search form of each Arabic name and the English match keys, as the
+// surah index filter builds them (index 0 unused). Used for matching only, never displayed.
+export const gotoFolded: string[] = ['', ...surahs.map((s) => foldName(s.ar))];
+export const gotoEn: [string, string][] = [['', ''], ...surahs.map((s) => enKeys(s.en))];

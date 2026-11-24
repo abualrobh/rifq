@@ -5,8 +5,15 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Source } from '../src/core/source-adapter.ts';
+import { AYAH_NO_CLOSE, AYAH_NO_OPEN } from '../src/core/ayah-number.ts';
 
-export type ByteReport = { route: string; pages: number; ayat: number; equal: number; mismatches: string[]; refErrors: string[] };
+// Kit v39 (RQ-008 D-186 B, P-23, AC99, AC107): on reader routes the stored number is wrapped in one
+// element for the end-of-ayah ornament. A reader ayah is equal only when its delivered bytes are the
+// stored bytes with exactly AYAH_NO_OPEN inserted right after the last no-break space and
+// AYAH_NO_CLOSE at the end (so its text content is the stored text byte for byte); an ayah whose
+// stored text does not end with a no-break space and digits must be delivered exactly as stored, and
+// its reference is listed in `plain` (AC107). Tafseer routes keep the plain number (P-24).
+export type ByteReport = { route: string; pages: number; ayat: number; equal: number; mismatches: string[]; refErrors: string[]; ornament?: number; plain?: string[] };
 
 const OPEN = Buffer.from(' data-r="');
 const CLOSE = Buffer.from('</p>');
@@ -45,9 +52,25 @@ export function compareSurahPage(src: Pick<Source, 'list' | 'slices'>, s: number
     rep.ayat++;
     const ref = `${src.list[n].sora}:${src.list[n].aya_no}`;
     if (g.ref !== ref) { rep.refErrors.push(`${rep.route}${s}: position ${i + 1} is ${g.ref}, source has ${ref}`); continue; }
-    if (sameBytes(g.bytes, src.slices[n])) rep.equal++;
+    const exp = rep.ornament === undefined ? src.slices[n] : ornamented(src.slices[n]);
+    if (rep.ornament !== undefined) { if (exp === src.slices[n]) rep.plain!.push(ref); else rep.ornament++; }
+    if (sameBytes(g.bytes, exp)) rep.equal++;
     else rep.mismatches.push(`${ref} delivered ${h8(g.bytes)} source ${h8(src.slices[n])}`);
   }
+}
+
+// The stored bytes with the ornament element around the trailing digits, or the same buffer when the
+// text does not end with U+00A0 (bytes C2 A0) and 1 to 4 decimal digits (ASCII or Arabic-Indic or
+// Extended Arabic-Indic, as UTF-8). Byte level only, the same split as splitAyahNumber.
+const NBSP = Buffer.from([0xc2, 0xa0]);
+const OPEN_B = Buffer.from(AYAH_NO_OPEN), CLOSE_B = Buffer.from(AYAH_NO_CLOSE);
+export function ornamented(b: Uint8Array): Uint8Array {
+  const buf = Buffer.from(b);
+  const i = buf.lastIndexOf(NBSP);
+  if (i < 0) return b;
+  const tail = buf.subarray(i + 2).toString('utf8');
+  if (!/^\p{Nd}{1,4}$/u.test(tail)) return b;
+  return Buffer.concat([buf.subarray(0, i + 2), OPEN_B, buf.subarray(i + 2), CLOSE_B]);
 }
 
 // Reader routes, and the RQ-005 Tafseer routes (AC5) when the build has Tafseer on.
@@ -57,7 +80,7 @@ export const TAFSEER_ROUTES = ['tafseer/', 'en/tafseer/'];
 export function checkBuilt(src: Pick<Source, 'list' | 'slices'>, siteDir: string, routes: string[] = READER_ROUTES): ByteReport[] {
   const nSurah = src.list[src.list.length - 1].sora;
   return routes.map((route) => {
-    const rep: ByteReport = { route: '/' + route, pages: 0, ayat: 0, equal: 0, mismatches: [], refErrors: [] };
+    const rep: ByteReport = { route: '/' + route, pages: 0, ayat: 0, equal: 0, mismatches: [], refErrors: [], ...(READER_ROUTES.includes(route) ? { ornament: 0, plain: [] } : {}) };
     for (let s = 1; s <= nSurah; s++) {
       const f = join(siteDir, route, String(s), 'index.html');
       if (!existsSync(f)) { rep.refErrors.push(`missing page ${route}${s}`); continue; }
@@ -71,7 +94,7 @@ export async function checkHttp(src: Pick<Source, 'list' | 'slices'>, base: stri
   const nSurah = src.list[src.list.length - 1].sora;
   const out: ByteReport[] = [];
   for (const route of routes) {
-    const rep: ByteReport = { route: '/' + route, pages: 0, ayat: 0, equal: 0, mismatches: [], refErrors: [] };
+    const rep: ByteReport = { route: '/' + route, pages: 0, ayat: 0, equal: 0, mismatches: [], refErrors: [], ...(READER_ROUTES.includes(route) ? { ornament: 0, plain: [] } : {}) };
     for (let s = 1; s <= nSurah; s++) {
       const r = await fetch(`${base}/${route}${s}/`, { headers: { 'accept-encoding': 'gzip', ...headers } });
       if (!r.ok) { rep.refErrors.push(`HTTP ${r.status} for ${route}${s}`); continue; }
@@ -105,7 +128,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const routes = process.argv.includes('--tafseer') ? [...READER_ROUTES, ...TAFSEER_ROUTES] : READER_ROUTES;
   if (a('site')) reps.push(...checkBuilt(src, a('site')!, routes));
   if (a('http')) reps.push(...(await checkHttp(src, a('http')!, routes)));
-  const summary = reps.map((r) => ({ route: r.route, via: a('http') ? 'http' : 'file', pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches.length, refErrors: r.refErrors.length, firstProblems: [...r.mismatches, ...r.refErrors].slice(0, 5) }));
+  const summary = reps.map((r) => ({ route: r.route, via: a('http') ? 'http' : 'file', pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches.length, refErrors: r.refErrors.length, ornament: r.ornament, plain: r.plain, firstProblems: [...r.mismatches, ...r.refErrors].slice(0, 5) }));
   console.log(JSON.stringify(summary));
   process.exit(reps.every((r) => r.equal === src.list.length && !r.mismatches.length && !r.refErrors.length) ? 0 : 1);
 }

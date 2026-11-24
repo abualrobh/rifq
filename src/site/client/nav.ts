@@ -193,6 +193,15 @@ if (typeof document !== 'undefined' && !w.__rifqNav) {
   document.addEventListener('astro:before-swap', onBeforeSwap);
   document.addEventListener('astro:after-swap', onAfterSwap);
   window.addEventListener('scroll', onScrollPlace, { passive: true });
+  // RQ-008 AC50, P-18 (kit v39): the reader's Back goes to the previous RIFQ page in this tab (the
+  // router numbers the entries of this tab from 0), and to Home (the link's own address) when there
+  // is none. Ordinary link behaviour stays for a new tab or window.
+  document.addEventListener('click', (e) => {
+    const a = (e.target as Element | null)?.closest?.('a[data-reader-back]');
+    if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const i = (history.state as { index?: number } | null)?.index ?? 0;
+    if (i > 0) { e.preventDefault(); history.back(); }
+  }, { capture: true });
 }
 
 // For islands that move to another page by script (the Tafseer page across a surah edge): in place

@@ -235,6 +235,26 @@ const ar = {
   // strings for the B-09 Arabic review and Hamzeh's review.
   prevAyahTo: 'الآية السابقة: الآية {a}',
   nextAyahTo: 'الآية التالية: الآية {a}',
+  // RQ-008 v1.0 stage 3 (kit v39): reader header (AC50) and the Go to view (AC59 to AC69). Strings
+  // as drafted in RQ-008's table (rows 11, 12, 30, 31, 33, 35 to 45), character for character. New
+  // strings; they need the B-09 Arabic review and Hamzeh's review.
+  surahMeta: 'السورة {s} · {n} · الجزء {j}',
+  goTo: 'اذهب إلى',
+  back: 'رجوع',
+  gotoLabel: 'اذهب إلى سورة أو آية أو جزء',
+  gotoPlaceholder: 'مثال: {ref} أو {name} {a} أو جزء {j}',
+  gotoSearchLabel: 'اذهب إلى أو ابحث',
+  kindAyah: 'آية',
+  kindSurah: 'سورة',
+  kindJuz: 'جزء',
+  gotoAyahResult: 'سورة {name}، الآية {a}',
+  gotoSurahSub: 'السورة {s} · {n}',
+  gotoJuzSub: 'يبدأ من {s}:{a}',
+  searchTextTitle: 'ابحث في نص القرآن',
+  searchTextHint: 'اكتب كلمة عربية للبحث في الآيات',
+  youCanType: 'يمكنك أن تكتب',
+  notSaved: 'لا يُحفظ ما تكتبه هنا',
+  juzMissing: 'لا يوجد جزء بهذا الرقم. الأجزاء من 1 إلى 30.',
   // Privacy page "Listening" item (D-112, RQ-006 AC40): the wording proposed in RQ-006 v1.1,
   // shown only when PRIVACY_LISTENING_ON is true. It stays off until Hamzeh approves it.
   pvListenL: 'الاستماع',
@@ -478,6 +498,24 @@ const en: typeof ar = {
   // Kit v39, D-208 C (see the Arabic block).
   prevAyahTo: 'Previous ayah: Ayah {a}',
   nextAyahTo: 'Next ayah: Ayah {a}',
+  // RQ-008 stage 3 (see the Arabic block).
+  surahMeta: 'Surah {s} · {n} · Juz {j}',
+  goTo: 'Go to',
+  back: 'Back',
+  gotoLabel: 'Go to a surah, ayah or juz',
+  gotoPlaceholder: 'e.g. {ref}, {name} {a} or juz {j}',
+  gotoSearchLabel: 'Go to or search',
+  kindAyah: 'Ayah',
+  kindSurah: 'Surah',
+  kindJuz: 'Juz',
+  gotoAyahResult: '{name}, ayah {a}',
+  gotoSurahSub: 'Surah {s} · {n}',
+  gotoJuzSub: 'Starts at {s}:{a}',
+  searchTextTitle: 'Search the Quran text',
+  searchTextHint: 'Type an Arabic word to search the ayat',
+  youCanType: 'You can type',
+  notSaved: 'Nothing you type here is saved',
+  juzMissing: 'There is no juz with this number. Juz run from 1 to 30.',
   pvListenL: 'Listening',
   pvListen: "when you play a recitation, our server asks Quran Foundation for the audio file's address and the ayah timings. Your address and device details are not passed to them in that request. Your browser then plays the file directly from the audio server that Quran Foundation's service points to (download.quranicaudio.com), which receives your network address and basic browser details and can see which recitation you play. We don't keep a record of what you listen to. We keep the file address and ayah timings for no more than 7 days.",
   // Privacy page, D-099 approved text (see the Arabic block above).

@@ -158,7 +158,9 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   // 5. Byte comparison of every ayah in both routes, and the client JavaScript scan.
   const reports = checkBuilt(src, join(outDir, 'site'), tf.on ? [...READER_ROUTES, ...TAFSEER_ROUTES] : READER_ROUTES);
   const js = scanClientJs(src, join(outDir, 'site'));
-  for (const r of reports) log({ step: 'bytes', route: r.route, pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches.length, refErrors: r.refErrors.length });
+  // Kit v39 (P-23, AC107): reader routes also say how many ayat got the ornament and list (by
+  // reference only) those that did not.
+  for (const r of reports) log({ step: 'bytes', route: r.route, pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches.length, refErrors: r.refErrors.length, ...(r.ornament !== undefined ? { ornament: r.ornament, noOrnament: r.plain } : {}) });
   log({ step: 'client-js', files: js.files, ayatFound: js.hits });
   // Development pages: the font check shows a fixed set of ayat, which must be the source bytes.
   let devBad = false;

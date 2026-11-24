@@ -20,6 +20,9 @@ const seekTo = (page: Page, ms: number) => page.evaluate((x) => { (document.quer
 const marked = (page: Page) => page.$$eval('li.ayah-row.ap-current', (ls) => ls.map((l) => Number((l as HTMLElement).dataset.a)));
 const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('rifq.saves') ?? 'null'));
 const mini = (page: Page) => page.locator('[data-mini-player]');
+// Kit v39 (RQ-008 AC50): reader pages have no brand link (the tab bar has Home), so Home is reached
+// through the visible tab bar's Home item on every page.
+const toHome = (page: Page) => page.click('nav[data-tabbar]:visible a[data-tab="home"]');
 
 // Marks the document: a full load drops the mark, an in-place change keeps it, and so does the
 // audio element (same live node).
@@ -87,7 +90,7 @@ test('CN-01 (AC62, AC63, AC65, AC28, AC33, AC71, D-130): playing surah 2 continu
   // D-181 C), browser back and forward.
   const tab = (id: string) => () => page.click(`nav[data-tabbar]:visible a[data-tab="${id}"]`);
   const steps: [string, () => Promise<unknown>, RegExp | string][] = [
-    ['home (brand)', () => page.click('a.brand'), '/'],
+    ['home (brand)', () => toHome(page), '/'],
     ['index (All surahs)', () => page.click('a[data-all-surahs]'), '/surahs/'],
     ['reader 3 (index row)', () => page.click('a[data-surah-link="3"]'), '/3/'],
     ['reader 4 (next)', () => page.click('a[data-next]'), '/4/'],
@@ -107,7 +110,7 @@ test('CN-01 (AC62, AC63, AC65, AC28, AC33, AC71, D-130): playing surah 2 continu
     ['back to reading en', () => page.click('a[data-back]'), /\/en\/3\/#a2$/],
     ['settings en (tab bar)', tab('settings'), '/en/settings/'],
     ['settings ar (language)', () => page.click('[data-set-lang-link="ar"]'), '/settings/'],
-    ['home ar (brand)', () => page.click('a.brand'), '/'],
+    ['home ar (brand)', () => toHome(page), '/'],
     ['browser back ar', () => page.goBack(), '/settings/'],
     ['saved ar (tab bar)', tab('saved'), '/saved/'],
     ['index ar (Read tab, no other position yet)', tab('read'), /\/(surahs\/|\d+\/#a\d+)$/],
@@ -158,7 +161,7 @@ test('CN-02 (AC64, AC68, AC69, AC44): "go to the playing ayah", focus and title 
   await playSurah(page, 2, 'en');
   await seekTo(page, 39 * STEP + 500);
   await expect.poll(() => marked(page)).toEqual([40]);
-  await hop(page, () => page.click('a.brand'), '/en/');
+  await hop(page, () => toHome(page), '/en/');
   // AC68: title changed, focus at the start of the main content, announced once.
   expect(await page.title()).toBe(t('en', 'siteName'));
   expect(await page.evaluate(() => document.activeElement?.id)).toBe('content');
@@ -234,6 +237,9 @@ test('CN-03 (AC65, AC50 with D-127 A, AC10, AC19): another surah\'s page leaves 
   await ayahAction(page, 2, 'bookmark');
   await page.click('[data-display-toggle]');
   await page.click('[data-larger]');
+  // Kit v39 (RQ-008 AC50): the reader header is shorter, so the open size panel now lies over the
+  // Play surah row; it is closed (Esc) before the reciter button is used.
+  await page.keyboard.press('Escape');
   const c1 = await clock(page);
   expect(c1.paused).toBe(false);
   expect(Math.abs((c1.ct - c0.ct) - (c1.now - c0.now))).toBeLessThan(500);
@@ -258,7 +264,7 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   await serveAudio(page, len);
   await page.setViewportSize(MOBILE);
   await playSurah(page, 1);
-  await hop(page, () => page.click('a.brand'), '/');
+  await hop(page, () => toHome(page), '/');
   // Room is kept for the bar (AC67 g): the footer's privacy link is not under it. QA FIND-I (kit v26):
   // the change's own scroll to the top (on the next frame) must be over before this scroll, and the
   // page must have stopped at its bottom before anything is measured.
@@ -299,7 +305,7 @@ test('CN-04 (D-128 B, AC63, AC75, AC67): close stops and hides; the ended state 
   expect(exposed.includes(t('ar', 'miniNowPlaying')), exposed).toBe(false);
   await expect(page.locator('[data-mini-go]')).toHaveAttribute('href', `/1/#a${n(1)}`);
   await expect(page.locator('[data-mini-toggle]')).toHaveCount(0);
-  await hop2(page, () => page.click('a.brand'));
+  await hop2(page, () => toHome(page));
   await expect(mini(page)).toHaveCount(0);
   // D-128 B: close stops the sound and hides the bar; no room is kept; focus goes to the main content.
   await page.goto('/2/');
@@ -546,7 +552,7 @@ test('CN-08 (AC70, R-9): settings, search, bookmarks, index filter, Tafseer and 
   expect(l0[0]).toBe(true);
   // No flash of the other palette: checked at the swap itself, before the new page paints.
   await page.evaluate(() => { const w = window as unknown as { __flash: boolean[] }; w.__flash = []; document.addEventListener('astro:after-swap', () => w.__flash.push(document.documentElement.classList.contains('dark'))); });
-  await hop(page, () => page.click('a.brand'), '/');
+  await hop(page, () => toHome(page), '/');
   expect(await look()).toEqual(l0);
   expect(await page.evaluate(() => (window as unknown as { __flash: boolean[] }).__flash)).toEqual([true]);
   await expect(page.locator('[data-dev-banner]')).toBeVisible();
@@ -577,7 +583,7 @@ test('CN-09 (AC72 gate-off part, AC66): an answer that is not an RIFQ page is lo
   await playSurah(page, 2);
   // The server answers the next page with an error (as the gate's 401, a lock-out or a 503 would).
   for (const [status, type] of [[401, 'text/plain'], [503, 'text/plain'], [429, 'text/plain'], [500, 'text/html']] as const) {
-    await hop(page, () => page.click('a.brand'), '/');
+    await hop(page, () => toHome(page), '/');
     await page.route('**/surahs/', (r) => r.fulfill({ status, contentType: type, body: status === 500 ? '<p>error</p>' : 'refused' }), { times: 2 });
     await page.click('a[data-all-surahs]');
     await page.waitForURL('**/surahs/');
@@ -595,7 +601,7 @@ test('CN-09 (AC72 gate-off part, AC66): an answer that is not an RIFQ page is lo
   // another HTML page (even an A1 page without the not-found marker) is loaded in full.
   const index = await (await page.request.get('/surahs/')).text();
   for (const body of ['<p>missing</p>', index]) {
-    await hop(page, () => page.click('a.brand'), '/');
+    await hop(page, () => toHome(page), '/');
     await page.route('**/surahs/', (r) => r.fulfill({ status: 404, contentType: 'text/html', body }), { times: 2 });
     await page.click('a[data-all-surahs]');
     await page.waitForURL('**/surahs/');
@@ -660,7 +666,7 @@ test('CN-10 (AC73, P-13 in Chromium): 50 in-place changes during surah 2; no rel
   });
   const h0 = await heap();
   const route: [() => Promise<unknown>, RegExp | string][] = [
-    [() => page.click('a.brand'), /\/(en\/)?$/],
+    [() => toHome(page), /\/(en\/)?$/],
     [() => page.click('a[data-all-surahs]'), /surahs\/$/],
     [() => page.click('a[data-surah-link="3"]'), /\/3\/$/],
     [() => clickLink(page, '/tafseer/3/#a1'), /tafseer\/3\//],

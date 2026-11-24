@@ -1,6 +1,7 @@
 // Shows one ayah row fully on screen: below the sticky header, above the mini-player and the tab
 // bar (RQ-006 AC7, AC64, AC69; RQ-008 AC54). Used by the recitation engine (automatic scrolling), by
 // in-place navigation (a link to an ayah, "go to the playing ayah") and by the RQ-008 panels.
+import { headerBottom } from './place.ts';
 
 // The top edge of whatever is fixed at the bottom of the screen: the mini-player and, since kit v37,
 // the phone tab bar (RQ-008 AC6, AC54; hidden from 52rem, where it is skipped). Kit v38 (D-203 A):
@@ -18,7 +19,7 @@ export function bottomEdge(): number {
 
 // Returns true when it scrolled. `smooth` is ignored when the reader asks for reduced motion (AC46).
 export function revealRow(row: Element, smooth = false): boolean {
-  const top = document.querySelector('.site-header')?.getBoundingClientRect().bottom ?? 0;
+  const top = headerBottom(); // kit v39: 0 when the header is not sticky (large text)
   const bar = bottomEdge();
   const r = row.getBoundingClientRect();
   // Fully on screen already: nothing to do. An ayah taller than the space is shown from its start.

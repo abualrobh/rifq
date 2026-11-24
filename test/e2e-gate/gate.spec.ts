@@ -67,7 +67,7 @@ test('no-script form search works under the gate', async ({ browser }) => {
   const ctx = await browser.newContext({ javaScriptEnabled: false });
   const page = await ctx.newPage();
   await page.goto('/2/');
-  await openSearch(page);
+  await openSearch(page, false); // kit v39: no JavaScript, so no island to wait for
   await page.fill('#q', PHRASE);
   await page.press('#q', 'Enter');
   await page.waitForURL('**/api/search');
@@ -88,6 +88,8 @@ for (const lang of ['ar', 'en'] as const) {
     await page.fill('#q', PHRASE);
     await page.press('#q', 'Enter');
     await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'authAgain'));
+    // Kit v39: the search is on the Go to screen; reading continues back on the reader.
+    await page.goBack();
     await page.click('a[data-next]');
     await expect(page.locator('p.ayah[data-r]').first()).toBeVisible();
   });
@@ -172,8 +174,9 @@ test('AC72: in-place page changes behind the gate; a lock-out answer is loaded i
   const r = await fetch(baseURL + '/surahs/', { headers: { authorization: 'Basic ' + Buffer.from('e2e:e2e-made-up-password').toString('base64') } });
   await r.arrayBuffer();
   test.skip(r.status !== 429, `the gate did not lock this address out (status ${r.status})`);
-  await page.click('[data-index-link] >> nth=0');
-  await page.waitForURL('**/surahs/');
+  // Kit v39 (RQ-008 AC58): the reader has no index link any more; the tab bar's Home is used.
+  await page.click('nav[data-tabbar]:visible a[data-tab="home"]');
+  await page.waitForURL((u) => new URL(u).pathname === '/');
   await expect.poll(same).toBe(false);
   await expect(page.locator('body')).toContainText('Too many failed sign-in attempts');
 });

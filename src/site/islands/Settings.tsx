@@ -64,6 +64,7 @@ export default function Settings({ lang, size = false }: { lang: Lang; size?: bo
   const [s, setS] = useState<S>(DEFAULT);
   // Phone width: the controls sit behind one Display button (design review H-2). The panel opens
   // over the text, so opening it never moves the reading place. Wider screens show them inline.
+  // Kit v39 (RQ-008 AC50, D-193 A): the button is named "Text size" (textSize), as in Settings.
   const [open, setOpen] = useState(false);
   useEffect(() => { setS(read()); }, []);
   useEffect(() => {
@@ -87,7 +88,7 @@ export default function Settings({ lang, size = false }: { lang: Lang; size?: bo
   if (!size) return null;
   return (
     <div className="settings" role="group" aria-label={t(lang, 'settingsLabel')}>
-      <button type="button" className="btn display-toggle" data-display-toggle aria-expanded={open} aria-controls="display-panel" onClick={() => setOpen(!open)}>{t(lang, 'display')}</button>
+      <button type="button" className="btn display-toggle" data-display-toggle aria-expanded={open} aria-controls="display-panel" onClick={() => setOpen(!open)}>{t(lang, 'textSize')}</button>
       <div id="display-panel" className={open ? 'display-panel open' : 'display-panel'} data-display-panel>
       <button type="button" className="btn" data-smaller aria-label={t(lang, 'smaller')} disabled={i <= 0} onClick={() => change({ ...s, size: SIZES[Math.max(0, i - 1)] })}><bdi dir="ltr">A-</bdi></button>
       <span className="size-label" data-size-label>{t(lang, 'fontSize', { n: i + 1, m: SIZES.length })}</span>

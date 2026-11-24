@@ -165,13 +165,23 @@ export async function pageAyat(page: Page) {
 // Placeholder 4G profile from the prototype (U-02 open) and 4x CPU (U-32 open).
 export const NET4G = { offline: false, latency: 150, downloadThroughput: 200_000, uploadThroughput: 93_750, connectionType: 'cellular4g' as const };
 
-// Reader pages keep the search form behind one button (design review H-2, D-070). Opens it if
-// this page has one; the home page shows the form directly.
-export async function openSearch(page: Page) {
-  const d = page.locator('details[data-reader-search]');
-  if (!(await d.count())) return;
-  if (!(await d.evaluate((x) => (x as HTMLDetailsElement).open))) await page.locator('[data-search-toggle]').click();
+// Kit v39 (RQ-008 stage 3, AC50, AC59): the reader has no search form any more; its header's Go to
+// button opens the Go to screen, which has the search input (#q). On home and the Search screen the
+// input is on the page. This opens the Go to screen from a reader page (a plain link, so it also works
+// without JavaScript).
+// Kit v39: after a finished word search the island moves focus to its status line in the next
+// animation frame (RQ-002). A key pressed before that frame can land on the status line instead of
+// the input; this waits two frames so the next action starts after it.
+export async function settle(page: Page) {
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null)))));
+}
+
+export async function openSearch(page: Page, waitIsland = true) {
+  if (await page.locator('#q').count()) return;
+  await page.locator('header [data-reader-goto]').click();
   await expect(page.locator('#q')).toBeVisible();
+  // With JavaScript, wait for the Go to island (a search sent before it loads is a full POST).
+  if (waitIsland) await page.waitForFunction(() => !document.querySelector('astro-island[ssr]'), null, { timeout: 15_000 });
 }
 
 // Kit v37 (RQ-008 AC71, AC72): the night button left the header; night mode is switched on the

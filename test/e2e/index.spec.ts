@@ -5,6 +5,7 @@ import { test, expect, src, surahs, N, MOBILE, DESKTOP, hydrated, noOverflow } f
 import { t, ayatLabel } from '../../src/core/strings.ts';
 
 const idx = (lang: 'ar' | 'en') => (lang === 'ar' ? '/surahs/' : '/en/surahs/');
+const home = (lang: 'ar' | 'en') => (lang === 'ar' ? '/' : '/en/');
 const arDigits = (s: string) => s.replace(/\d/g, (d) => String.fromCodePoint(0x660 + Number(d)));
 
 async function filter(page: import('@playwright/test').Page, q: string) {
@@ -44,13 +45,17 @@ for (const lang of ['ar', 'en'] as const) {
 
   test(`IX-02 (AC8, D-089): home and every reader page link to the index with a 44 px control, ${lang}`, async ({ page }) => {
     await page.setViewportSize(MOBILE);
+    // Kit v39 (RQ-008 AC58): the reader's top link to the index is replaced by the tab bar and the
+    // home "All surahs" link; reader pages reach the index through Home (44 px tab), then the link.
     for (const path of lang === 'ar' ? ['/', '/1/', `/${N}/`] : ['/en/', '/en/1/', `/en/${N}/`]) {
       await page.goto(path);
-      const link = page.locator('a[data-index-link]');
-      await expect(link).toHaveAttribute('href', idx(lang));
+      const reader = path !== home(lang);
+      const link = reader ? page.locator('nav[data-tabbar]:visible a[data-tab="home"]') : page.locator('a[data-index-link]');
+      await expect(link).toHaveAttribute('href', reader ? home(lang) : idx(lang));
       const box = (await link.boundingBox())!;
       expect(box.height, path).toBeGreaterThanOrEqual(44);
     }
+    await page.goto(home(lang));
     await page.click('a[data-index-link]');
     await expect(page).toHaveURL(new RegExp(`${idx(lang)}$`));
   });
