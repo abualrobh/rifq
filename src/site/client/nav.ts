@@ -30,6 +30,9 @@
 //   text is larger or smaller; when the size differs, that ayah is put back at its place.
 // - RQ-008 P-6 (kit v38): "#aN;tafseer" is the reader with the Tafseer panel open on ayah N: the row
 //   is shown, and the panel (islands/AyahPanels.tsx) takes focus when it opens.
+// - Kit v40 (QA v39 FIND-CE): the reader's Go to button opens the Go to screen with focus in its box
+//   (the input is in the page's HTML, so it can take focus before its island hydrates). A phone may
+//   still not open its keyboard by itself, because the focus comes after the page is fetched.
 import { navigate } from 'astro:transitions/client';
 import { revealRow } from './reveal.ts';
 import { headerBottom, topRow } from './place.ts';
@@ -37,10 +40,11 @@ import { headerBottom, topRow } from './place.ts';
 export const NAV_TIMEOUT_MS = 10000;
 const FULL = /^\/(?:api|dev)(?:\/|$)/;
 
-type PrepEvent = Event & { to: URL; navigationType: string; formData?: FormData; signal: AbortSignal; newDocument: Document; loader: () => Promise<void> };
+type PrepEvent = Event & { to: URL; navigationType: string; formData?: FormData; sourceElement?: Element; signal: AbortSignal; newDocument: Document; loader: () => Promise<void> };
 type SwapEvent = Event & { swap: () => void };
 
 let lastType = 'push';
+let fromGoto = false;
 let lastIndex = 0;
 
 async function preloadStyles(doc: Document) {
@@ -87,6 +91,7 @@ function onPrep(ev: Event) {
   // that is not a plain page link is loaded in full.
   if (e.formData || FULL.test(e.to.pathname) || e.to.origin !== location.origin) { e.preventDefault(); return; }
   lastType = e.navigationType;
+  fromGoto = !!e.sourceElement?.closest?.('a[data-reader-goto]');
   // AC73: the entry being left keeps its reading place (for Back and Forward to it later).
   if (e.navigationType !== 'traverse') { clearTimeout(placeT); rememberPlace(); }
   e.loader = async () => {
@@ -170,6 +175,14 @@ function onAfterSwap() {
   const row = m && lastType !== 'traverse' ? document.getElementById(`a${m[1]}`) : null;
   if (row && row.matches('li.ayah-row') && m?.[2]) { revealRow(row); return; } // P-6: the panel takes focus
   if (lastType === 'traverse') restorePlace();
+  // FIND-CE: from the reader's Go to button, focus goes to the Go to box.
+  const box = fromGoto ? document.querySelector<HTMLInputElement>('main [data-goto-input]') : null;
+  fromGoto = false;
+  if (box) {
+    window.scrollTo({ left: 0, top: 0, behavior: 'instant' as ScrollBehavior });
+    box.focus({ preventScroll: true });
+    return;
+  }
   if (row && row.matches('li.ayah-row')) {
     revealRow(row);
     if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1');

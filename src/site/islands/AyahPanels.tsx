@@ -25,6 +25,12 @@
 // one history entry, so Back closes it; moving in the panel replaces that entry. Closing it returns
 // focus to the actions button of the ayah last shown, which is in view (AC46, P-7).
 //
+// Kit v40 (V39-H1): the actions button stays visually hidden (P-22) after a panel that was opened by
+// a tap or click closes, while focus still returns to it (AC34, AC46): it gets data-quiet, which the
+// P-22 rule in global.css respects, and loses it on the first key pressed on it or when focus leaves
+// it. A panel opened from the keyboard (or by assistive technology, a click with no pointer), or
+// closed with a key, returns focus to a visible button as before.
+//
 // Nothing here is sent anywhere except the Tafseer request TafseerView makes to RIFQ's own
 // /api/tafseer (AC42). Bookmarks stay on the device (RQ-003). The clipboard is written only after a
 // tap, with S:A only, and never read (AC32).
@@ -115,7 +121,22 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
   const textOf = (n: number) => document.querySelector(`ol.ayat p.ayah[data-r="${s}:${n}"]`)?.textContent ?? '';
   const rowOf = (n: number) => document.getElementById(`a${n}`);
   const reveal = (n: number) => { const r = rowOf(n); if (r) revealRow(r); };
-  const focusAct = (n: number) => rowOf(n)?.querySelector<HTMLElement>('button.ayah-act')?.focus({ preventScroll: true });
+  // How the open panel was opened ('pointer', 'key', or unknown for a P-6 link) and the last input.
+  const openedBy = useRef<'pointer' | 'key' | ''>('');
+  const lastInput = useRef<'pointer' | 'key' | ''>('');
+  const focusAct = (n: number) => {
+    const b = rowOf(n)?.querySelector<HTMLElement>('button.ayah-act');
+    if (!b) return;
+    const quiet = lastInput.current === 'pointer' && openedBy.current !== 'key';
+    openedBy.current = '';
+    if (quiet) {
+      b.setAttribute('data-quiet', '');
+      const clear = () => { b.removeAttribute('data-quiet'); b.removeEventListener('keydown', clear); b.removeEventListener('blur', clear); };
+      b.addEventListener('keydown', clear);
+      b.addEventListener('blur', clear);
+    } else b.removeAttribute('data-quiet');
+    b.focus({ preventScroll: true });
+  };
   const say = (m: Msg) => {
     const k = ++seq.current;
     setMsg(null);
@@ -152,8 +173,9 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
   }
 
   // ----- the actions panel -----
-  function openAct(a: number) {
+  function openAct(a: number, by: 'pointer' | 'key') {
     if (a < 1 || a > count) return;
+    openedBy.current = by;
     actA.current = a;
     setMsg(null);
     setAct(a);
@@ -276,7 +298,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     const onClick = (e: MouseEvent) => {
       const el = e.target as Element;
       const btn = el.closest<HTMLButtonElement>('button.ayah-act');
-      if (btn) { openAct(Number(btn.dataset.act)); return; }
+      if (btn) { openAct(Number(btn.dataset.act), e.detail > 0 ? 'pointer' : 'key'); return; }
       const row = el.closest<HTMLElement>('li.ayah-row');
       if (!row || el.closest('a, button, input, summary, [data-bm-mark]')) return;
       // AC26: a long press, a drag or a text selection does not open the panel.
@@ -290,16 +312,21 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
       clearTimeout(pend);
       if (e.detail > 1) { pend = 0; return; }
       const a = Number(row.dataset.a);
-      if (e.detail === 0) { openAct(a); return; }
+      if (e.detail === 0) { openAct(a, 'key'); return; }
       pend = window.setTimeout(() => {
         pend = 0;
         const sel2 = getSelection();
         if (sel2 && !sel2.isCollapsed && sel2.toString().trim()) return;
-        openAct(a);
+        openAct(a, 'pointer');
       }, DOUBLE_CLICK_MS);
     };
     list?.addEventListener('pointerdown', onDown, { passive: true });
     list?.addEventListener('click', onClick);
+    // V39-H1: the last kind of input on the page (capture, so dialogs and the dimmed area count).
+    const onAnyPointer = () => { lastInput.current = 'pointer'; };
+    const onAnyKey = () => { lastInput.current = 'key'; };
+    document.addEventListener('pointerdown', onAnyPointer, { capture: true, passive: true });
+    document.addEventListener('keydown', onAnyKey, { capture: true });
     const onStorage = () => syncMarks();
     window.addEventListener('storage', onStorage);
     const onPop = () => {
@@ -316,6 +343,8 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     return () => {
       list?.removeEventListener('pointerdown', onDown);
       list?.removeEventListener('click', onClick);
+      document.removeEventListener('pointerdown', onAnyPointer, { capture: true });
+      document.removeEventListener('keydown', onAnyKey, { capture: true });
       clearTimeout(pend);
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('popstate', onPop);

@@ -603,7 +603,12 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, v
    showing it moves nothing and it never covers the ornament. Touch and mouse readers tap the ayah or
    the ornament; screen reader users reach the button in reading order. */
 .ayah-act:not([data-pending]) { opacity: 0; }
-.ayah-act:not([data-pending]):focus-visible, .ayah-act:not([data-pending]):hover { opacity: 1; }
+/* Kit v40 (V39-H1): when a panel opened by a tap or click closes, focus returns to the button
+   (AC34) with data-quiet set, so it stays hidden although Safari counts that focus as visible; the
+   first key pressed on it, or leaving it, clears data-quiet. Keyboard use shows it as before. Hover
+   shows it only where the device has a real hover (a phone's tap leaves a sticky :hover). */
+.ayah-act:not([data-pending]):not([data-quiet]):focus-visible { opacity: 1; }
+@media (hover: hover) { .ayah-act:not([data-pending]):hover { opacity: 1; } }
 @media (forced-colors: active) { .ayah-act:not([data-pending]) { opacity: 1; } }
 
 /* AC59 to AC69: the Go to view (the Search screen and the home box). */
@@ -622,15 +627,31 @@ body:has(.mini) { padding-bottom: calc(var(--mini-h, 4.5rem) + var(--tabbar-h, v
 .goto-text { flex: 1 1 8rem; min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
 .goto-title { font-weight: 700; }
 .goto-sub { font-size: .85rem; color: var(--muted); }
-.goto-res svg, .goto-word svg { flex: none; display: block; color: var(--link); }
+.goto-res svg { flex: none; display: block; color: var(--link); }
 [dir="rtl"] .goto-dir { transform: scaleX(-1); }
-.goto-word { display: flex; align-items: center; gap: .6rem; width: 100%; min-height: 3rem; box-sizing: border-box; padding: .6rem .8rem; border: 1px solid var(--control-border); border-radius: .875rem; background: var(--surface); color: var(--fg); font: inherit; text-align: start; cursor: pointer; }
-.goto-word:hover { background: var(--selected); }
+/* Kit v40 (D-216 A): the word-search row is gone; the hint right under the box says how Enter works. */
+.goto-how { margin-block: .4rem 0; }
 .goto-chips { list-style: none; padding: 0; margin: .25rem 0; display: flex; flex-wrap: wrap; gap: .5rem; }
 .goto-chip { min-height: 2.75rem; box-sizing: border-box; padding: .25rem 1rem; border: 1px solid var(--control-border); border-radius: 1.5rem; background: var(--surface); color: var(--fg); font: inherit; cursor: pointer; }
 .goto-chip:hover { background: var(--selected); }
 .goto-note { margin-block: 1rem; }
 .word-search > .msg:empty { margin: 0; }
-@media (forced-colors: active) { .goto-res, .goto-word, .goto-chip { border: 1px solid ButtonText; } }
+@media (forced-colors: active) { .goto-res, .goto-chip { border: 1px solid ButtonText; } }
+
+/* RQ-008 stage 4 (kit v40, AC79 to AC85): the first-visit tips, a small modal dialog in the middle of
+   the screen (the page behind is inert). D-102 tokens only; buttons are at least 44 px with 8 px
+   between them; at large text it scrolls inside itself and never makes the page scroll sideways. */
+.tips-dlg { box-sizing: border-box; width: min(24rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); margin: auto; padding: 1.25rem; border: 1px solid var(--line); border-radius: 1.125rem; background: var(--surface); color: var(--fg); box-shadow: 0 8px 32px rgb(0 0 0 / .2); overflow-y: auto; overscroll-behavior: contain; overflow-wrap: anywhere; }
+.tips-dlg::backdrop { background: rgb(0 0 0 / .4); }
+.tips-h { margin: 0; font-size: 1.15rem; line-height: 1.4; }
+.tips-h:focus { outline: none; }
+.tips-h:focus-visible { outline: 3px solid var(--focus); }
+.tips-count { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); }
+.tips-title { display: block; font-weight: 700; }
+.tips-body { margin: .75rem 0 1rem; line-height: 1.6; }
+.tips-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 700; }
+.btn.primary:hover:not(:disabled) { background: var(--primary); text-decoration: underline; }
+@media (forced-colors: active) { .tips-dlg { border: 2px solid CanvasText; } .btn.primary { border: 1px solid ButtonText; } }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
