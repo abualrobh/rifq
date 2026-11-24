@@ -1,6 +1,6 @@
 // RQ-008 Go to view (kit v39, stage 3): AC10 (the home box) and AC59 to AC69, D-190 C, D-092.
 // One labelled input, the "Go directly" list, example chips and the note notSaved (AC59).
-// Kit v40 (D-216 A, D-213 A, QA v39 FIND-CD): the «ابحث في نص القرآن» heading and the word-search row
+// Kit v40 (D-216 A, D-213 A, QA v39 FIND-CD): the "Search the Quran text" heading and the word-search row
 // are gone; everything is typed in the one box. Direct results show as the reader types; Enter (the
 // phone keyboard's Search key, enterkeyhint="search") opens the first direct result when there is
 // one, and otherwise runs the word search. The hint under the box (gotoHowTo) says so. The same view is on the Search screen (Search tab and the reader's Go to
