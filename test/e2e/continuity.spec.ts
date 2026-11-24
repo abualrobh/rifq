@@ -559,11 +559,12 @@ test('CN-08 (AC70, R-9): settings, search, bookmarks, index filter, Tafseer and 
   await expect(page.locator('[data-dev-banner]')).toBeVisible();
   await expect(page.locator('[data-source-details]')).toHaveCount(1);
   // Search (RQ-002) works on the swapped page, by its island (no full load to the Worker page).
+  // Kit v40 (D-213 A): Enter on 2:255 opens its first direct result in place; then Back to home.
   await page.fill('#q', '2:255');
-  await page.press('#q', 'Enter');
-  await expect(page.locator('[data-search-status]').first()).not.toBeEmpty();
-  await expect(page.locator('[data-results] li, [data-search] a[href*="#a255"]').first()).toBeVisible();
+  await expect(page.locator('[data-search] a[href*="#a255"]').first()).toBeVisible();
+  await hop(page, () => page.press('#q', 'Enter'), /\/2\/#a255$/);
   expect(await sameDoc(page)).toBe(true);
+  await hop(page, () => page.goBack(), '/');
   // Index filter (RQ-004).
   await hop(page, () => page.click('a[data-all-surahs]'), '/surahs/');
   await page.fill('[data-index-filter] input', '114');

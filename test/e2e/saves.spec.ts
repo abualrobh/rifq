@@ -5,7 +5,7 @@
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { test, expect, surahs, N, MOBILE, DESKTOP, BUILD, hydrated, noOverflow, logRemoval, ayahAction, bookmarked } from './helpers.ts';
+import { test, expect, surahs, N, MOBILE, DESKTOP, BUILD, hydrated, noOverflow, logRemoval, ayahAction, bookmarked, TIPS_SEEN_SCRIPT } from './helpers.ts';
 import { t, ACCOUNT_WORDS } from '../../src/core/strings.ts';
 
 const KEY = 'rifq.saves';
@@ -31,6 +31,7 @@ test('TP3-01: a bookmark stays after reload and after a browser restart', async 
   const dir = join(BUILD, 'profiles', `tp3-01-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   let ctx = await chromium.launchPersistentContext(dir, { baseURL: 'http://127.0.0.1:8812', args: ['--no-proxy-server'] });
+  await ctx.addInitScript(TIPS_SEEN_SCRIPT); // kit v40: a device that has seen the first-visit tips
   let page = ctx.pages()[0] ?? (await ctx.newPage());
   await page.goto('/2/');
   await hydrated(page);
@@ -212,7 +213,9 @@ test('TP3-19: device storage holds references only: no text, no names, no dates'
   const all = await page.evaluate(() => ({ ...localStorage }));
   const keys = Object.keys(all).sort();
   // Kit v37 (RQ-008 AC20, D-182 A): recently read is the one new device-only item: surah numbers only.
-  expect(keys.every((k) => k === 'rifq.saves' || k === 'rifq.settings' || k === 'rifq.recent')).toBe(true);
+  // Kit v40 (RQ-008 AC80): "tips seen", one yes/no value.
+  expect(keys.every((k) => k === 'rifq.saves' || k === 'rifq.settings' || k === 'rifq.recent' || k === 'rifq.tips')).toBe(true);
+  if (all['rifq.tips']) expect(all['rifq.tips']).toBe('1');
   if (all['rifq.recent']) expect(JSON.parse(all['rifq.recent'])).toEqual({ v: 1, s: [2] });
   const v = JSON.parse(all['rifq.saves']);
   expect(Object.keys(v).sort()).toEqual(['b', 'l', 'v']);
