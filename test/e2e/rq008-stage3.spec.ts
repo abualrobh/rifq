@@ -223,9 +223,10 @@ for (const lang of LANGS) {
     await page.setViewportSize(MOBILE);
     await page.goto(P(lang, 'search/'));
     await hydrated(page);
-    // AC59: one labelled input, Search the Quran text row, chips, notSaved.
+    // AC59 as changed by D-216 A: one labelled input, no word-search row, the how-to hint, chips, notSaved.
     await expect(page.locator('[data-goto-input]')).toHaveAccessibleName(t(lang, 'gotoSearchLabel'));
-    await expect(page.locator('[data-goto-word]')).toHaveText(t(lang, 'searchTextHint'));
+    await expect(page.locator('[data-goto-word]')).toHaveCount(0);
+    await expect(page.locator('[data-goto-how]')).toHaveText(t(lang, 'gotoHowTo'));
     await expect(page.locator('[data-goto-note]')).toHaveText(t(lang, 'notSaved'));
     expect(await page.locator('[data-goto-chip]').count()).toBe(5);
     const from = seen.length;
@@ -323,13 +324,13 @@ for (const lang of LANGS) {
     await expect(box.locator('[data-goto-result]').first()).toHaveAttribute('data-goto-ref', '2:255');
     await box.locator('[data-goto-chip]').nth(3).click();
     await expect(box.locator('[data-goto-result="juz"]')).toHaveAttribute('data-goto-ref', '30');
-    // Word search only when asked (the row), as RQ-002: POST, body only.
+    // Word search only when asked (Enter with no direct result, D-213 A), as RQ-002: POST, body only.
     const word = src.list[0].aya_text.split(' ')[1];
     const from = seen.length;
     await box.locator('[data-goto-input]').fill(word);
     await page.waitForTimeout(300);
     expect(seen.slice(from).filter((s) => new URL(s.url).pathname === '/api/search').length).toBe(0);
-    await box.locator('[data-goto-word]').click();
+    await box.locator('[data-goto-input]').press('Enter');
     await expect(page.locator('[data-search-status]')).not.toHaveText('');
     await settle(page);
     const posts = seen.slice(from).filter((s) => new URL(s.url).pathname === '/api/search');
@@ -337,7 +338,7 @@ for (const lang of LANGS) {
     expect(posts[0].method).toBe('POST');
     expect(posts[0].url).not.toContain(encodeURIComponent(word));
     expect(JSON.parse(posts[0].body!).q).toBe(word);
-    // Enter also runs it (P-13 is not built).
+    // Enter again runs it again.
     await box.locator('[data-goto-input]').press('Enter');
     await expect.poll(() => seen.slice(from).filter((s) => new URL(s.url).pathname === '/api/search').length).toBe(2);
     // AC67: nothing typed in storage, the address, history state or cookies; empty on return.

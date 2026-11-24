@@ -27,13 +27,29 @@ const NOMATCH = String.fromCodePoint(0x638, 0x638, 0x638, 0x638, 0x638, 0x638);
 const MARKER = String.fromCodePoint(0x636, 0x638, 0x63a, 0x636, 0x638, 0x63a);
 
 // Waits for this search's own answer: the island's finished-search counter must move on.
+// Kit v40 (D-213 A): through enterBox (below), so a query the Go to box answers itself (a direct
+// result or a message of its own) sends no word search.
 async function searchUi(page: Page, q: string) {
+  await enterBox(page, q);
+}
+// Kit v40 (D-213 A): Enter in the Go to box opens the first direct result when there is one, and the
+// box's own message (refMissing, latinOnly, ...) is its one answer, with no word search. This types q,
+// waits for the box's own answer, presses Enter and returns what the page then says: the box's
+// message, or else the word search's answer (waited for when one is sent).
+async function enterBox(page: Page, q: string): Promise<{ goto: string; search: string; direct: number }> {
+  const gs = page.locator('[data-goto-status]');
   const st = page.locator('[data-search-status]');
-  const before = Number(await st.getAttribute('data-seq'));
+  const g0 = await gs.getAttribute('data-seq');
+  const s0 = Number(await st.getAttribute('data-seq'));
   await page.fill('#q', q);
+  await expect(gs).not.toHaveAttribute('data-seq', String(g0));
+  const direct = await page.locator('[data-goto-result]').count();
+  const goto = (await gs.textContent()) ?? '';
+  if (direct || goto) return { goto, search: (await st.textContent()) ?? '', direct };
   await page.press('#q', 'Enter');
-  await expect(st).not.toHaveAttribute('data-seq', String(before));
+  await expect(st).not.toHaveAttribute('data-seq', String(s0));
   await settle(page);
+  return { goto, search: (await st.textContent()) ?? '', direct };
 }
 const uiRefs = (page: Page) => page.$$eval('[data-results] li[data-res]', (ls) => ls.map((l) => l.getAttribute('data-res')!));
 
@@ -300,7 +316,8 @@ test('TP2-28: every surah name in Arabic is offered (API), and offers open the e
   for (const lang of ['ar', 'en'] as const) for (const q of [`2:${last}`, ar(`2:${last}`)]) {
     await page.goto(lang === 'ar' ? '/' : '/en/');
     await hydrated(page);
-    await searchUi(page, q);
+    const r = await enterBox(page, q);
+    expect(r.direct).toBe(2);
     expect(await page.locator('.msg.alert').count()).toBe(0);
     await page.click(`[data-goto-result="ayah"][data-goto-ref="2:${last}"]`);
     await expect(page).toHaveURL(new RegExp(`/2/#a${last}$`));
@@ -308,9 +325,15 @@ test('TP2-28: every surah name in Arabic is offered (API), and offers open the e
   }
   await page.goto('/');
   await hydrated(page);
-  await searchUi(page, surahs[1].ar);
+  await enterBox(page, surahs[1].ar);
   await page.click('[data-goto-result="surah"][data-goto-ref="2"]');
   await expect(page).toHaveURL(/\/2\/$/);
+  // D-213 A: Enter opens the first direct result (here the ayah) in place.
+  await page.goto('/');
+  await hydrated(page);
+  await enterBox(page, `2:${last}`);
+  await page.press('#q', 'Enter');
+  await expect(page).toHaveURL(new RegExp(`/2/#a${last}$`));
 });
 
 for (const lang of ['ar', 'en'] as const) {
@@ -319,8 +342,12 @@ for (const lang of ['ar', 'en'] as const) {
     await page.goto(lang === 'ar' ? '/' : '/en/');
     await hydrated(page);
     for (const q of [`${N + 1}`, ar(`${N + 1}:1`), `2:${surahs[1].items.length + 1}`, '0']) {
-      await searchUi(page, q);
-      // Kit v39: the Go to view says it (AC60), once; no place is offered.
+      const r = await enterBox(page, q);
+      expect(r.search).toBe('');
+      // Kit v39: the Go to view says it (AC60), once; no place is offered. Kit v40: Enter adds nothing.
+      await page.press('#q', 'Enter');
+      await page.waitForTimeout(200);
+      await expect(page.locator('[data-search-status]')).toHaveText('');
       await expect(page.locator('[data-goto-status]')).toHaveText(t(lang, 'refMissing'));
       expect(await page.locator('[data-offer], [data-goto-result], [data-ref-missing]').count()).toBe(0);
     }
@@ -332,14 +359,19 @@ for (const [lang, vp] of [['ar', null], ['en', null], ['ar', MOBILE]] as const) 
     if (vp) await page.setViewportSize(vp);
     await page.goto(lang === 'ar' ? '/' : '/en/');
     await hydrated(page);
-    for (const q of ['mercy', surahs[1].en, '2:a']) {
-      await searchUi(page, q);
-      await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'latinOnly'));
+    // Kit v40: in the Arabic interface the box itself says latinOnly (and Enter adds nothing); in the
+    // English interface English names are direct results (D-190 C), and other Latin text is refused
+    // by the word search.
+    for (const q of lang === 'ar' ? ['mercy', surahs[1].en, '2:a'] : ['mercy', '2:a']) {
+      const r = await enterBox(page, q);
+      expect(r.goto || r.search).toBe(t(lang, 'latinOnly'));
+      expect(r.goto && r.search).toBeFalsy(); // said once
       expect(await page.locator('[data-results] li, [data-offer]').count()).toBe(0);
     }
     expect(seen.filter((s) => s.url.endsWith('/api/search')).length, 'refused before sending').toBe(0);
-    await searchUi(page, PHRASE.split(' ')[0] + ' 12');
-    await expect(page.locator('[data-search-status]')).not.toHaveText(t(lang, 'latinOnly'));
+    const r2 = await enterBox(page, PHRASE.split(' ')[0] + ' 12');
+    expect(r2.goto).not.toBe(t(lang, 'latinOnly'));
+    expect(r2.search).not.toBe(t(lang, 'latinOnly'));
     await noOverflow(page);
   });
 }
@@ -363,7 +395,10 @@ test('TP2-32: 100 characters accepted, 101 shows the limit, and the server also 
     await page.fill('#q', q101);
     await expect(page.locator('[data-count]')).toHaveText(t(lang, 'tooLong', { n: 101 }));
     await page.press('#q', 'Enter');
-    await expect(page.locator('[data-search-status]')).toHaveText(t(lang, 'tooLong', { n: 101 }));
+    // Kit v40: the box's own message says it (once); Enter sends nothing and adds no second message.
+    await expect(page.locator('[data-goto-status]')).toHaveText(t(lang, 'tooLong', { n: 101 }));
+    await page.waitForTimeout(200);
+    await expect(page.locator('[data-search-status]')).toHaveText('');
     expect(seen.filter((s) => s.url.endsWith('/api/search')).length).toBe(before);
   }
   expect((await request.post('/api/search', { data: { q: q101 } })).status()).toBe(400);

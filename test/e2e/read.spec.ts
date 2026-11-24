@@ -186,7 +186,7 @@ test('TP1-23: text, controls and focus meet WCAG 2.2 AA contrast in both themes'
       const b = document.querySelector<HTMLElement>('.surah-nav a, main a[href]')!;
       b.focus();
       out.focus = ratio(getComputedStyle(b).outlineColor, bg(b.parentElement));
-      const btn = document.querySelector('.btn, .goto-word')!; // kit v39: the Go to row on the Go to screen
+      const btn = document.querySelector('.btn, .goto-chip')!; // kit v40: an example chip on the Go to screen (the row is gone)
       out.border = ratio(getComputedStyle(btn).borderTopColor, bg(btn.parentElement));
       return out;
     });

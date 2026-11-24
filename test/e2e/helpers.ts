@@ -83,8 +83,24 @@ function writeCounts(title: string, file: string, o: object) {
   appendFileSync(join(BUILD, 'reports', `inplace-counts-${process.env.RIFQ_RUN_ID ?? 'run'}.jsonl`), JSON.stringify({ file: file.split('/').pop(), title, ...o }) + '\n');
 }
 
-export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[] }>({
+// Kit v40 (RQ-008 stage 4): the first-visit tips are a modal dialog on the first reader page of a
+// fresh profile, which would make the page behind inert in every test. So every context a test uses
+// (its own page's and any it makes with browser.newContext) starts as a device that has already seen
+// the tips (rifq.tips = "1", the product's own stored value), unless the test sets tipsSeen: false
+// (test/e2e/kit-v40.spec.ts). A test that blocks storage is unaffected: this runs first and fails
+// silently.
+export const TIPS_SEEN_SCRIPT = () => { try { if (localStorage.getItem('rifq.tips') === null) localStorage.setItem('rifq.tips', '1'); } catch { /* storage blocked */ } };
+
+export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[]; tipsSeen: boolean; tipsGuard: void }>({
   allowHosts: [[], { option: true }],
+  tipsSeen: [true, { option: true }],
+  tipsGuard: [async ({ context, browser, tipsSeen }, use) => {
+    if (!tipsSeen) { await use(); return; }
+    await context.addInitScript(TIPS_SEEN_SCRIPT);
+    const orig = browser.newContext;
+    browser.newContext = (async (o?: Parameters<typeof orig>[0]) => { const c = await orig.call(browser, o); await c.addInitScript(TIPS_SEEN_SCRIPT); return c; }) as typeof orig;
+    try { await use(); } finally { browser.newContext = orig; }
+  }, { auto: true }],
   seen: async ({}, use) => { await use([]); },
   guard: [async ({ page, seen, allowHosts }, use, info) => {
     const errors: string[] = [];

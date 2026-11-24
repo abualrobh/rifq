@@ -151,7 +151,8 @@ test('CN-01 (AC62, AC63, AC65, AC28, AC33, AC71, D-130): playing surah 2 continu
   // Nothing about the pages visited is stored on the device.
   const keys = await page.evaluate(() => [Object.keys(localStorage), Object.keys(sessionStorage)]);
   // Kit v37: recently read (RQ-008 AC20) is the one new device-only item (surah numbers only).
-  expect(keys[0].every((k) => k === 'rifq.settings' || k === 'rifq.saves' || k === 'rifq.recent')).toBe(true);
+  // Kit v40: "tips seen" (RQ-008 AC80, a yes/no value) is the other one.
+  expect(keys[0].every((k) => k === 'rifq.settings' || k === 'rifq.saves' || k === 'rifq.recent' || k === 'rifq.tips')).toBe(true);
   expect(keys[1]).toEqual([]);
 });
 
