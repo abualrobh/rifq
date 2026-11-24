@@ -6,8 +6,13 @@
 // - Text size: the 5 sizes of D-065, "Text size: n of 5" (AC70, AC73).
 // - Interface language (D-181 C, AC75): Arabic and English; choosing one opens this screen in that
 //   language. The reading place is kept by the last reading position (the Read tab).
-// - Reciter (audio builds only): today's list and stored choice (RQ-006 AC15, AC16), loaded only when
-//   the reader opens the list, from RIFQ's own /api/audio/reciters, as the reader page does.
+// - Reciter (audio builds only): today's list and stored choice (RQ-006 AC15, AC16), from RIFQ's own
+//   /api/audio/reciters, as the reader page does. Kit v38 (Hamzeh, v37 test): the row shows the
+//   chosen reciter's name as Quran Foundation gives it, in the Arabic and the English interface
+//   alike. So the list (a POST of {lang} only) is asked for when this screen opens; this screen is
+//   where the reciter list lives. The name line keeps its space, so it moves nothing when it fills.
+//   D-206 A (2026-11-23, QA v38 FIND-BY): this request when Settings opens is an approved change to
+//   RQ-006 AC3; the reader page itself still requests nothing before play or opening the list.
 // - Data on this device: clear last reading position (RQ-003 v1.3 behaviour, D-184 A), clear recently
 //   read (D-183 A, AC74), and a link to the Saved screen for bookmarks.
 // - A link to the privacy page.
@@ -21,6 +26,8 @@ import { privacyPath, savedPath, settingsPath, t, type Lang } from '../../core/s
 import { apply, read, SIZES, type SettingsValue } from './Settings.tsx';
 import { useRecitation } from '../client/use-recitation.ts';
 import BidiText from './BidiText.tsx';
+import { fill } from '../client/fill.ts';
+import { onDeviceChange } from '../client/device-events.ts';
 
 type Props = { lang: Lang; counts: number[]; names: [string, string][]; audio: boolean; dev: boolean };
 
@@ -53,9 +60,7 @@ export default function SettingsScreen({ lang, counts, names, audio, dev }: Prop
     setS(read());
     const x = getStorage(window);
     setSt(x); refresh(x); setReady(true);
-    const onStorage = () => { refresh(x); setS(read()); };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    return onDeviceChange(() => { refresh(x); setS(read()); });
   }, []);
   useEffect(() => {
     if (!focusTo) return;
@@ -96,8 +101,13 @@ export default function SettingsScreen({ lang, counts, names, audio, dev }: Prop
   }
 
   const { snap, engine } = useRecitation(dev);
+  // D-206 A (RQ-006 AC3 as changed): the list is asked for when Settings opens, once per language
+  // per tab, shared with the engine's own request after a language switch (FIND-BV).
+  useEffect(() => { if (audio && engine) void engine.loadReciters(lang); }, [audio, engine, lang]);
   const list = snap.lists[lang] ?? null;
-  const reciter = list?.find((r) => r.id === snap.rid) ?? null;
+  // The name in this interface language once its list is in; until then, as the reader page does,
+  // the name from the list of the other language, if that one is already in this tab.
+  const reciter = (list ?? snap.lists.ar ?? snap.lists.en)?.find((r) => r.id === snap.rid) ?? null;
   const recMsg = snap.msg && (snap.msg.key === 'audioNotRemembered' || snap.msg.key === 'audioReciterGone') ? t(lang, snap.msg.key, snap.msg.vars) : '';
 
   return (
@@ -137,10 +147,10 @@ export default function SettingsScreen({ lang, counts, names, audio, dev }: Prop
       {audio && (
         <section className="set-sec" aria-labelledby="set-reciter-h" data-set-reciter>
           <h2 id="set-reciter-h">{t(lang, 'audioReciter')}</h2>
+          <p className="set-reciter-now" data-set-reciter-now>{reciter ? fill(lang, 'reciterChip', { name: <bdi lang={nameLang(reciter.name)} data-set-reciter-name>{reciter.name}</bdi> }) : null}</p>
           <details className="ap-more" data-set-reciter-more onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) void engine?.loadReciters(lang); }}>
             <summary className="ap-summary">
               <span>{t(lang, 'audioMoreLabel')}</span>
-              {reciter && <span className="ap-summary-now"><bdi lang={nameLang(reciter.name)} data-set-reciter-name>{reciter.name}</bdi></span>}
             </summary>
             {list && (
               <fieldset className="ap-reciters" data-set-reciters>

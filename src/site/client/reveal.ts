@@ -1,12 +1,13 @@
-// Shows one ayah row fully on screen: below the sticky header, above the reader page's player and
-// the mini-player (RQ-006 AC7, AC64, AC69). Used by the recitation engine (automatic scrolling) and
-// by in-place navigation (a link to an ayah, "go to the playing ayah").
+// Shows one ayah row fully on screen: below the sticky header, above the mini-player and the tab
+// bar (RQ-006 AC7, AC64, AC69; RQ-008 AC54). Used by the recitation engine (automatic scrolling), by
+// in-place navigation (a link to an ayah, "go to the playing ayah") and by the RQ-008 panels.
 
-// The top edge of whatever is fixed or sticky at the bottom of the screen (player, mini-player,
-// and since kit v37 the phone tab bar, RQ-008 AC6, AC54; hidden from 52rem, where it is skipped).
+// The top edge of whatever is fixed at the bottom of the screen: the mini-player and, since kit v37,
+// the phone tab bar (RQ-008 AC6, AC54; hidden from 52rem, where it is skipped). Kit v38 (D-203 A):
+// the reader page has no fixed recitation panel any more.
 export function bottomEdge(): number {
   let edge = innerHeight;
-  for (const sel of ['[data-player]', '[data-mini-player]', 'nav[data-tabbar="bottom"]']) {
+  for (const sel of ['[data-mini-player]', 'nav[data-tabbar="bottom"]']) {
     const el = document.querySelector(sel);
     if (!el) continue;
     const r = el.getBoundingClientRect();

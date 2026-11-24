@@ -23,8 +23,16 @@
 // - AC68: after a change, focus goes to the start of the main content, or to the ayah row for a
 //   link to an ayah; AC69: such a row is shown fully below the header and above the players.
 // - AC67 h: page changes have no animated transition (global.css turns the view transition off).
+// - RQ-008 AC73 (kit v38, QA v37 FIND-BN): Back or Forward to a reader page keeps the reading place
+//   when the text size changed meanwhile. Each reader page's history entry remembers the ayah at the
+//   top of the reading area, its offset and the text size (in the tab's history only; nothing is
+//   stored or sent). The router restores the old pixel offset, which points at another ayah once the
+//   text is larger or smaller; when the size differs, that ayah is put back at its place.
+// - RQ-008 P-6 (kit v38): "#aN;tafseer" is the reader with the Tafseer panel open on ayah N: the row
+//   is shown, and the panel (islands/AyahPanels.tsx) takes focus when it opens.
 import { navigate } from 'astro:transitions/client';
 import { revealRow } from './reveal.ts';
+import { headerBottom, topRow } from './place.ts';
 
 export const NAV_TIMEOUT_MS = 10000;
 const FULL = /^\/(?:api|dev)(?:\/|$)/;
@@ -48,12 +56,39 @@ async function preloadStyles(doc: Document) {
   await Promise.all(waits);
 }
 
+// AC73: the reading place of the reader page on screen, kept in its own history entry.
+type Place = { a: number; off: number; size: string };
+const sizeNow = () => document.documentElement.style.getPropertyValue('--ayah-size').trim();
+export function rememberPlace() {
+  if (!document.querySelector('ol.ayat')) return;
+  const top = topRow();
+  const a = top ? Number((top.el as HTMLElement).dataset.a) : 0;
+  if (!top || !a) return;
+  const place: Place = { a, off: Math.round(top.top - headerBottom()), size: sizeNow() };
+  try { history.replaceState({ ...(history.state ?? {}), rifqPlace: place }, ''); } catch { /* the router's own scroll restore still applies */ }
+}
+function restorePlace() {
+  const p = (history.state as { rifqPlace?: Place } | null)?.rifqPlace;
+  if (!p || !Number.isInteger(p.a) || p.size === sizeNow()) return;
+  const row = document.getElementById(`a${p.a}`);
+  if (!row || !row.matches('li.ayah-row')) return;
+  const d = row.getBoundingClientRect().top - headerBottom() - p.off;
+  if (Math.abs(d) > 1) window.scrollBy({ top: d, behavior: 'instant' as ScrollBehavior });
+}
+let placeT = 0;
+function onScrollPlace() {
+  clearTimeout(placeT);
+  placeT = window.setTimeout(rememberPlace, 250);
+}
+
 function onPrep(ev: Event) {
   const e = ev as PrepEvent;
   // Forms (search without JavaScript) carry data-astro-reload and never come here; anything else
   // that is not a plain page link is loaded in full.
   if (e.formData || FULL.test(e.to.pathname) || e.to.origin !== location.origin) { e.preventDefault(); return; }
   lastType = e.navigationType;
+  // AC73: the entry being left keeps its reading place (for Back and Forward to it later).
+  if (e.navigationType !== 'traverse') { clearTimeout(placeT); rememberPlace(); }
   e.loader = async () => {
     const ctl = new AbortController();
     const abort = () => ctl.abort();
@@ -130,8 +165,11 @@ function holdUnmounts() {
 
 function onAfterSwap() {
   lastIndex = (history.state as { index?: number } | null)?.index ?? lastIndex;
-  const m = /^#a(\d{1,4})$/.exec(location.hash);
+  clearTimeout(placeT);
+  const m = /^#a(\d{1,4})(;tafseer)?$/.exec(location.hash);
   const row = m && lastType !== 'traverse' ? document.getElementById(`a${m[1]}`) : null;
+  if (row && row.matches('li.ayah-row') && m?.[2]) { revealRow(row); return; } // P-6: the panel takes focus
+  if (lastType === 'traverse') restorePlace();
   if (row && row.matches('li.ayah-row')) {
     revealRow(row);
     if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1');
@@ -154,6 +192,7 @@ if (typeof document !== 'undefined' && !w.__rifqNav) {
   document.addEventListener('astro:before-preparation', onPrep);
   document.addEventListener('astro:before-swap', onBeforeSwap);
   document.addEventListener('astro:after-swap', onAfterSwap);
+  window.addEventListener('scroll', onScrollPlace, { passive: true });
 }
 
 // For islands that move to another page by script (the Tafseer page across a surah edge): in place

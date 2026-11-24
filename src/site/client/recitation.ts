@@ -14,7 +14,8 @@
 // One surah file per reciter with per-ayah timings (D-110 B). The browser plays the file directly
 // from the approved audio host (D-112 B, AC39 media-src); RIFQ's Worker gives only the address and
 // the timings (/api/audio). Nothing is requested before the reader chooses play or opens the
-// reciter list (AC3); the audio element never preloads; nothing plays on its own.
+// reciter list (AC3); the audio element never preloads; nothing plays on its own. D-206 A changed
+// AC3 for one place: the Settings screen asks for the reciter list (language only) when it opens.
 //
 // iPhone (AC26 to AC29, D-115 B): iOS lets an element play only from inside a tap. The first tap
 // calls play() at once on the element, before the address is fetched, which unlocks it (kit v24 and
@@ -89,13 +90,15 @@ function create(el: HTMLAudioElement, dev: boolean) {
   const set = (p: Partial<Snap>) => { snap = { ...snap, ...p }; subs.forEach((f) => f()); };
   let seq = 0;
   // Messages are kept as keys, so they show in the language of the page on screen (AC74). `at` is
-  // the reader page the message belongs to: the full player shows it only there.
+  // the reader page the message belongs to: the Play surah row (kit v38) shows it only there.
   const say = (key: Key, alert = false, code = '', vars: Record<string, string | number> = {}, at = x.s) => set({ msg: { key, vars, code: dev ? code : '', alert, seq: ++seq, at } });
   const why = (code: string) => { set({ reason: code }); if (dev && code) console.warn('[RIFQ audio]', code); };
   const own = () => x.s > 0 && pageSurah() === x.s;
   const reciterName = (lang: Lang = pageLang()) => (x.lists[lang] ?? x.lists.ar ?? x.lists.en)?.find((r) => r.id === x.rid)?.name ?? '';
 
-  // ----- the page on screen: marks, per-ayah buttons, D-062 hand-over (AC6, AC43, AC50, AC65) -----
+  // ----- the page on screen: marks, D-062 hand-over (AC6, AC43, AC50, AC65) -----
+  // Kit v38: the per-ayah play buttons (button.ap) are gone (RQ-008 D-187 A); the ayah actions panel
+  // shows play or pause from this state itself. The loop below finds none and does nothing.
   function paint() {
     const mine = own();
     const on = !el.paused && x.mode !== 'idle';
@@ -523,9 +526,14 @@ function create(el: HTMLAudioElement, dev: boolean) {
     set({ page: pageSurah(), lang: pageLang() });
     paint();
     if (x.mode !== 'idle' && x.current) media(x.current, true); // AC74: title in the new language
-    // AC74: the reciter's name as QF gives it for the new interface language.
+    // AC74: the reciter's name as QF gives it for the new interface language. Kit v38: also when
+    // nothing is loaded any more but the list was already asked for in this tab (play or the list
+    // opened before), so the reader's reciter button and Settings show the name in both languages.
+    // Kit v39 (QA v38 FIND-BV, D-210): through loadReciters, which shares one request per language
+    // (recJob), so this path and the Settings screen opening in the new language (D-206 A) never ask
+    // for the same list twice; whichever comes first makes the request and the other waits for it.
     const lang = pageLang();
-    if (snap.phase === 'active' && !x.lists[lang]) void fetchReciters(lang).catch(() => undefined);
+    if ((snap.phase === 'active' || x.rid !== null) && !x.lists[lang]) void loadReciters(lang).catch(() => undefined);
   });
 
   return {

@@ -50,7 +50,7 @@ const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSi
     {dev && <p class="banner" role="note" data-dev-banner><Bidi text={t(lang, 'devBanner')} lang={lang} /></p>}
     <a class="skip" href="#content">{t(lang, 'skip')}</a>
     <header class="site-header">
-      <a class="brand" href={homePath(lang)}><svg class="brand-mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path class="brand-arch-outer" d="M6 27V14a10 10 0 0120 0v13" fill="none" stroke-width="2.2" stroke-linecap="round"/><path class="brand-arch-inner" d="M11 27V16a5 5 0 0110 0v11" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg>{t(lang, 'siteName')}</a>
+      <a class="brand" href={homePath(lang)}><svg class="brand-mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path class="brand-arch-outer" d="M6 27V14a10 10 0 0120 0v13" fill="none" stroke-width="2.2" stroke-linecap="round"/><path class="brand-arch-inner" d="M11 27V16a5 5 0 0110 0v11" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg><span class="brand-name">{t(lang, 'siteName')}</span></a>
       {inPlace && <TabBar lang={lang} tab={tab} variant="top" />}
       <Settings lang={lang} size={textSize} client:idle />
     </header>

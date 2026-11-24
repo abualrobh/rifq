@@ -211,6 +211,30 @@ const ar = {
   clearRecentDone: 'أُزيلت السور المقروءة مؤخرًا من هذا الجهاز. لم تتغير علاماتك ولا موضع قراءتك.',
   clearRecentFailed: 'تعذرت إزالة السور المقروءة مؤخرًا من هذا الجهاز لأن التخزين محظور أو ممتلئ. القراءة متاحة كالمعتاد.',
   settingsNotRemembered: 'لن يُحفظ هذا الإعداد على هذا الجهاز لأن التخزين محظور أو ممتلئ.',
+  // RQ-008 v1.0 stage 2 (kit v38): ayah actions panel, Tafseer panel and the reciter button.
+  // Strings as drafted in RQ-008's table (rows 9, 17 to 29 and 34). New strings; they need the
+  // B-09 Arabic review and Hamzeh's review.
+  bookmarkDeviceOnly: 'العلامة تُحفظ على هذا الجهاز فقط',
+  ayahActions: 'خيارات الآية {a}',
+  ayahActionsTitle: '{name} · الآية {a}',
+  ayahActionsSub: '{s}:{a} · الجزء {j}',
+  playFromHere: 'تشغيل من هنا',
+  addBookmark: 'إضافة علامة',
+  removeBookmarkShort: 'إزالة العلامة',
+  bookmarkedMark: 'عليها علامة',
+  copyRef: 'نسخ المرجع {s}:{a}',
+  copied: 'نُسخ المرجع {s}:{a}.',
+  copyFailed: 'تعذر النسخ. المرجع هو {s}:{a}.',
+  close: 'إغلاق',
+  tafseerPanelTitle: 'التفسير · {name} {a}',
+  closeTafseer: 'إغلاق التفسير',
+  reciterChip: 'القارئ: {name}',
+  // Kit v39, D-208 C (RQ-008 AC43): the Tafseer previous and next buttons show the target ayah as
+  // their visible label (the existing audioNowAyah, «الآية {a}»); these are their accessible names,
+  // which keep the direction and contain the visible label (WCAG 2.5.3). Not in RQ-008's table: new
+  // strings for the B-09 Arabic review and Hamzeh's review.
+  prevAyahTo: 'الآية السابقة: الآية {a}',
+  nextAyahTo: 'الآية التالية: الآية {a}',
   // Privacy page "Listening" item (D-112, RQ-006 AC40): the wording proposed in RQ-006 v1.1,
   // shown only when PRIVACY_LISTENING_ON is true. It stays off until Hamzeh approves it.
   pvListenL: 'الاستماع',
@@ -435,6 +459,25 @@ const en: typeof ar = {
   clearRecentDone: 'Recently read removed from this device. Your bookmarks and reading position did not change.',
   clearRecentFailed: 'Could not remove recently read from this device, because storage is blocked or full. Reading still works.',
   settingsNotRemembered: 'This setting will not be remembered on this device because storage is blocked or full.',
+  // RQ-008 stage 2 (see the Arabic block).
+  bookmarkDeviceOnly: 'Bookmarks are saved on this device only',
+  ayahActions: 'Options for ayah {a}',
+  ayahActionsTitle: '{name} · Ayah {a}',
+  ayahActionsSub: '{s}:{a} · Juz {j}',
+  playFromHere: 'Play from here',
+  addBookmark: 'Add bookmark',
+  removeBookmarkShort: 'Remove bookmark',
+  bookmarkedMark: 'Bookmarked',
+  copyRef: 'Copy reference {s}:{a}',
+  copied: 'Reference {s}:{a} copied.',
+  copyFailed: 'Could not copy. The reference is {s}:{a}.',
+  close: 'Close',
+  tafseerPanelTitle: 'Tafseer · {name} {a}',
+  closeTafseer: 'Close Tafseer',
+  reciterChip: 'Reciter: {name}',
+  // Kit v39, D-208 C (see the Arabic block).
+  prevAyahTo: 'Previous ayah: Ayah {a}',
+  nextAyahTo: 'Next ayah: Ayah {a}',
   pvListenL: 'Listening',
   pvListen: "when you play a recitation, our server asks Quran Foundation for the audio file's address and the ayah timings. Your address and device details are not passed to them in that request. Your browser then plays the file directly from the audio server that Quran Foundation's service points to (download.quranicaudio.com), which receives your network address and basic browser details and can see which recitation you play. We don't keep a record of what you listen to. We keep the file address and ayah timings for no more than 7 days.",
   // Privacy page, D-099 approved text (see the Arabic block above).

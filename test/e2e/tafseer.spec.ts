@@ -4,7 +4,7 @@
 // expected passages come from the mock's made-up text. No Tafseer is in this file.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { BUILD, expect, sliceOf, src, test, utf8, hydrated, setNight } from './helpers.ts';
+import { BUILD, expect, sliceOf, src, test, utf8, hydrated, setNight, clickLink } from './helpers.ts';
 import { CASE, CLOSE, MOCK_CLIENT_SECRET, MOCK_TAFSIR_ID, OPEN, passageText } from '../mock/qf-mock.ts';
 import { visibleText, sanitize } from '../../src/core/tafseer-html.ts';
 import { STRINGS } from '../../src/core/strings.ts';
@@ -21,7 +21,9 @@ async function ready(page: import('@playwright/test').Page) {
 test('AC1, AC2, AC5, AC6, AC8, AC12: one tap from the reader opens labelled sections; only RIFQ is called', async ({ page, seen }) => {
   await page.goto('/2/#a20');
   await hydrated(page);
-  await page.locator('li#a20 a[data-tf-link]').click();
+  // Kit v38 (RQ-008 AC38, D-187 A): the reader's one tap now opens the Tafseer panel (rq008-stage2.spec.ts);
+  // the Tafseer page keeps working for its links (AC48), so it is reached here by its address, in place.
+  await clickLink(page, '/tafseer/2/#a20');
   await expect(page).toHaveURL(/\/tafseer\/2\/#a20/);
   await ready(page);
   await expect(page.getByRole('region', { name: STRINGS.ar.quranSection })).toBeVisible();
@@ -108,7 +110,7 @@ test('AC9, AC10, AC18: no passage and API failure messages; back returns to the 
   // Opened from the reader at ayah 7, so Back to reading returns to 2:7.
   await page.goto('/2/#a7');
   await hydrated(page);
-  await page.locator('li#a7 a[data-tf-link]').click();
+  await clickLink(page, '/tafseer/2/#a7');
   await ready(page);
   await page.locator('[data-tf-next]').click();
   await expect(page.locator('a[data-back]')).toHaveAttribute('href', '/2/#a7');
@@ -193,9 +195,10 @@ test('AC21: keyboard reaches every control with visible focus; the reference get
     await page.keyboard.press('Tab');
     const f = await page.evaluate(() => { const e = document.activeElement as HTMLElement; return { n: e.getAttribute('aria-label') || e.textContent?.trim() || '', o: getComputedStyle(e).outlineStyle }; });
     if (f.n) { names.push(f.n); expect(f.o, f.n).not.toBe('none'); }
-    if (f.n === 'Next ayah') break;
+    // Kit v39 (D-208 C, RQ-008 AC43): the buttons show the target ayah; the names keep the direction.
+    if (f.n === 'Next ayah: Ayah 25') break;
   }
-  for (const want of ['Back to reading', 'Tafseer source details', 'Previous ayah', 'Next ayah']) expect(names).toContain(want);
+  for (const want of ['Back to reading', 'Tafseer source details', 'Previous ayah: Ayah 23', 'Next ayah: Ayah 25']) expect(names).toContain(want);
   await page.keyboard.press('Enter');
   await expect(page.locator('[data-tf-ayah]')).toHaveAttribute('data-tf-ayah', '2:25');
   const focused = await page.evaluate(() => document.activeElement?.hasAttribute('data-tf-ref') && document.activeElement.closest('.tf-row')?.getAttribute('data-a'));

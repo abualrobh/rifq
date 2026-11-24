@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { getStorage } from '../../core/store.ts';
 import { loadRecent } from '../../core/recent.ts';
 import { ayahPath, t, type Lang } from '../../core/strings.ts';
+import { onDeviceChange } from '../client/device-events.ts';
 
 type Props = { lang: Lang; counts: number[]; names: [string, string][] };
 
@@ -15,8 +16,7 @@ export default function HomeRecent({ lang, counts, names }: Props) {
     const st = getStorage(window);
     const read = () => setList(loadRecent(st).list.filter((s) => s >= 1 && s < counts.length && counts[s] >= 1));
     read();
-    window.addEventListener('storage', read);
-    return () => window.removeEventListener('storage', read);
+    return onDeviceChange(read);
   }, [counts]);
   if (!list.length) return null;
   const nameLang = lang === 'ar' ? 'ar' : 'en';

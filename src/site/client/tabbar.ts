@@ -24,21 +24,45 @@ function measure() {
   const bar = document.querySelector<HTMLElement>('nav[data-tabbar="bottom"]');
   const root = document.documentElement;
   if (!bar) { root.style.removeProperty('--tabbar-h'); return; }
-  const set = () => root.style.setProperty('--tabbar-h', Math.ceil(bar.getBoundingClientRect().height) + 'px');
+  // Kit v39: a change of the text zoom resizes the bar too, so the large-text class is checked again.
+  const set = () => { tallText(); root.style.setProperty('--tabbar-h', Math.ceil(bar.getBoundingClientRect().height) + 'px'); };
   set();
   ro = new ResizeObserver(set);
   ro.observe(bar);
 }
 
+// Kit v39 (QA v38 FIND-CB, D-205): html.rifq-tall-text when the screen is less than 40 lines of
+// text tall (innerHeight in rem). Safari's aA page zoom and browser text zoom at 200% both give about
+// 26 on an 844 px phone; at 100% it is about 53. The CSS then makes the fixed bottom area smaller.
+// A class on the page only; nothing is stored or sent.
+const TALL_TEXT_REM = 40;
+function tallText() {
+  const root = document.documentElement;
+  const rem = parseFloat(getComputedStyle(root).fontSize) || 16;
+  root.classList.toggle('rifq-tall-text', window.innerHeight / rem < TALL_TEXT_REM);
+}
+
 const w = (typeof window === 'undefined' ? {} : window) as unknown as { __rifqTabs?: boolean };
 if (typeof document !== 'undefined' && !w.__rifqTabs) {
   w.__rifqTabs = true;
-  document.addEventListener('astro:page-load', () => { update(); measure(); });
+  document.addEventListener('astro:page-load', () => { tallText(); update(); measure(); });
+  window.addEventListener('resize', tallText);
+  // The router replaces the html element's classes on each in-place change: set it again at once.
+  document.addEventListener('astro:after-swap', tallText);
   window.addEventListener('storage', update);
   // The D-062 rule saves the position while the reader reads; refresh the link just before it is
   // followed, so it never points at an older place.
-  document.addEventListener('pointerdown', (e) => { if ((e.target as Element | null)?.closest?.('a[data-tab="read"]')) update(); }, { capture: true });
+  // QA v37 FIND-BP (kit v38): also on the click itself, which some assistive technology and switch
+  // access send without a pointer or key event (capture phase: before the router reads the address),
+  // and when the link gets focus or its menu is asked for (long press, "open in new tab").
+  const onRead = (e: Event) => { if ((e.target as Element | null)?.closest?.('a[data-tab="read"]')) update(); };
+  for (const ev of ['pointerdown', 'click', 'focusin', 'contextmenu']) document.addEventListener(ev, onRead, { capture: true });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.target as Element | null)?.closest?.('a[data-tab="read"]')) update(); }, { capture: true });
+  // Kit v38: a page shown again from the browser's back-forward cache, or a tab shown again, reads the
+  // device again (another tab or page may have saved a newer position meanwhile).
+  window.addEventListener('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) update(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') update(); });
+  tallText();
   update();
   measure();
 }

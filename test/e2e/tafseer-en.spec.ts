@@ -4,10 +4,10 @@
 // source at run time. Expected values come from the source and the mock; no Tafseer is in this file.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { BUILD, expect, hydrated, MOBILE, sliceOf, src, STRICT, test, utf8, setNight } from './helpers.ts';
+import { BUILD, expect, hydrated, MOBILE, sliceOf, src, STRICT, test, utf8, setNight, clickLink } from './helpers.ts';
 import { CASE, CLOSE, EN_CASE, enPassageText, MOCK_EN_ID, MOCK_TAFSIR_ID, OPEN, passageText } from '../mock/qf-mock.ts';
 import { sanitize, visibleText } from '../../src/core/tafseer-html.ts';
-import { STRINGS } from '../../src/core/strings.ts';
+import { STRINGS, t } from '../../src/core/strings.ts';
 import { findPhrases, hasArabicLetters, indexFromSource } from '../../src/core/tafseer-quotes.ts';
 import { computeMarks, markedNodes, markedText } from '../../src/core/tafseer-marks.ts';
 
@@ -26,7 +26,9 @@ const EN_QUOTES = [CASE.quoteExact, CASE.quoteSameSurah, CASE.quoteElsewhere, CA
 test('EN-01 (AC1, AC6, AC7, AC12, AC19, AC23): one tap in the English reader opens the English passage, LTR, with the note; only RIFQ is called', async ({ page, seen }) => {
   await page.goto('/en/2/#a20');
   await hydrated(page);
-  await page.locator('li#a20 a[data-tf-link]').click();
+  // Kit v38 (RQ-008 AC38, D-187 A): the reader's one tap now opens the Tafseer panel (rq008-stage2.spec.ts);
+  // the Tafseer page keeps working for its links (AC48), so it is reached here by its address, in place.
+  await clickLink(page, '/en/tafseer/2/#a20');
   await expect(page).toHaveURL(/\/en\/tafseer\/2\/#a20/);
   await ready(page);
   await expect(page.getByRole('region', { name: EN.quranSection })).toBeVisible();
@@ -98,7 +100,7 @@ test('EN-04 (AC4, AC10, AC16): every pre-live ayah of the English work is delive
 test('EN-05 (AC5, AC13): the English range, next and previous with no skip or repeat, and back to the reader', async ({ page, seen }) => {
   await page.goto('/en/2/#a2');
   await hydrated(page);
-  await page.locator('li#a2 a[data-tf-link]').click();
+  await clickLink(page, '/en/tafseer/2/#a2');
   await ready(page);
   const visited: string[] = [];
   for (let i = 0; i < 5; i++) {
@@ -283,9 +285,11 @@ test('EN-11 (AC22): keyboard reaches every control with visible focus; note and 
     await page.keyboard.press('Tab');
     const f = await page.evaluate(() => { const e = document.activeElement as HTMLElement; return { n: e.getAttribute('aria-label') || e.textContent?.trim() || '', o: getComputedStyle(e).outlineStyle }; });
     if (f.n) { names.push(f.n); expect(f.o, f.n).not.toBe('none'); }
-    if (f.n === EN.nextAyah) break;
+    // Kit v39 (D-208 C, RQ-008 AC43): previous and next show the target ayah; their names keep the
+    // direction ("Next ayah: Ayah N").
+    if (f.n === t('en', 'nextAyahTo', { a: CASE.quoteExact + 1 })) break;
   }
-  for (const want of [EN.backToReading, EN.tafseerSourceDetails, EN.prevAyah, EN.nextAyah]) expect(names).toContain(want);
+  for (const want of [EN.backToReading, EN.tafseerSourceDetails, t('en', 'prevAyahTo', { a: CASE.quoteExact - 1 }), t('en', 'nextAyahTo', { a: CASE.quoteExact + 1 })]) expect(names).toContain(want);
   const live = page.locator('[aria-live="polite"]');
   await expect(live.locator('[data-tf-en-note]')).toHaveCount(1);
   await expect(live.locator('[data-tf-text][lang="en"]')).toHaveCount(1);

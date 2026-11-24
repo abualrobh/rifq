@@ -40,6 +40,12 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
   const ended = snap.phase === 'ended', failed = snap.phase === 'failed';
   const own = snap.page === s;
   const status = ended ? t(lang, 'miniEnded') : failed ? t(lang, 'audioUnavailable') : '';
+  // Kit v39 (QA v38 FIND-BW, RQ-006 AC20): while the recitation is loading, the mini-player says so
+  // with the existing audioLoading message, where the reader is (playing from an ayah far down left
+  // the only loading line at the top of the surah, off screen). On the playing surah's page the Play
+  // surah row's status already announces it, so here it is announced only on other pages.
+  const loading = !status && snap.loading;
+  const said = status || (loading ? t(lang, 'audioLoading') : '');
   const href = ayahPath(lang, s, a);
 
   const go = (e: MouseEvent<HTMLAnchorElement>) => {
@@ -65,7 +71,15 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
   // already says "now playing", so the visible label of the same meaning is hidden from it; the
   // ended or not-available line is read from the status below, so its visible copy is hidden too.
   return (
-    <section ref={box} className="mini" aria-label={t(lang, 'miniRegion')} data-mini-player data-phase={snap.phase} data-playing={snap.playing ? '1' : '0'} data-s={s} data-a={a}>
+    <section ref={box} className="mini" aria-label={t(lang, 'miniRegion')} data-mini-player data-phase={snap.phase} data-playing={snap.playing ? '1' : '0'} data-loading={loading ? '1' : '0'} aria-busy={loading || undefined} data-s={s} data-a={a}>
+      {/* D-207 B (kit v39, RQ-006 AC28): previous and next ayah are back, in the mini-player (the only
+          player, D-203 A), around play/pause. They act on the playing recitation only, exactly as the
+          kit v37 player's buttons and the lock-screen controls (engine.seekAyah): within the playing
+          surah, disabled at its first and last ayah. The existing prevAyah and nextAyah names. */}
+      {!ended && !failed && <button type="button" className="btn icon-btn mini-step" data-mini-prev aria-label={t(lang, 'prevAyah')} title={t(lang, 'prevAyah')}
+        disabled={snap.mode === 'idle' || snap.current <= 1} onClick={() => engine?.seekAyah(engine.get().current - 1)}>
+        <svg className="mini-dir" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5v14M19 5l-9 7 9 7z" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
+      </button>}
       {!ended && !failed
         ? <button type="button" className="btn icon-btn mini-play" data-mini-toggle data-state={snap.playing ? 'playing' : 'paused'}
             aria-label={t(lang, snap.playing ? 'miniPause' : 'miniPlay', { s, a })} title={t(lang, snap.playing ? 'miniPause' : 'miniPlay', { s, a })}
@@ -75,13 +89,17 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
               : <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></svg>}
           </button>
         : null}
+      {!ended && !failed && <button type="button" className="btn icon-btn mini-step" data-mini-next aria-label={t(lang, 'nextAyah')} title={t(lang, 'nextAyah')}
+        disabled={snap.mode === 'idle' || snap.current < 1 || snap.current >= snap.count} onClick={() => engine?.seekAyah(engine.get().current + 1)}>
+        <svg className="mini-dir" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 5v14M5 5l9 7-9 7z" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
+      </button>}
       <div className="mini-info" data-mini-info>
         <p className="mini-now"><span className="mini-label" aria-hidden="true" data-mini-label>{t(lang, 'miniNowPlaying')}</span>{' '}<bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-mini-surah>{s}. {name}</bdi>{' · '}<span data-mini-ayah>{t(lang, 'audioNowAyah', { a })}</span></p>
         {/* QA v27 (Informational): when the line shows a state, the whole paragraph is hidden from
             screen readers (the status below reads it), so no empty paragraph is exposed. */}
-        <p className="mini-sub" aria-hidden={status ? 'true' : undefined}>
-          {status
-            ? <span data-mini-state>{status}</span>
+        <p className="mini-sub" aria-hidden={said ? 'true' : undefined} data-mini-sub={said ? 'state' : 'credit'}>
+          {said
+            ? <span data-mini-state={loading ? 'loading' : snap.phase}>{said}</span>
             : <>{reciter && <bdi lang={latin ? 'en' : 'ar'} dir={latin ? 'ltr' : 'rtl'} data-mini-reciter>{reciter}</bdi>}{reciter && ' · '}<bdi lang="en" dir="ltr" data-mini-credit>Quran Foundation</bdi></>}
         </p>
       </div>
@@ -92,8 +110,8 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
         <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
       </button>
       {/* AC75, SC 4.1.3: the ended or not-available state is announced once, away from the playing
-          surah's page (there the full player speaks; no second announcement, P-9). */}
-      <p className="sr-only" role="status" aria-live={own ? 'off' : 'polite'} data-mini-status>{status}</p>
+          surah's page (there the Play surah row speaks, kit v38; no second announcement, P-9). */}
+      <p className="sr-only" role="status" aria-live={own ? 'off' : 'polite'} data-mini-status>{said}</p>
     </section>
   );
 }

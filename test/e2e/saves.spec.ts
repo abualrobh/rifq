@@ -5,7 +5,7 @@
 import { chromium, type BrowserContext, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { test, expect, surahs, N, MOBILE, DESKTOP, BUILD, hydrated, noOverflow, logRemoval } from './helpers.ts';
+import { test, expect, surahs, N, MOBILE, DESKTOP, BUILD, hydrated, noOverflow, logRemoval, ayahAction, bookmarked } from './helpers.ts';
 import { t, ACCOUNT_WORDS } from '../../src/core/strings.ts';
 
 const KEY = 'rifq.saves';
@@ -15,8 +15,16 @@ const reader = (lang: 'ar' | 'en', s: number, a?: number) => `${base(lang)}${s}/
 const stored = (page: Page) => page.evaluate((k) => localStorage.getItem(k), KEY);
 const seed = (ctx: BrowserContext, value: unknown) => ctx.addInitScript(([k, v]) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem(k as string, v as string); sessionStorage.setItem('seeded', '1'); } }, [KEY, JSON.stringify(value)]);
 
+// Kit v38 (RQ-008 AC30): the bookmark control is in the ayah actions panel; its result is announced
+// in the panel, which stays open (a panel left open by the step before is closed first).
 async function bookmark(page: Page, a: number) {
-  await page.click(`button.bm[data-a="${a}"]`);
+  if (await page.locator('dialog[data-ayah-panel]').evaluate((d) => (d as HTMLDialogElement).open).catch(() => false)) await page.locator('[data-act-close]').click();
+  await ayahAction(page, a, 'bookmark', false);
+}
+// The D-062 rule waits while a panel is open (RQ-008 AC35), so a test that then reads is closed first.
+async function closePanel(page: Page) {
+  await page.locator('[data-act-close]').click();
+  await expect(page.locator('dialog[data-ayah-panel]')).toHaveJSProperty('open', false);
 }
 
 test('TP3-01: a bookmark stays after reload and after a browser restart', async () => {
@@ -27,10 +35,10 @@ test('TP3-01: a bookmark stays after reload and after a browser restart', async 
   await page.goto('/2/');
   await hydrated(page);
   await bookmark(page, 5);
-  await expect(page.locator('[data-reader-status]')).toHaveText(t('ar', 'saved'));
+  await expect(page.locator('[data-act-status]')).toHaveText(t('ar', 'saved'));
   await page.reload();
   await hydrated(page);
-  await expect(page.locator('button.bm[data-a="5"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => bookmarked(page, 5)).toBe(true);
   await page.goto('/saved/');
   await hydrated(page);
   await expect(page.locator('[data-bm="2:5"] a')).toHaveText(`${surahs[1].ar} 2:5`);
@@ -52,7 +60,7 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
     await page.goto(reader(lang, 3));
     await hydrated(page);
     await bookmark(page, 7);
-    await expect(page.locator('[data-reader-status]')).toHaveText(t(lang, 'saved'));
+    await expect(page.locator('[data-act-status]')).toHaveText(t(lang, 'saved'));
     await page.goto(home(lang));
     await hydrated(page);
     const item = page.locator('[data-bm="3:7"] a');
@@ -125,12 +133,14 @@ test('TP3-12, TP3-14, TP3-15: a new profile has no continue offer, and no accoun
   await page.goto('/2/#a3');
   await hydrated(page);
   await bookmark(page, 3);
+  await closePanel(page);
   await page.waitForTimeout(3500);
   for (const p of ['/', '/2/', '/en/', '/en/2/']) {
     await page.goto(p);
     await hydrated(page);
     expect(ACCOUNT_WORDS.test(await page.locator('body').innerText()), p).toBe(false);
-    expect(await page.locator('dialog, [role=dialog]').count()).toBe(0);
+    // Kit v38: reader pages hold the closed ayah and Tafseer panels; none is open.
+    expect(await page.locator('dialog[open], [role=dialog]:not(dialog), [aria-modal="true"]:not(dialog)').count()).toBe(0);
   }
 });
 
@@ -139,6 +149,7 @@ test('TP3-16: bookmarks and last position are never sent to a server', async ({ 
   await hydrated(page);
   await bookmark(page, 9);
   await bookmark(page, 10);
+  await closePanel(page);
   await page.waitForTimeout(3600);
   await page.goto('/');
   await hydrated(page);
@@ -158,8 +169,8 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
     await hydrated(page);
     await expect(page.locator('p.ayah[data-r]')).toHaveCount(surahs[1].items.length);
     await bookmark(page, 4);
-    await expect(page.locator('[data-reader-status]')).toHaveText(t(lang, 'saveFailed'));
-    await expect(page.locator('button.bm[data-a="4"]')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('[data-act-status]')).toHaveText(t(lang, 'saveFailed'));
+    await expect(page.locator('[data-act-bookmark]')).toHaveAttribute('aria-pressed', 'false');
     await page.goto(home(lang));
     await hydrated(page);
     await expect(page.locator('[data-storage-blocked]')).toHaveText(t(lang, 'storageBlocked'));
@@ -186,8 +197,8 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
     await hydrated(page);
     await expect(page.locator('p.ayah[data-r]')).toHaveCount(surahs[1].items.length);
     await bookmark(page, 6);
-    await expect(page.locator('[data-reader-status]')).toHaveText(t(lang, 'saveFailed'));
-    await expect(page.locator('[data-reader-status]')).not.toHaveText(t(lang, 'saved'));
+    await expect(page.locator('[data-act-status]')).toHaveText(t(lang, 'saveFailed'));
+    await expect(page.locator('[data-act-status]')).not.toHaveText(t(lang, 'saved'));
   });
 }
 
@@ -196,6 +207,7 @@ test('TP3-19: device storage holds references only: no text, no names, no dates'
   await hydrated(page);
   await bookmark(page, 20);
   await bookmark(page, 21);
+  await closePanel(page);
   await page.waitForTimeout(3600);
   const all = await page.evaluate(() => ({ ...localStorage }));
   const keys = Object.keys(all).sort();
@@ -243,13 +255,19 @@ for (const lang of ['ar', 'en'] as const) {
   test(`TP3-24, TP3-22 (automated part): bookmark control name and on/off state in the interface language, by keyboard, ${lang}`, async ({ page }) => {
     await page.goto(reader(lang, 1));
     await hydrated(page);
-    const b = page.locator('button.bm[data-a="2"]');
-    await expect(b).toHaveAttribute('aria-label', t(lang, 'bookmarkOff', { a: 2 }));
+    // Kit v38 (RQ-008 AC26, AC30): the ayah's actions button opens the panel by keyboard; the
+    // panel's bookmark button has its text and on/off state in the interface language.
+    const act = page.locator('button.ayah-act[data-act="2"]:not([data-pending])');
+    await expect(act).toHaveAttribute('aria-label', t(lang, 'ayahActions', { a: 2 }));
+    await act.focus();
+    await page.keyboard.press('Enter');
+    const b = page.locator('dialog[data-ayah-panel] [data-act-bookmark]');
+    await expect(b).toHaveText(t(lang, 'addBookmark'));
     await expect(b).toHaveAttribute('aria-pressed', 'false');
     await b.focus();
     await page.keyboard.press('Enter');
     await expect(b).toHaveAttribute('aria-pressed', 'true');
-    await expect(b).toHaveAttribute('aria-label', t(lang, 'bookmarkOn', { a: 2 }));
+    await expect(b).toHaveText(t(lang, 'removeBookmarkShort'));
     expect(await b.evaluate((e) => getComputedStyle(e).outlineStyle)).not.toBe('none');
     await page.keyboard.press('Space');
     logRemoval('TP3-24', 'removed bookmark 1:2 with the bookmark button, disposable profile');
@@ -267,7 +285,7 @@ for (const [lang, vp] of [['ar', DESKTOP], ['en', DESKTOP], ['ar', MOBILE], ['en
     await hydrated(page);
     const before = await stored(page);
     await bookmark(page, 1);
-    await expect(page.locator('[data-reader-status]')).toHaveText(t(lang, 'limit'));
+    await expect(page.locator('[data-act-status]')).toHaveText(t(lang, 'limit'));
     expect(await stored(page)).toBe(before);
     await noOverflow(page);
   });

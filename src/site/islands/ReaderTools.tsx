@@ -1,11 +1,12 @@
-// Reader page tools (RQ-003): the per-ayah bookmark buttons, the last reading position, and the
-// check for a saved or linked reference that does not exist. The buttons are in the static HTML,
-// invisible (space reserved) until this island loads, so reading never waits for it.
+// Reader page tools (RQ-003): the last reading position, and the check for a saved or linked
+// reference that does not exist. Since kit v38 the bookmark control is in the ayah actions panel
+// (RQ-008 AC30, islands/AyahPanels.tsx), which also shows the bookmark marks (AC31).
 import { useEffect, useRef, useState } from 'react';
-import { addBookmark, getStorage, isBookmarked, load, removeBookmark, setLast } from '../../core/store.ts';
+import { getStorage, setLast } from '../../core/store.ts';
 import { addRecent } from '../../core/recent.ts';
 import { t, type Lang } from '../../core/strings.ts';
-import { topRow } from './Settings.tsx';
+import { topRow } from '../client/place.ts';
+import { revealRow } from '../client/reveal.ts';
 
 // Last position (RQ-003 AC4). U-24 is open; this build uses: among the ayat that have stayed
 // visible for 3 seconds without a break, the one nearest the top. "Visible" means at least half of
@@ -23,41 +24,13 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
       requestAnimationFrame(() => { if (n === seq.current) setMsg(text); });
     };
     const st = getStorage(window);
-    const list = document.querySelector('ol.ayat');
-    const buttons = [...document.querySelectorAll<HTMLButtonElement>('button.bm')];
-    const sync = () => {
-      const { saves } = load(st);
-      for (const b of buttons) {
-        const a = Number(b.dataset.a);
-        const on = isBookmarked(saves, [s, a]);
-        b.setAttribute('aria-pressed', String(on));
-        b.setAttribute('aria-label', t(lang, on ? 'bookmarkOn' : 'bookmarkOff', { a }));
-      }
-    };
-    sync();
-    // The buttons keep their space while pending, so showing them moves no text (no layout shift).
-    for (const b of buttons) { b.removeAttribute('data-pending'); b.removeAttribute('tabindex'); }
-
-    const onClick = (e: Event) => {
-      const b = (e.target as Element).closest<HTMLButtonElement>('button.bm');
-      if (!b) return;
-      const a = Number(b.dataset.a);
-      if (b.getAttribute('aria-pressed') === 'true') {
-        say(removeBookmark(st, [s, a]) === 'failed' ? t(lang, 'saveFailed') : t(lang, 'removed'));
-      } else {
-        const r = addBookmark(st, [s, a]);
-        say(r === 'saved' || r === 'exists' ? t(lang, 'saved') : r === 'limit' ? t(lang, 'limit') : t(lang, 'saveFailed'));
-      }
-      sync();
-    };
-    list?.addEventListener('click', onClick);
-    window.addEventListener('storage', sync);
 
     // A link to an ayah that is not in this surah shows a message and opens nothing else (AC10).
+    // RQ-008 P-6 (kit v38): "#aN;tafseer" is the reader with the Tafseer panel open on ayah N.
     const checkHash = () => {
       const h = location.hash;
       if (!h) return;
-      const m = /^#a(\d{1,5})$/.exec(h);
+      const m = /^#a(\d{1,5})(?:;tafseer)?$/.exec(h);
       const a = m ? Number(m[1]) : 0;
       if (!m || a < 1 || a > count) {
         say(t(lang, 'badRef', { s, a: m ? a : '?' }));
@@ -76,6 +49,12 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
       if (sw && top) sw.hash = top.id;
     };
     sw?.addEventListener('click', onSwitch);
+
+    // P-6: the panel's ayah is shown in the reader behind it before the reading place is taken
+    // (the browser does not scroll to a hash that names no element).
+    const tf = /^#a(\d{1,4});tafseer$/.exec(location.hash);
+    const tfRow = tf ? document.getElementById(`a${tf[1]}`) : null;
+    if (tfRow) revealRow(tfRow);
 
     // Design review M-2: when the Quran font arrives, the text reflows. Until the reader moves the
     // page, keep the ayah that was at the top (or the linked ayah) in place, and start counting the
@@ -104,11 +83,16 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
       }
     }, { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1], rootMargin: `-${Math.ceil(headerH())}px 0px 0px 0px` });
     let iv = 0;
+    let panelWas = false;
     const tick = () => {
       if (document.visibilityState !== 'visible') { since.clear(); return; }
       // RQ-006 AC50 (D-117 A): while a surah plays, the player saves the playing ayah instead, and
       // the 3-second rule starts again from zero once playback stops.
       if (document.documentElement.dataset.audioFollow === '1') { since.clear(); return; }
+      // RQ-008 AC35, P-7 (kit v38): while the ayah actions panel or the Tafseer panel is open the
+      // last position does not change; the rule starts again from zero when it closes.
+      if (document.documentElement.dataset.panel === '1') { since.clear(); panelWas = true; return; }
+      if (panelWas) { panelWas = false; reseed(); return; }
       const now = performance.now();
       let best = 0;
       for (const [el, t0] of since) {
@@ -129,22 +113,20 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
       rows.forEach((r) => io.observe(r));
       iv = window.setInterval(tick, 500);
     });
-    const onVis = () => {
-      if (document.visibilityState === 'visible') {
-        const now = performance.now();
-        for (const r of rows) {
-          const b = r.getBoundingClientRect();
-          const top = headerH();
-          const vis = Math.min(b.bottom, innerHeight) - Math.max(b.top, top);
-          if (vis > 0 && (vis >= 0.5 * b.height || vis >= 0.5 * (innerHeight - top))) since.set(r, now);
-        }
+    // The ayat on screen now start their 3 seconds again (after the tab was hidden, or a panel closed).
+    function reseed() {
+      const now = performance.now();
+      for (const r of rows) {
+        const b = r.getBoundingClientRect();
+        const top = headerH();
+        const vis = Math.min(b.bottom, innerHeight) - Math.max(b.top, top);
+        if (vis > 0 && (vis >= 0.5 * b.height || vis >= 0.5 * (innerHeight - top))) since.set(r, now);
       }
-    };
+    }
+    const onVis = () => { if (document.visibilityState === 'visible') reseed(); };
     document.addEventListener('visibilitychange', onVis);
 
     return () => {
-      list?.removeEventListener('click', onClick);
-      window.removeEventListener('storage', sync);
       window.removeEventListener('hashchange', checkHash);
       sw?.removeEventListener('click', onSwitch);
       document.removeEventListener('visibilitychange', onVis);
