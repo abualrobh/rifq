@@ -85,7 +85,8 @@ test('AU-02 (AC5, AC6, AC9, AC14, AC17, AC31, AC44, AC50): surah 1 plays, every 
   await playSurah(page);
   // Default reciter (AC17) named, with the credit (AC31), before or as playback starts.
   await expect(page.locator('[data-reciter-name]')).toHaveText(AR_WORD(7));
-  await expect(page.locator('[data-audio-credit]')).toHaveText(t('ar', 'audioCredit'));
+  // Kit v41 (D-254): the credit names the reciter and Quran Foundation.
+  await expect(page.locator('[data-audio-credit]')).toHaveText(t('ar', 'audioCreditBy', { name: AR_WORD(7) }));
   expect((await audioState(page)).src).toBe(`https://${AUDIO_HOST}/mock-rifq-test/7/1.mp3`);
   for (let a = 1; a <= n(1); a++) {
     await seekTo(page, (a - 1) * STEP + 2500);
@@ -496,7 +497,8 @@ test('AU-15 (QA FIND-1, FIND-4; RQ-008 AC51, AC52): the reciter button is named 
     await expect(sum).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('[data-reciter]')).toHaveCount(2);
     await expect(page.locator('[data-audio-credit]')).toBeVisible();
-    await expect(page.locator('[data-audio-credit]')).toHaveText(t(lang, 'audioCredit'));
+    // Kit v41 (D-254): once the list is in, the credit names the reciter and Quran Foundation.
+    await expect(page.locator('[data-audio-credit]')).toHaveText(t(lang, 'audioCreditBy', { name: lang === 'ar' ? AR_WORD(7) : MOCK_RECITER_NAMES[7] }));
     // Once the list is in, the button shows the chosen reciter's name as Quran Foundation gives it.
     await expect(sum).toHaveText(t(lang, 'reciterChip', { name: lang === 'ar' ? AR_WORD(7) : MOCK_RECITER_NAMES[7] }));
     if (lang === 'ar') {
