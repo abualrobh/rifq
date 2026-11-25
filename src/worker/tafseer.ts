@@ -44,10 +44,17 @@ import { shapeOf } from './shape.ts';
 import { computeMarks, type Marks } from '../core/tafseer-marks.ts';
 import { EN_MARKS_VERSION, enMarks } from './marks-en.ts';
 import type { Letters } from './letters.ts';
-import { byAyahPath, byChapterPath, isArabic, LIST_PATH, parseByAyah, parseTafsirList, QfClient, qfConfig, QfError, type Passage, type QfConfig, type QfSecrets, type TafsirListItem } from './qf.ts';
+import { byAyahPath, byChapterPath, isArabic, LIST_PATH, parseByAyah, parseTafsirList, QfClient, qfConfig, QfError, type Fetched, type Passage, type QfConfig, type QfSecrets, type TafsirListItem } from './qf.ts';
 
 export const MAX_AGE_S = 7 * 24 * 60 * 60; // 604,800 seconds: the D-075 7-day limit
 export const MAX_AGE_MS = MAX_AGE_S * 1000;
+// Kit v41 (D-259, QA v40 FIND-CL): the whole seconds an entry may still be kept, counted from the
+// moment its answer arrived from Quran Foundation (not from the write, which comes after parsing and
+// marks). Rounded down, so the Cache API never keeps it past that moment plus the limit; 0 or less
+// means it is not kept at all.
+export function secondsLeft(fetchedAt: number, maxAgeMs: number, nowMs: number): number {
+  return Math.floor((fetchedAt + maxAgeMs - nowMs) / 1000);
+}
 export const PROVIDER = 'Quran Foundation';
 // Proposal (RQ-005 open question): 60 Tafseer requests per minute per network address.
 export const TAFSEER_LIMIT_PER_MINUTE = 60;
@@ -128,12 +135,15 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     } catch { return null; }
   }
 
-  async function writeStored<T>(k: string, data: T): Promise<void> {
+  // fetchedAt: when the answer arrived (QfClient.get's `fetched.at`), kept as is; never the write time.
+  async function writeStored<T>(k: string, data: T, fetchedAt: number): Promise<void> {
     const c = getCache();
     if (!c) return;
-    const body: Stored<T> = { v: 1, fetchedAt: now(), data };
+    const left = secondsLeft(fetchedAt, MAX_AGE_MS, now());
+    if (!Number.isFinite(left) || left <= 0) return;
+    const body: Stored<T> = { v: 1, fetchedAt, data };
     try {
-      await c.put(k, new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json', 'cache-control': `max-age=${MAX_AGE_S}` } }));
+      await c.put(k, new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json', 'cache-control': `max-age=${left}` } }));
     } catch { /* a copy that cannot be kept is fetched again next time */ }
   }
 
@@ -145,14 +155,18 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     const hit = await readStored<PassageResult>(k);
     if (hit) return hit;
     let res: PassageResult;
+    // D-259: the clock is read when the answer arrives (f.at); t0, read before the call, is only a
+    // fallback that is never later than it.
+    const f: Fetched = {};
+    const t0 = now();
     try {
-      const p = parseByAyah(await qf.get(q, byAyahPath(id, s, a), { fields: 'language_name' }), s, a);
+      const p = parseByAyah(await qf.get(q, byAyahPath(id, s, a), { fields: 'language_name' }, undefined, f), s, a);
       res = p ? { kind: 'ok', p, marks: marksFor(p, lang) } : { kind: 'none' };
     } catch (e) {
       if (e instanceof QfError && e.kind === 'not_found') res = { kind: 'none' };
       else throw e;
     }
-    await writeStored(k, res);
+    await writeStored(k, res, f.at ?? t0);
     return res;
   }
 
@@ -175,8 +189,10 @@ export function makeTafseer(cfg: TafseerCfg, deps: Deps = {}) {
     const k = key(origin, [q.env, 'list']);
     const hit = await readStored<TafsirListItem[]>(k);
     if (hit) return hit;
-    const l = parseTafsirList(await qf.get(q, LIST_PATH));
-    await writeStored(k, l);
+    const f: Fetched = {};
+    const t0 = now();
+    const l = parseTafsirList(await qf.get(q, LIST_PATH, {}, undefined, f));
+    await writeStored(k, l, f.at ?? t0);
     return l;
   }
 

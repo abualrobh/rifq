@@ -27,8 +27,8 @@
 // available"). The word segments that come with them are dropped at once: only each ayah's
 // [timestamp_from, timestamp_to] is kept or sent to the browser (checkSurahFile).
 import { catalogueProblems, checkSurahFile, type FileShape, coveredSurahs, D111_IDS, DEFAULT_RECITER, type CatalogueEntry, type SurahCheck } from '../core/audio.ts';
-import { qfConfig, QfClient, QfError, type QfConfig, type QfSecrets } from './qf.ts';
-import { MAX_AGE_MS, MAX_AGE_S, type CacheLike } from './tafseer.ts';
+import { qfConfig, QfClient, QfError, type Fetched, type QfConfig, type QfSecrets } from './qf.ts';
+import { MAX_AGE_MS, MAX_AGE_S, secondsLeft, type CacheLike } from './tafseer.ts';
 
 export const AUDIO_SCOPE = 'content.audio.read';
 // v2 (kit v23): v1 kept failed checks for 7 days, including the AC60 failures of kit v22.
@@ -99,11 +99,15 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
       return s.data;
     } catch { return null; }
   }
-  async function writeStored<T>(k: string, data: T, maxAge = MAX_AGE_MS): Promise<void> {
+  // Kit v41 (D-259, QA v40 FIND-CL): fetchedAt is when the answer arrived (QfClient.get's
+  // `fetched.at`), and the Cache API max-age is what is left of maxAge from then (rounded down).
+  async function writeStored<T>(k: string, data: T, fetchedAt: number, maxAge = MAX_AGE_MS): Promise<void> {
     const c = getCache();
     if (!c) return;
+    const left = secondsLeft(fetchedAt, Math.min(MAX_AGE_MS, maxAge), now());
+    if (!Number.isFinite(left) || left <= 0) return;
     try {
-      await c.put(k, new Response(JSON.stringify({ v: 1, fetchedAt: now(), data, maxAge } satisfies Stored<T>), { headers: { 'content-type': 'application/json', 'cache-control': `max-age=${Math.ceil(maxAge / 1000)}` } }));
+      await c.put(k, new Response(JSON.stringify({ v: 1, fetchedAt, data, maxAge } satisfies Stored<T>), { headers: { 'content-type': 'application/json', 'cache-control': `max-age=${left}` } }));
     } catch { /* fetched again next time */ }
   }
 
@@ -111,9 +115,11 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     const k = key(origin, [q.env, 'catalogue', lang]);
     const hit = await readStored<CatalogueEntry[]>(k);
     if (hit) return hit;
-    const l = parseCatalogue(await qf.get(q, '/resources/chapter_reciters', { language: lang }, AUDIO_SCOPE));
+    const f: Fetched = {};
+    const t0 = now();
+    const l = parseCatalogue(await qf.get(q, '/resources/chapter_reciters', { language: lang }, AUDIO_SCOPE, f));
     // QA FIND-7: an empty list (for example during a QF incident) is kept 10 minutes, not 7 days.
-    await writeStored(k, l, l.length ? MAX_AGE_MS : FAIL_AGE_MS);
+    await writeStored(k, l, f.at ?? t0, l.length ? MAX_AGE_MS : FAIL_AGE_MS);
     return l;
   }
 
@@ -123,8 +129,10 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     const hit = await readStored<SurahCheck>(k);
     if (hit) return hit;
     let c: SurahCheck;
+    const f: Fetched = {};
+    const t0 = now();
     try {
-      c = checkSurahFile(await qf.get(q, `/chapter_recitations/${r}/${s}`, SURAH_FILE_QUERY, AUDIO_SCOPE), s, counts[s] ?? -1);
+      c = checkSurahFile(await qf.get(q, `/chapter_recitations/${r}/${s}`, SURAH_FILE_QUERY, AUDIO_SCOPE, f), s, counts[s] ?? -1);
     } catch (e) {
       if (e instanceof QfError && e.kind === 'not_found') c = { ok: false, problems: ['not found'], negatives: 0, play: null };
       // Refused for this one file (403): that reciter fails, now; not kept, so it is asked again.
@@ -133,7 +141,7 @@ export function makeAudio(cfg: AudioCfg, deps: Deps = {}) {
     }
     // A passing check is kept up to 7 days; a failing one only 10 minutes, so a fix to the data or
     // to the rules takes effect soon, without asking QF again on every request.
-    await writeStored(k, c, c.ok ? MAX_AGE_MS : FAIL_AGE_MS);
+    await writeStored(k, c, f.at ?? t0, c.ok ? MAX_AGE_MS : FAIL_AGE_MS);
     return c;
   }
 
