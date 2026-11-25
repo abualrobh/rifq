@@ -18,7 +18,10 @@
 // - A link to the privacy page.
 // AC76: when a setting cannot be stored it still applies to this page, and settingsNotRemembered says
 // it will not be remembered.
-// Not built in kit v37: "Show tips again" (AC85; first-visit tips are stage 4).
+// - Tips (kit v40, RQ-008 stage 4, AC85): Show tips again clears "tips seen", so tip 1 shows the next
+//   time a reader page opens, and tipsAgainDone says so. With storage blocked nothing can be cleared
+//   or remembered, so the tips open here at once instead (AC81: "they can still be opened from
+//   Settings").
 import { useEffect, useRef, useState } from 'react';
 import { clearLast, getStorage, load, refExists, type Saves, type StorageLike } from '../../core/store.ts';
 import { clearRecent, loadRecent } from '../../core/recent.ts';
@@ -28,13 +31,22 @@ import { useRecitation } from '../client/use-recitation.ts';
 import BidiText from './BidiText.tsx';
 import { fill } from '../client/fill.ts';
 import { onDeviceChange } from '../client/device-events.ts';
+import { clearTipsSeen, tipList } from '../../core/tips.ts';
+import { TipsDialog } from './Tips.tsx';
 
-type Props = { lang: Lang; counts: number[]; names: [string, string][]; audio: boolean; dev: boolean };
+type Props = { lang: Lang; counts: number[]; names: [string, string][]; audio: boolean; tafseer?: boolean; dev: boolean };
 
 // As the reader page player (AudioPlayer): a name with Latin letters is English, otherwise Arabic.
 const nameLang = (n: string) => (/[A-Za-z]/.test(n) ? 'en' : 'ar');
 
-export default function SettingsScreen({ lang, counts, names, audio, dev }: Props) {
+export default function SettingsScreen({ lang, counts, names, audio, tafseer = false, dev }: Props) {
+  const [tipsMsg, setTipsMsg] = useState('');
+  const [tipsOpen, setTipsOpen] = useState(false);
+  // AC85; AC81 with storage blocked.
+  function tipsAgain() {
+    if (clearTipsSeen(getStorage(window))) { setTipsMsg(''); requestAnimationFrame(() => setTipsMsg(t(lang, 'tipsAgainDone'))); }
+    else setTipsOpen(true);
+  }
   const [ready, setReady] = useState(false);
   const [s, setS] = useState<SettingsValue>({ size: 1.5, dark: false });
   const [setMsg, setSetMsg] = useState('');
@@ -165,6 +177,12 @@ export default function SettingsScreen({ lang, counts, names, audio, dev }: Prop
           <p className="msg alert" role="status" aria-live="polite" data-set-reciter-status>{recMsg}</p>
         </section>
       )}
+      {/* RQ-008's table has no "Tips" heading string, so this part has the button only. */}
+      <section className="set-sec" data-set-tips>
+        <p><button type="button" className="btn" data-set-tips-again disabled={!ready} onClick={tipsAgain}>{t(lang, 'tipsAgain')}</button></p>
+        <p role="status" aria-live="polite" className="msg" data-set-tips-status>{tipsMsg}</p>
+        {tipsOpen && <TipsDialog lang={lang} ids={tipList(audio, tafseer)} onEnd={() => setTipsOpen(false)} />}
+      </section>
       <section className="set-sec" aria-labelledby="set-data-h" data-set-data>
         <h2 id="set-data-h" ref={dataHeading} tabIndex={-1}>{t(lang, 'deviceData')}</h2>
         <p className="hint">{t(lang, 'bookmarksNote')}</p>

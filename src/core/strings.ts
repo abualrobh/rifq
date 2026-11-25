@@ -250,11 +250,29 @@ const ar = {
   gotoAyahResult: 'سورة {name}، الآية {a}',
   gotoSurahSub: 'السورة {s} · {n}',
   gotoJuzSub: 'يبدأ من {s}:{a}',
-  searchTextTitle: 'ابحث في نص القرآن',
-  searchTextHint: 'اكتب كلمة عربية للبحث في الآيات',
   youCanType: 'يمكنك أن تكتب',
-  notSaved: 'لا يُحفظ ما تكتبه هنا',
+  // Kit v40: B-09 review of the v39 strings changed this Arabic text (English unchanged).
+  notSaved: 'ما تكتبه هنا لا يتم حفظه',
   juzMissing: 'لا يوجد جزء بهذا الرقم. الأجزاء من 1 إلى 30.',
+  // Kit v40 (D-216 A, D-213 A): the hint right under the Go to box, now the only box. Proposed by the
+  // builder, not in RQ-008's table: new string for the B-09 Arabic review and Hamzeh's review.
+  // searchTextTitle and searchTextHint (the removed heading and row) are no longer used and are gone.
+  gotoHowTo: 'تظهر النتائج المباشرة أثناء الكتابة. زر «بحث» في لوحة المفاتيح (Enter) يفتح أول نتيجة، وإن لم توجد نتيجة يبحث عمّا كتبته في نص القرآن.',
+  // RQ-008 v1.0 stage 4 (kit v40, D-199): first-visit tips (AC79 to AC85) and "Show tips again".
+  // Rows 54 to 65 of RQ-008's table, character for character. Row 63's key "skip" is taken by the
+  // skip link, so it is tipSkip here. New strings; they need the B-09 Arabic review.
+  tipsAgain: 'عرض التلميحات من جديد',
+  tipsAgainDone: 'ستظهر التلميحات عند فتح القراءة.',
+  tipOf: 'تلميح {n} من {m}',
+  tip1Title: 'اضغط على أي آية',
+  tip1Body: 'شغّل التلاوة منها، أو افتح تفسيرها، أو ضع عليها علامة على هذا الجهاز، أو انسخ مرجعها.',
+  tip2Title: 'اذهب إلى أي موضع',
+  tip2Body: 'اكتب رقم آية مثل 2:255 أو اسم سورة أو «جزء 30» في مربع «اذهب إلى».',
+  tip3Title: 'اضبط القراءة',
+  tip3Body: 'غيّر حجم الخط والوضع الليلي واللغة من الإعدادات.',
+  tipSkip: 'تخطٍّ',
+  next: 'التالي',
+  done: 'تم',
   // Privacy page "Listening" item (D-112, RQ-006 AC40): the wording proposed in RQ-006 v1.1,
   // shown only when PRIVACY_LISTENING_ON is true. It stays off until Hamzeh approves it.
   pvListenL: 'الاستماع',
@@ -511,11 +529,22 @@ const en: typeof ar = {
   gotoAyahResult: '{name}, ayah {a}',
   gotoSurahSub: 'Surah {s} · {n}',
   gotoJuzSub: 'Starts at {s}:{a}',
-  searchTextTitle: 'Search the Quran text',
-  searchTextHint: 'Type an Arabic word to search the ayat',
   youCanType: 'You can type',
   notSaved: 'Nothing you type here is saved',
   juzMissing: 'There is no juz with this number. Juz run from 1 to 30.',
+  gotoHowTo: 'Direct results show as you type. The keyboard\'s Search key (Enter) opens the first result; if there is none, it searches the Quran text for what you typed.',
+  tipsAgain: 'Show tips again',
+  tipsAgainDone: 'The tips will show when you open the reader.',
+  tipOf: 'Tip {n} of {m}',
+  tip1Title: 'Tap any ayah',
+  tip1Body: 'Play from there, open its Tafseer in English, bookmark it on this device, or copy its reference.',
+  tip2Title: 'Go anywhere',
+  tip2Body: 'Type an ayah like 2:255, a surah name or "juz 30" in the Go to box.',
+  tip3Title: 'Make reading comfortable',
+  tip3Body: 'Change text size, night mode and language in Settings.',
+  tipSkip: 'Skip',
+  next: 'Next',
+  done: 'Done',
   pvListenL: 'Listening',
   pvListen: "when you play a recitation, our server asks Quran Foundation for the audio file's address and the ayah timings. Your address and device details are not passed to them in that request. Your browser then plays the file directly from the audio server that Quran Foundation's service points to (download.quranicaudio.com), which receives your network address and basic browser details and can see which recitation you play. We don't keep a record of what you listen to. We keep the file address and ayah timings for no more than 7 days.",
   // Privacy page, D-099 approved text (see the Arabic block above).

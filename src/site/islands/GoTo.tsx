@@ -1,12 +1,14 @@
 // RQ-008 Go to view (kit v39, stage 3): AC10 (the home box) and AC59 to AC69, D-190 C, D-092.
-// One labelled input, the "Go directly" list, the "Search the Quran text" row, example chips and the
-// note notSaved (AC59). The same view is on the Search screen (Search tab and the reader's Go to
+// One labelled input, the "Go directly" list, example chips and the note notSaved (AC59).
+// Kit v40 (D-216 A, D-213 A, QA v39 FIND-CD): the "Search the Quran text" heading and the word-search row
+// are gone; everything is typed in the one box. Direct results show as the reader types; Enter (the
+// phone keyboard's Search key, enterkeyhint="search") opens the first direct result when there is
+// one, and otherwise runs the word search. The hint under the box (gotoHowTo) says so. The same view is on the Search screen (Search tab and the reader's Go to
 // button) and in the home box (P-3: the results show under the box).
 // - Direct results (AC60 to AC63) are worked out here from build data (src/core/goto.ts) as the reader
 //   types, with no button and no request (AC64, AC65). Each result says its kind in words (kindAyah,
 //   kindSurah, kindJuz), and their number is announced politely (offerCount).
-// - Word search (AC66) runs only when asked: the "Search the Quran text" row, or Enter (as the search
-//   form today; P-13 is not built, it is still a proposal). It is today's search
+// - Word search (AC66) runs only when asked: Enter with no direct result (D-213 A). It is today's search
 //   (RQ-002): POST /api/search with the query in the body only, Arabic only, 100 characters, the
 //   browser's 30-per-minute message (D-058) and the Worker's limit (D-061), results with highlights
 //   and pages, D-011 text unchanged. Without JavaScript the form still posts to /api/search.
@@ -34,6 +36,7 @@ const chevron = <svg className="goto-dir" width="18" height="18" viewBox="0 0 24
 
 export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home = false }: Props) {
   const input = useRef<HTMLInputElement>(null);
+  const box = useRef<HTMLElement>(null);
   const words = useRef<WordSearchApi>(null);
   const [q, setQ] = useState('');
   const [out, setOut] = useState<GotoOut>({ results: [], msg: null });
@@ -44,21 +47,38 @@ export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home
   const id = 'q';
 
   function change(v: string) {
+    const o = gotoResults(v, data);
     setQ(v);
-    setOut(gotoResults(v, data));
+    setOut(o);
     setSeq((n) => n + 1);
+    // FIND-CD: an earlier word search's answer ("No results", or results for other words) is not left
+    // under new direct results or a message of the box's own.
+    if (o.results.length || o.msg) words.current?.reset();
   }
   // Text typed before this island loaded stays in the input; read it now.
   useEffect(() => { const v = input.current?.value ?? ''; if (v) change(v); }, []);
 
   const hrefOf = (r: GotoResult) => (r.kind === 'surah' ? surahPath(lang, r.s) : ayahPath(lang, r.s, r.a));
 
-  // Enter runs the word search, as the search form does today (RQ-002). P-13 (Enter opens the first
-  // direct result) is a proposal Hamzeh has not decided, so it is not built; the direct results are
-  // links, one Tab away.
+  // D-213 A (P-13): Enter opens the first direct result when there is one (the same link a tap would
+  // follow, so the reader opens in place, AC68); no word search runs, so no "No results" shows under
+  // the direct results and only their count is announced (FIND-CD). With no direct result and no
+  // message of its own, Enter runs today's word search (RQ-002). When the box already shows its own
+  // message (refMissing, juzMissing, latinOnly, tooLong) the word search is not sent: that message
+  // stays the one answer (builder's choice, for Hamzeh to confirm; latinOnly and tooLong are the word
+  // search's own checks too, so its answer would be the same message spoken a second time).
+  function enter(v: string) {
+    const o = gotoResults(v, data);
+    if (o.results.length) {
+      const first = box.current?.querySelector<HTMLAnchorElement>('a[data-goto-result]');
+      if (first) { first.click(); return; }
+    }
+    if (o.msg) { words.current?.reset(); return; }
+    words.current?.run(v);
+  }
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    words.current?.run(input.current?.value ?? '');
+    enter(input.current?.value ?? '');
   }
   function chip(v: string) {
     if (input.current) input.current.value = v;
@@ -104,26 +124,27 @@ export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home
     '36',
   ].filter((x) => x.trim());
 
-  // Enter runs the word search here, not through the browser's implicit form submission (which a
+  // Enter is handled here, not through the browser's implicit form submission (which a
   // form with one field and no submit button did not always make: a missed search in the e2e run).
   // Esc clears the box.
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); words.current?.run(e.currentTarget.value); return; }
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); enter(e.currentTarget.value); return; }
     if (e.key === 'Escape' && q) { e.preventDefault(); chip(''); }
   };
 
   return (
-    <section className="goto search" data-search data-goto data-goto-home={home ? '1' : '0'}>
+    <section className="goto search" data-search ref={box} data-goto data-goto-home={home ? '1' : '0'}>
       <form method="post" action="/api/search" role="search" data-astro-reload="" onSubmit={onSubmit}>
         <input type="hidden" name="lang" value={lang} />
         <label htmlFor={id} className="search-label">{t(lang, home ? 'gotoLabel' : 'gotoSearchLabel')}</label>
         <div className="goto-field">
           <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-          <input ref={input} id={id} name="q" type="search" dir="auto" autoComplete="off" spellCheck={false} enterKeyHint="go"
+          <input ref={input} id={id} name="q" type="search" dir="auto" autoComplete="off" spellCheck={false} enterKeyHint="search"
             placeholder={t(lang, 'gotoPlaceholder', { ref: '2:255', name: nameOf(2), a: 255, j: 30 })}
-            aria-describedby={`${id}-note ${id}-hint ${id}-count`} aria-invalid={len > MAX_CHARS}
+            aria-describedby={`${id}-how ${id}-note ${id}-hint ${id}-count`} aria-invalid={len > MAX_CHARS}
             onInput={(e) => change(e.currentTarget.value)} onKeyDown={onKey} data-goto-input />
         </div>
+        <p id={`${id}-how`} className="hint goto-how" data-goto-how><BidiText text={t(lang, 'gotoHowTo')} lang={lang} /></p>
         <p id={`${id}-count`} className={len > MAX_CHARS ? 'hint over' : 'hint'} data-count>{len > MAX_CHARS ? t(lang, 'tooLong', { n: len }) : t(lang, 'charCount', { n: len })}</p>
       </form>
       <p role="status" aria-live="polite" className={out.msg ? 'msg alert' : 'msg'} data-goto-status data-seq={seq}>{status}</p>
@@ -133,11 +154,6 @@ export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home
           <ul className="goto-list">{out.results.map(row)}</ul>
         </nav>
       )}
-      <h2 className="goto-h">{t(lang, 'searchTextTitle')}</h2>
-      <button type="button" className="goto-word" data-goto-word onClick={() => words.current?.run(input.current?.value ?? '')}>
-        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-        <span>{t(lang, 'searchTextHint')}</span>
-      </button>
       {/* RQ-002 AC15: the word search's own rule (Arabic only, 100 characters) and the D-027 note, as
           on the search form of kit v38. */}
       <p id="q-hint" className="hint">{t(lang, 'searchHint')} <BidiText text={t(lang, 'searchPlaceholderForm')} lang={lang} /></p>

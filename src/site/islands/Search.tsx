@@ -36,7 +36,9 @@ function Text({ text, hl }: { text: string; hl: number[] }) {
 // the browser's counter (D-058), POST /api/search with the query in the body only, results with
 // highlights and pages. Offers from the Worker are shown only when the Go to view has no direct
 // result of its own (showOffers), so the same place is never listed twice.
-export type WordSearchApi = { run: (q: string) => void };
+// Kit v40: reset() clears the last answer (the Go to view calls it when the box gets direct results
+// or a message of its own, FIND-CD).
+export type WordSearchApi = { run: (q: string) => void; reset: () => void };
 export function WordSearch({ lang, ref, showOffers = true }: { lang: Lang; ref?: Ref<WordSearchApi>; showOffers?: boolean }) {
   const statusRef = useRef<HTMLParagraphElement>(null);
   const lastQ = useRef('');
@@ -45,9 +47,14 @@ export function WordSearch({ lang, ref, showOffers = true }: { lang: Lang; ref?:
   // answer from the previous one even when the text is the same.
   const [seq, setSeq] = useState(0);
   const setState = (s: State) => { setStateRaw(s); if (s.kind !== 'loading') setSeq((n) => n + 1); };
-  useImperativeHandle(ref, () => ({ run(q: string) { lastQ.current = q; void go(q, 1); } }));
+  const gen = useRef(0);
+  useImperativeHandle(ref, () => ({
+    run(q: string) { lastQ.current = q; void go(q, 1); },
+    reset() { gen.current++; setStateRaw((s) => (s.kind === 'idle' ? s : { kind: 'idle' })); },
+  }));
 
   async function go(q: string, page: number) {
+    const g = gen.current;
     const bad = validate(q);
     if (bad === 'empty') return setState({ kind: 'msg', text: t(lang, 'empty') });
     if (bad === 'too_long') return setState({ kind: 'msg', text: t(lang, 'tooLong', { n: [...q].length }), alert: true });
@@ -66,6 +73,7 @@ export function WordSearch({ lang, ref, showOffers = true }: { lang: Lang; ref?:
         cache: 'no-store',
         referrerPolicy: 'no-referrer',
       });
+      if (g !== gen.current) return; // cleared meanwhile (reset)
       // The password gate refused the request: the browser no longer holds the password.
       if (r.status === 401) return setState({ kind: 'msg', text: t(lang, 'authAgain'), alert: true });
       if (r.status === 429) {
@@ -73,6 +81,7 @@ export function WordSearch({ lang, ref, showOffers = true }: { lang: Lang; ref?:
         return setState({ kind: 'msg', text: t(lang, 'rateLimited', { s }), alert: true });
       }
       const data = await r.json();
+      if (g !== gen.current) return;
       if (!r.ok) {
         const e = data?.error;
         const text = e === 'latin' ? t(lang, 'latinOnly') : e === 'too_long' ? t(lang, 'tooLong', { n: [...q].length }) : e === 'empty' ? t(lang, 'empty') : t(lang, 'searchError');
@@ -81,6 +90,7 @@ export function WordSearch({ lang, ref, showOffers = true }: { lang: Lang; ref?:
       setState({ kind: 'done', data });
       requestAnimationFrame(() => statusRef.current?.focus());
     } catch {
+      if (g !== gen.current) return;
       setState({ kind: 'msg', text: t(lang, 'searchError'), alert: true });
     }
   }

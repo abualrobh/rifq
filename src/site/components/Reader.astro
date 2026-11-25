@@ -3,6 +3,7 @@ import Layout from '../layouts/Layout.astro';
 import ReaderTools from '../islands/ReaderTools.tsx';
 import AudioPlayer from '../islands/AudioPlayer.tsx';
 import AyahPanels from '../islands/AyahPanels.tsx';
+import Tips from '../islands/Tips.tsx';
 import SurahList from './SurahList.astro';
 import { surahs, tafseerOn, audioOn, dev, juz, juzByStartsOk } from '../lib/data';
 import { t, surahPath, ayatLabel, type Lang } from '../../core/strings.ts';
@@ -61,6 +62,8 @@ const meta = Number.isInteger(j0) ? t(lang, 'surahMeta', { s: surah.n, n: ayatLa
     ))}
   </ol>
   <AyahPanels lang={lang} s={surah.n} count={surah.items.length} names={{ ar: surah.ar, en: surah.en }} prevCount={prevCount} last={last} juz={juz} juzOk={juzByStartsOk} tafseer={tafseerOn} audio={audioOn} dev={dev} client:idle />
+  {/* RQ-008 stage 4 (kit v40, AC79 to AC85): the first-visit tips; nothing in the static HTML. */}
+  <Tips lang={lang} audio={audioOn} tafseer={tafseerOn} client:idle />
   <nav class="surah-nav surah-nav-end" aria-label={t(lang, 'navLabel')}>
     {prev && <a rel="prev" data-prev href={prev}>{t(lang, 'prevSurah')}</a>}
     {next && <a rel="next" data-next class="next-btn" href={next}>{t(lang, 'nextSurah')}</a>}

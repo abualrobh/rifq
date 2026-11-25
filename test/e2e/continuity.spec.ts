@@ -151,7 +151,8 @@ test('CN-01 (AC62, AC63, AC65, AC28, AC33, AC71, D-130): playing surah 2 continu
   // Nothing about the pages visited is stored on the device.
   const keys = await page.evaluate(() => [Object.keys(localStorage), Object.keys(sessionStorage)]);
   // Kit v37: recently read (RQ-008 AC20) is the one new device-only item (surah numbers only).
-  expect(keys[0].every((k) => k === 'rifq.settings' || k === 'rifq.saves' || k === 'rifq.recent')).toBe(true);
+  // Kit v40: "tips seen" (RQ-008 AC80, a yes/no value) is the other one.
+  expect(keys[0].every((k) => k === 'rifq.settings' || k === 'rifq.saves' || k === 'rifq.recent' || k === 'rifq.tips')).toBe(true);
   expect(keys[1]).toEqual([]);
 });
 
@@ -558,11 +559,12 @@ test('CN-08 (AC70, R-9): settings, search, bookmarks, index filter, Tafseer and 
   await expect(page.locator('[data-dev-banner]')).toBeVisible();
   await expect(page.locator('[data-source-details]')).toHaveCount(1);
   // Search (RQ-002) works on the swapped page, by its island (no full load to the Worker page).
+  // Kit v40 (D-213 A): Enter on 2:255 opens its first direct result in place; then Back to home.
   await page.fill('#q', '2:255');
-  await page.press('#q', 'Enter');
-  await expect(page.locator('[data-search-status]').first()).not.toBeEmpty();
-  await expect(page.locator('[data-results] li, [data-search] a[href*="#a255"]').first()).toBeVisible();
+  await expect(page.locator('[data-search] a[href*="#a255"]').first()).toBeVisible();
+  await hop(page, () => page.press('#q', 'Enter'), /\/2\/#a255$/);
   expect(await sameDoc(page)).toBe(true);
+  await hop(page, () => page.goBack(), '/');
   // Index filter (RQ-004).
   await hop(page, () => page.click('a[data-all-surahs]'), '/surahs/');
   await page.fill('[data-index-filter] input', '114');

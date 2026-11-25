@@ -30,15 +30,15 @@ const EN: Record<string, string> = {
   gotoAyahResult: '{name}, ayah {a}',
   gotoSurahSub: 'Surah {s} · {n}',
   gotoJuzSub: 'Starts at {s}:{a}',
-  searchTextTitle: 'Search the Quran text',
-  searchTextHint: 'Type an Arabic word to search the ayat',
   youCanType: 'You can type',
   notSaved: 'Nothing you type here is saved',
   juzMissing: 'There is no juz with this number. Juz run from 1 to 30.',
 };
 
-test('RQ-008 stage 3 strings: 17 new keys in both tables; English as drafted in RQ-008 v1.0', () => {
-  assert.equal(Object.keys(EN).length, 17);
+// Kit v40 (D-216 A): searchTextTitle and searchTextHint were removed with the word-search row.
+test('RQ-008 stage 3 strings: 15 keys still in both tables (2 removed in kit v40); English as drafted in RQ-008 v1.0', () => {
+  assert.equal(Object.keys(EN).length, 15);
+  for (const k of ['searchTextTitle', 'searchTextHint']) { assert.ok(!(k in STRINGS.en), `en.${k} removed`); assert.ok(!(k in STRINGS.ar), `ar.${k} removed`); }
   for (const [k, v] of Object.entries(EN)) {
     assert.equal((STRINGS.en as Record<string, string>)[k], v, `en.${k}`);
     const ar = (STRINGS.ar as Record<string, string>)[k];

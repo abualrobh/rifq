@@ -2,7 +2,7 @@
 // RQ-008 Settings tab (AC70 to AC78, kit v37).
 import Layout from '../layouts/Layout.astro';
 import SettingsScreen from '../islands/SettingsScreen.tsx';
-import { counts, names, audioOn, dev } from '../lib/data';
+import { counts, names, audioOn, tafseerOn, dev } from '../lib/data';
 import { t, settingsPath, type Lang } from '../../core/strings.ts';
 interface Props { lang: Lang }
 const { lang } = Astro.props;
@@ -10,5 +10,5 @@ const other: Lang = lang === 'ar' ? 'en' : 'ar';
 ---
 <Layout lang={lang} title={`${t(lang, 'tabSettings')} - ${t(lang, 'siteName')}`} alt={settingsPath(other)} tab="settings">
   <h1 class="home-title">{t(lang, 'tabSettings')}</h1>
-  <SettingsScreen lang={lang} counts={counts} names={names} audio={audioOn} dev={dev} client:idle />
+  <SettingsScreen lang={lang} counts={counts} names={names} audio={audioOn} tafseer={tafseerOn} dev={dev} client:idle />
 </Layout>
