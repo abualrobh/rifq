@@ -15,7 +15,8 @@
 // - reviewed: the date of the D-012 review, YYYY-MM-DD.
 // One entry per (tafsirId, ref). The file holds no Tafseer text, no reader data and no reviewer
 // personal data. Whether keeping fingerprints is allowed is to be confirmed with Quran Foundation
-// (D-079); their Developer Terms dated 2026-10-11 do not mention hashes or fingerprints.
+// (D-079, D-258); their Developer Terms (last updated 2026-11-20, D-253) do not mention hashes or
+// fingerprints.
 // Pure TypeScript using Web Crypto, so the Worker and Node share it.
 
 export const FINGERPRINT_FORMAT = 'rifq-tafseer-fingerprints/1';

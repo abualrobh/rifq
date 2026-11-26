@@ -9,7 +9,8 @@
 // - the reciter button (AC51) shows the chosen reciter's name as Quran Foundation gives it, once the
 //   list has been loaded in this tab (it is never requested before play or before the list is
 //   opened, RQ-006 AC3); it opens today's reciter list under today's rules (D-111, D-119, D-122),
-//   with the recitation source details and the credit (AC52, audioSourceDetails, audioCredit);
+//   with the recitation source details and the credit (AC52, audioSourceDetails; since kit v41 the
+//   credit names the reciter, audioCreditBy, D-254);
 // - on the playing surah's own page it marks the playing ayah, scrolls with it and announces each
 //   new ayah (AC6, AC7, AC44; the engine does the marking and scrolling, AC53, AC54);
 // - on another surah's page it stays idle for its own surah while the mini-player shows what plays;
@@ -25,6 +26,7 @@ import { t, type Lang } from '../../core/strings.ts';
 import type { Names } from '../client/recitation.ts';
 import { useRecitation } from '../client/use-recitation.ts';
 import BidiText from './BidiText.tsx';
+import { creditNode } from '../client/credit.ts';
 import { fill } from '../client/fill.ts';
 
 type Props = { lang: Lang; s: number; count: number; names: Names; dev?: boolean };
@@ -103,8 +105,9 @@ export default function AudioPlayer({ lang, s, count, names, dev = false }: Prop
           </>
         )}
         {/* AC52 (D-188 A): the credit is behind the reciter button; while a recitation is loaded the
-            mini-player also names Quran Foundation on every page. */}
-        <p className="ap-credit" data-audio-credit><BidiText text={t(lang, 'audioCredit')} lang={lang} /></p>
+            mini-player also names the reciter and Quran Foundation on every page. Kit v41 (D-254):
+            the credit names the reciter. */}
+        <p className="ap-credit" data-audio-credit data-credit-named={reciter ? '1' : '0'}>{creditNode(lang, reciter?.name)}</p>
       </div>
       <p className={msg?.alert ? 'msg alert ap-status' : 'msg ap-status'} role="status" aria-live="polite" data-audio-status data-loading={own && snap.loading ? '1' : '0'} data-reason={snap.reason}>{msg ? <Coded text={msgText} code={msg.code} dev={dev} /> : null}</p>
       {/* AC44: on the playing surah's page only, once per ayah, number only. */}

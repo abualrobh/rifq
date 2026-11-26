@@ -64,6 +64,8 @@ export class QfError extends Error {
 }
 
 type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
+// Filled by QfClient.get: the clock when the API's answer arrived (kit v41, D-259).
+export type Fetched = { at?: number };
 
 function basic(id: string, secret: string): string {
   const bytes = new TextEncoder().encode(`${id}:${secret}`);
@@ -129,7 +131,10 @@ export class QfClient {
   }
 
   // GET on the content API. A 401 clears the token, gets a new one and retries once (Quick Start).
-  async get(cfg: QfConfig, path: string, query: Record<string, string> = {}, scope = SCOPE): Promise<unknown> {
+  // Kit v41 (D-259, QA v40 FIND-CL): when `fetched` is given, its `at` is set to the clock at the
+  // moment the API's answer arrives (before its body is read or processed), also for a 404, so a
+  // cache entry's 7 days (or 10 minutes) are counted from the fetch, not from the write.
+  async get(cfg: QfConfig, path: string, query: Record<string, string> = {}, scope = SCOPE, fetched?: Fetched): Promise<unknown> {
     const qs = new URLSearchParams(query).toString();
     const url = cfg.apiBase + CONTENT_PREFIX + path + (qs ? '?' + qs : '');
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -138,6 +143,7 @@ export class QfClient {
         method: 'GET',
         headers: { 'x-auth-token': tok, 'x-client-id': cfg.clientId, accept: 'application/json' },
       }, this.timeoutMs);
+      if (fetched) fetched.at = this.now();
       if (r.status === 401 && attempt === 0) { await r.body?.cancel(); this.clearToken(scope); continue; }
       if (r.status === 404) { await r.body?.cancel(); throw new QfError('not_found'); }
       if (r.status === 429) { await r.body?.cancel(); throw new QfError('rate_limited'); }

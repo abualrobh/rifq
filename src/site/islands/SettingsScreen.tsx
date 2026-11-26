@@ -28,7 +28,7 @@ import { clearRecent, loadRecent } from '../../core/recent.ts';
 import { privacyPath, savedPath, settingsPath, t, type Lang } from '../../core/strings.ts';
 import { apply, read, SIZES, type SettingsValue } from './Settings.tsx';
 import { useRecitation } from '../client/use-recitation.ts';
-import BidiText from './BidiText.tsx';
+import { creditNode } from '../client/credit.ts';
 import { fill } from '../client/fill.ts';
 import { onDeviceChange } from '../client/device-events.ts';
 import { clearTipsSeen, tipList } from '../../core/tips.ts';
@@ -173,7 +173,8 @@ export default function SettingsScreen({ lang, counts, names, audio, tafseer = f
               </fieldset>
             )}
           </details>
-          <p className="ap-credit"><BidiText text={t(lang, 'audioCredit')} lang={lang} /></p>
+          {/* Kit v41 (D-254): the credit names the reciter and Quran Foundation. */}
+          <p className="ap-credit" data-set-credit data-credit-named={reciter ? '1' : '0'}>{creditNode(lang, reciter?.name)}</p>
           <p className="msg alert" role="status" aria-live="polite" data-set-reciter-status>{recMsg}</p>
         </section>
       )}

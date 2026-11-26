@@ -156,11 +156,16 @@ const ar = {
   audioReciter: 'القارئ',
   audioSourceDetails: 'مصدر التلاوة',
   audioCredit: 'التلاوة مقدَّمة من Quran Foundation.',
+  // Kit v41 (D-254): the credit names the reciter and Quran Foundation (Developer Terms 2026-11-20:
+  // "Credit Quran Foundation and the reciter"). {name} is the reciter's name as Quran Foundation
+  // gives it. New wording for the B-09 review. audioCredit stays for the moment before the name is known.
+  audioCreditBy: 'التلاوة بصوت {name}، مقدَّمة من Quran Foundation.',
   audioStyle: 'أسلوب التلاوة',
   audioRiwayah: 'الرواية',
   audioReciterId: 'رقم القارئ لدى Quran Foundation',
   audioLicenceL: 'الترخيص',
-  audioLicence: 'شروط المطورين من Quran Foundation، آخر تحديث 2026-10-11',
+  // Kit v41 (D-253 C): the terms are named without a date, so the line does not go stale (B-09 review).
+  audioLicence: 'شروط المطورين من Quran Foundation',
   audioLoading: 'جارٍ تحميل التلاوة…',
   audioUnavailable: 'التلاوة غير متاحة الآن. القراءة متاحة كالمعتاد.',
   audioNoSurah: 'لا تتوفر تلاوة لهذه السورة الآن.',
@@ -448,11 +453,12 @@ const en: typeof ar = {
   audioReciter: 'Reciter',
   audioSourceDetails: 'Recitation source',
   audioCredit: 'Recitation provided by Quran Foundation.',
+  audioCreditBy: 'Recitation by {name}, provided by Quran Foundation.',
   audioStyle: 'Style',
   audioRiwayah: 'Riwayah',
   audioReciterId: 'Quran Foundation chapter-reciter ID',
   audioLicenceL: 'Licence',
-  audioLicence: 'Quran Foundation Developer Terms, last updated 2026-10-11',
+  audioLicence: 'Quran Foundation Developer Terms',
   audioLoading: 'Loading the recitation…',
   audioUnavailable: 'The recitation is not available for now. Reading still works.',
   audioNoSurah: 'No recitation is available for this surah for now.',
