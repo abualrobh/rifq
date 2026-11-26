@@ -151,7 +151,10 @@ test('TP3-16: bookmarks and last position are never sent to a server', async ({ 
   await bookmark(page, 9);
   await bookmark(page, 10);
   await closePanel(page);
-  await page.waitForTimeout(3600);
+  // Kit v42: wait until the D-062 rule has recorded the position. After a panel closes it starts
+  // again from zero on its next 500 ms tick and then needs 3 s, so it can take up to about 4 s; the
+  // fixed 3.6 s wait failed every time on 2026-11-26 on the v41 build too (timing, not a change).
+  await expect.poll(() => page.evaluate(() => { try { return !!JSON.parse(localStorage.getItem('rifq.saves') ?? '{}').l; } catch { return false; } }), { timeout: 8000 }).toBe(true);
   await page.goto('/');
   await hydrated(page);
   await page.click('[data-continue]');
@@ -209,7 +212,10 @@ test('TP3-19: device storage holds references only: no text, no names, no dates'
   await bookmark(page, 20);
   await bookmark(page, 21);
   await closePanel(page);
-  await page.waitForTimeout(3600);
+  // Kit v42: wait until the D-062 rule has recorded the position. After a panel closes it starts
+  // again from zero on its next 500 ms tick and then needs 3 s, so it can take up to about 4 s; the
+  // fixed 3.6 s wait failed every time on 2026-11-26 on the v41 build too (timing, not a change).
+  await expect.poll(() => page.evaluate(() => { try { return !!JSON.parse(localStorage.getItem('rifq.saves') ?? '{}').l; } catch { return false; } }), { timeout: 8000 }).toBe(true);
   const all = await page.evaluate(() => ({ ...localStorage }));
   const keys = Object.keys(all).sort();
   // Kit v37 (RQ-008 AC20, D-182 A): recently read is the one new device-only item: surah numbers only.
