@@ -27,6 +27,31 @@ async function closePanel(page: Page) {
   await expect(page.locator('dialog[data-ayah-panel]')).toHaveJSProperty('open', false);
 }
 
+// Kit v43 (QA v42 FIND-CW, D-279 (1)): the wait for the D-062 save is a check of its timing. While a
+// panel is open nothing is saved (RQ-008 AC35); after it closes the rule starts again from zero on
+// its next 500 ms tick (reseed) and then records the position on the first tick at least 3 s later
+// (DWELL_MS). So the save comes 3.0 to 4.0 s after the close. The kit v42 fixed 3.6 s wait sat in
+// the middle of that window, which is why it failed about half the time (timing, not a change). The
+// check: no position before the close, and the position stored between 2.9 s (the rule waited) and
+// 4.5 s (the window's 4.0 s plus 0.5 s for a slow test machine) after the panel has closed.
+const SAVE_MIN_MS = 2900, SAVE_MAX_MS = 4500;
+async function savedWithinRule(page: Page) {
+  const before = await page.evaluate(() => {
+    const w = window as unknown as { __saveAt?: number; __closedAt: number };
+    w.__closedAt = performance.now();
+    const has = () => { try { return !!JSON.parse(localStorage.getItem('rifq.saves') ?? '{}').l; } catch { return false; } };
+    const was = has();
+    const iv = setInterval(() => { if (has()) { w.__saveAt = performance.now() - w.__closedAt; clearInterval(iv); } }, 20);
+    return was;
+  });
+  expect(before, 'no last position is stored while the panel was open').toBe(false);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __saveAt?: number }).__saveAt ?? null), { timeout: 8000 }).not.toBeNull();
+  const ms = await page.evaluate(() => (window as unknown as { __saveAt: number }).__saveAt);
+  test.info().annotations.push({ type: 'save-after-close-ms', description: String(Math.round(ms)) });
+  expect(ms, 'saved only after the 3-second rule').toBeGreaterThanOrEqual(SAVE_MIN_MS);
+  expect(ms, 'saved within the rule\'s window (3.0 to 4.0 s after the close, plus 0.5 s)').toBeLessThanOrEqual(SAVE_MAX_MS);
+}
+
 test('TP3-01: a bookmark stays after reload and after a browser restart', async () => {
   const dir = join(BUILD, 'profiles', `tp3-01-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
@@ -151,10 +176,7 @@ test('TP3-16: bookmarks and last position are never sent to a server', async ({ 
   await bookmark(page, 9);
   await bookmark(page, 10);
   await closePanel(page);
-  // Kit v42: wait until the D-062 rule has recorded the position. After a panel closes it starts
-  // again from zero on its next 500 ms tick and then needs 3 s, so it can take up to about 4 s; the
-  // fixed 3.6 s wait failed every time on 2026-11-26 on the v41 build too (timing, not a change).
-  await expect.poll(() => page.evaluate(() => { try { return !!JSON.parse(localStorage.getItem('rifq.saves') ?? '{}').l; } catch { return false; } }), { timeout: 8000 }).toBe(true);
+  await savedWithinRule(page);
   await page.goto('/');
   await hydrated(page);
   await page.click('[data-continue]');
@@ -212,10 +234,7 @@ test('TP3-19: device storage holds references only: no text, no names, no dates'
   await bookmark(page, 20);
   await bookmark(page, 21);
   await closePanel(page);
-  // Kit v42: wait until the D-062 rule has recorded the position. After a panel closes it starts
-  // again from zero on its next 500 ms tick and then needs 3 s, so it can take up to about 4 s; the
-  // fixed 3.6 s wait failed every time on 2026-11-26 on the v41 build too (timing, not a change).
-  await expect.poll(() => page.evaluate(() => { try { return !!JSON.parse(localStorage.getItem('rifq.saves') ?? '{}').l; } catch { return false; } }), { timeout: 8000 }).toBe(true);
+  await savedWithinRule(page);
   const all = await page.evaluate(() => ({ ...localStorage }));
   const keys = Object.keys(all).sort();
   // Kit v37 (RQ-008 AC20, D-182 A): recently read is the one new device-only item: surah numbers only.
