@@ -34,7 +34,7 @@
 // Nothing here is sent anywhere except the Tafseer request TafseerView makes to RIFQ's own
 // /api/tafseer (AC42). Bookmarks stay on the device (RQ-003). The clipboard is written only after a
 // tap, with S:A only, and never read (AC32).
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as RKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { navigate } from 'astro:transitions/client';
 import { addBookmark, getStorage, isBookmarked, load, removeBookmark } from '../../core/store.ts';
 import { juzOfAyah } from '../../core/recent.ts';
@@ -44,6 +44,7 @@ import { revealRow } from '../client/reveal.ts';
 import { useRecitation } from '../client/use-recitation.ts';
 import type { Engine, Names } from '../client/recitation.ts';
 import { fill, refNode } from '../client/fill.ts';
+import { closeModal, openModal, trap } from '../client/modal.ts';
 import TafseerView, { type TafseerHost } from './TafseerView.tsx';
 import BidiText from './BidiText.tsx';
 
@@ -57,38 +58,10 @@ export const TF_HASH = /^#a(\d{1,4});tafseer$/;
 type Msg = { key: Key; ref?: boolean } | null;
 // FIND-BX: how long a click on the ayah waits for a second click (a double click selects a word).
 export const DOUBLE_CLICK_MS = 350;
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
 const playIcon = <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></svg>;
 const pauseIcon = <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" /></svg>;
 const closeIcon = <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>;
-
-// Opening a modal dialog must not move the reader (AC35): the scroll position is put back if the
-// browser moved it, and focus goes to the heading inside the dialog (AC33).
-function openModal(d: HTMLDialogElement | null, focusSel: string) {
-  if (!d || d.open) return;
-  const x = scrollX, y = scrollY;
-  try { d.showModal(); } catch { d.setAttribute('open', ''); }
-  d.querySelector<HTMLElement>(focusSel)?.focus({ preventScroll: true });
-  if (scrollX !== x || scrollY !== y) window.scrollTo({ left: x, top: y, behavior: 'instant' as ScrollBehavior });
-}
-function closeModal(d: HTMLDialogElement | null) {
-  if (!d?.open) return;
-  const x = scrollX, y = scrollY;
-  d.close();
-  if (scrollX !== x || scrollY !== y) window.scrollTo({ left: x, top: y, behavior: 'instant' as ScrollBehavior });
-}
-// Tab and Shift+Tab stay inside the dialog (AC33), on every browser.
-function trap(e: RKeyboardEvent<HTMLDialogElement>) {
-  if (e.key !== 'Tab') return;
-  const box = e.currentTarget;
-  const f = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.getClientRects().length > 0);
-  if (!f.length) return;
-  const cur = document.activeElement as HTMLElement | null;
-  const i = cur ? f.indexOf(cur) : -1;
-  if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
-  else if (!e.shiftKey && (i === f.length - 1 || i === -1 && !box.contains(cur))) { e.preventDefault(); f[0].focus(); }
-}
 
 // The offline message is set at once when a play is chosen without a connection (RQ-006 AC22). The
 // panel then stays open and says it, so the message is not left only at the top of the surah.

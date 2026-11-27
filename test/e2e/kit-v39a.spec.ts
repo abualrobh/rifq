@@ -147,12 +147,18 @@ for (const lang of LANGS) {
         const btns = [...box.querySelectorAll('button, a')].map((x) => x.getBoundingClientRect());
         let gap = Infinity;
         for (let i = 0; i < btns.length; i++) for (let j = i + 1; j < btns.length; j++) { const A = btns[i], B = btns[j]; gap = Math.min(gap, Math.max(B.left - A.right, A.left - B.right, B.top - A.bottom, A.top - B.bottom)); }
-        return { overlap, lines: Math.max(...lines), minTarget: Math.min(...items.map((x) => Math.min(x.width, x.height))), off: items.some((x) => x.left < -0.5 || x.right > innerWidth + 0.5 || x.bottom > innerHeight + 0.5), miniAbove: m.bottom <= b.top + 1, gap, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth };
+        // Kit v42 (D-270 A): the one-row mini-player's buttons keep 44 px of height; where four 44 px
+        // buttons and their 8 px gaps are wider than the bar (a 195 px page), they share its width.
+        const tabs = [...bar.querySelectorAll('a')].map((a) => a.getBoundingClientRect());
+        const cs = getComputedStyle(box), avail = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const shared = box.getAttribute('data-compact') === '1' && avail < 4 * 44 + 3 * 8 ? Math.floor((avail - 3 * 8) / 4) - 1 : 44;
+        return { overlap, lines: Math.max(...lines), minTarget: Math.min(...tabs.map((x) => Math.min(x.width, x.height)), ...btns.map((x) => x.height)), miniMinW: Math.min(...btns.map((x) => x.width)), shared, off: items.some((x) => x.left < -0.5 || x.right > innerWidth + 0.5 || x.bottom > innerHeight + 0.5), miniAbove: m.bottom <= b.top + 1, gap, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth };
       });
       expect(r.overlap, tag).toBe(false);
       expect(r.off, tag).toBe(false);
       expect(r.lines, `${tag}: one line per tab label`).toBe(1);
       expect(r.minTarget, `${tag}: 44 px targets`).toBeGreaterThanOrEqual(44);
+      expect(r.miniMinW, `${tag}: mini-player buttons 44 px wide, or sharing a too narrow bar (D-270 A)`).toBeGreaterThanOrEqual(Math.max(24, Math.min(44, r.shared)));
       expect(r.gap, `${tag}: 8 px between mini-player buttons`).toBeGreaterThanOrEqual(8);
       expect(r.miniAbove, `${tag}: mini-player above the tab bar`).toBe(true);
       expect(r.sw, tag).toBeLessThanOrEqual(r.cw);

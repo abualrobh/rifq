@@ -191,6 +191,10 @@ const ar = {
   miniGo: 'الانتقال إلى الآية الجارية تلاوتها، {s}:{a}',
   miniClose: 'إغلاق المشغّل',
   miniEnded: 'انتهت التلاوة.',
+  // Kit v42 (D-270 A): the name of the mini-player's "more" button at large text, which opens the
+  // reciter, the credit, go to the playing ayah and close; also the name of the sheet it opens. New
+  // string for the B-09 Arabic review and Hamzeh's review.
+  miniMore: 'خيارات المشغّل',
   // RQ-008 v1.0 stage 1 (kit v37): tab bar, home, Saved and Settings screens. Strings as drafted in
   // RQ-008's table, except clearRecentFailed (not in the table; modelled on clearLastFailed). New
   // strings; they need the B-09 Arabic review and Hamzeh's review.
@@ -480,6 +484,7 @@ const en: typeof ar = {
   miniGo: 'Go to the playing ayah, {s}:{a}',
   miniClose: 'Close player',
   miniEnded: 'The recitation has ended.',
+  miniMore: 'Player options',
   // RQ-008 stage 1 (see the Arabic block).
   tabBarLabel: 'Main',
   tabHome: 'Home',

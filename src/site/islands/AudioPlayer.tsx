@@ -25,7 +25,7 @@ import { useEffect, useState } from 'react';
 import { t, type Lang } from '../../core/strings.ts';
 import type { Names } from '../client/recitation.ts';
 import { useRecitation } from '../client/use-recitation.ts';
-import BidiText from './BidiText.tsx';
+import SourceDetails from './SourceDetails.tsx';
 import { creditNode } from '../client/credit.ts';
 import { fill } from '../client/fill.ts';
 
@@ -90,20 +90,7 @@ export default function AudioPlayer({ lang, s, count, names, dev = false }: Prop
             ))}
           </fieldset>
         )}
-        {reciter && (
-          <>
-            <p className="ap-src-h" id="ap-src-h">{t(lang, 'audioSourceDetails')}</p>
-            <dl className="ap-source" data-audio-source aria-labelledby="ap-src-h">
-              <dt>{t(lang, 'audioReciter')}</dt><dd><bdi lang={nameLang(reciter.name)}>{reciter.name}</bdi></dd>
-              {/* QA FIND-4: Latin text inside the Arabic page is isolated. */}
-              <dt>{t(lang, 'audioStyle')}</dt><dd>{reciter.style ? <bdi lang={nameLang(reciter.style)}>{reciter.style}</bdi> : t(lang, 'notStated')}</dd>
-              <dt>{t(lang, 'audioRiwayah')}</dt><dd>{reciter.qirat ? <bdi lang={nameLang(reciter.qirat)}>{reciter.qirat}</bdi> : t(lang, 'notStated')}</dd>
-              <dt><BidiText text={t(lang, 'audioReciterId')} lang={lang} /></dt><dd>{reciter.id}</dd>
-              <dt>{t(lang, 'source')}</dt><dd><bdi lang="en" dir="ltr">Quran Foundation</bdi></dd>
-              <dt>{t(lang, 'audioLicenceL')}</dt><dd><BidiText text={t(lang, 'audioLicence')} lang={lang} /></dd>
-            </dl>
-          </>
-        )}
+        {reciter && <SourceDetails lang={lang} reciter={reciter} idBase="ap" />}
         {/* AC52 (D-188 A): the credit is behind the reciter button; while a recitation is loaded the
             mini-player also names the reciter and Quran Foundation on every page. Kit v41 (D-254):
             the credit names the reciter. */}

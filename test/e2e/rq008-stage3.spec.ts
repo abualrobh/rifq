@@ -6,7 +6,7 @@
 // folder, optional): R10-SHOTS writes screenshots there.
 import type { BrowserContext, Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-import { test, expect, surahs, src, MOBILE, hydrated, noOverflow, utf8, sliceOf, settle } from './helpers.ts';
+import { test, expect, surahs, src, MOBILE, hydrated, noOverflow, utf8, sliceOf, settle, ROOT_200, rootFontPx } from './helpers.ts';
 import { juzOfAyah } from '../../src/core/recent.ts';
 import { juzStarts } from '../../src/core/source-adapter.ts';
 import { splitAyahNumber } from '../../src/core/ayah-number.ts';
@@ -380,11 +380,13 @@ for (const lang of LANGS) {
     test.setTimeout(240_000);
     for (const [kind, w] of [['normal', 390], ['normal', 320], ['text', 390], ['text', 320], ['page', 195]] as const) {
       const ctx = await browser.newContext({ viewport: { width: w, height: kind === 'page' ? 422 : 844 }, deviceScaleFactor: kind === 'page' ? 2 : 1, baseURL: 'http://127.0.0.1:8812' });
-      if (kind === 'text') await ctx.addInitScript(() => { document.documentElement.style.fontSize = '200%'; });
+      // QA FIND-CK (kit v42): the 200% is applied once the root element exists (ROOT_200) and checked.
+      if (kind === 'text') await ctx.addInitScript(ROOT_200);
       const page = await ctx.newPage();
       for (const p of ['search/', '2/']) {
         await page.goto(P(lang, p));
         await hydrated(page);
+        expect(await rootFontPx(page), `${kind} ${w} ${p}: root font`).toBe(kind === 'text' ? 32 : 16);
         if (p === 'search/') { await page.fill('[data-goto-input]', '2:255'); await page.waitForTimeout(200); }
         const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
         expect(r.sw, `${kind} ${w} ${p}`).toBeLessThanOrEqual(r.cw);

@@ -154,6 +154,20 @@ export const test = base.extend<{ seen: Seen[]; guard: void; allowHosts: string[
 });
 export { expect };
 
+// QA FIND-CK (kit v42): browser text zoom at 200%, as the root font at 200%. An init script runs
+// before the document has its root element, so setting the font once there does nothing (the test
+// then ran at 100%). This sets it as soon as the root element exists (a MutationObserver on the
+// document), again at DOMContentLoaded, and again after each in-place page change (the router puts
+// the new page's attributes on the root element). Tests check it took effect with rootFontPx().
+export const ROOT_200 = () => {
+  const set = () => { const r = document.documentElement; if (r && r.style.fontSize !== '200%') r.style.fontSize = '200%'; };
+  set();
+  new MutationObserver(set).observe(document, { childList: true, subtree: false });
+  document.addEventListener('DOMContentLoaded', set);
+  document.addEventListener('astro:after-swap', set);
+};
+export const rootFontPx = (page: Page) => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+
 export async function hydrated(page: Page) {
   await page.waitForFunction(() => document.querySelectorAll('astro-island').length > 0 && !document.querySelector('astro-island[ssr]'));
 }

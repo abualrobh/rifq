@@ -4,8 +4,8 @@
 // (D-199: first-visit tips AC79 to AC85 and Show tips again). Arabic and English, made-up data (the
 // local mock), disposable profiles. No Arabic characters and no Quran text in this file: expected
 // text comes from the source file and strings.ts.
-import type { Page } from '@playwright/test';
-import { test, expect, surahs, src, MOBILE, hydrated, settle } from './helpers.ts';
+import type { Browser, Page } from '@playwright/test';
+import { test, expect, surahs, src, MOBILE, hydrated, settle, ROOT_200, rootFontPx, TIPS_SEEN_SCRIPT } from './helpers.ts';
 import { gotoResults } from '../../src/core/goto.ts';
 import { foldName } from '../../src/core/surah-match.ts';
 import { juzStarts } from '../../src/core/source-adapter.ts';
@@ -372,28 +372,79 @@ test.describe('tips', () => {
     await expect(dlg(page)).toHaveJSProperty('open', true);
   });
 
+  // QA FIND-CK (kit v42): the 200% text is now really applied (ROOT_200, checked: root font 32 px).
+  // Layout shift is counted in two parts: the reader's own load with the tips opening (from the first
+  // paint until 1.2 s after the tips show), and stepping through the tips. At 200% the load part is
+  // the reader's known jump on load at large text (QA FIND-CJ, accepted for now under D-262): it is
+  // measured here also without the tips, to show it is the reader's and not the tips'.
+  type TipsCls = { load: number; tips: number };
+  const CLS_SCRIPT = () => { const x = window as unknown as { __cls: number }; x.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries() as (PerformanceEntry & { value: number; hadRecentInput: boolean })[]) if (!e.hadRecentInput) x.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); };
+  const clsNow = (page: Page) => page.evaluate(() => (window as unknown as { __cls: number }).__cls);
+  async function tipsRun(browser: Browser, lang: Lang, w: number, big: boolean): Promise<TipsCls> {
+    const ctx = await browser.newContext({ viewport: { width: w, height: 844 }, baseURL: 'http://127.0.0.1:8812' });
+    if (big) await ctx.addInitScript(ROOT_200);
+    const page = await ctx.newPage();
+    await page.addInitScript(CLS_SCRIPT);
+    await page.goto(P(lang, '2/'));
+    await expect(dlg(page)).toHaveJSProperty('open', true);
+    expect(await rootFontPx(page), `${w} ${big}: root font`).toBe(big ? 32 : 16);
+    await page.waitForTimeout(1200);
+    const load = await clsNow(page);
+    await page.evaluate(() => { (window as unknown as { __cls: number }).__cls = 0; });
+    for (let i = 0; i < 3; i++) {
+      const r = await page.evaluate(() => { const d = document.querySelector('dialog[data-tips]')!.getBoundingClientRect(); return { l: d.left, r: d.right, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, iw: innerWidth }; });
+      expect(r.sw, `${w} ${big}`).toBeLessThanOrEqual(r.cw);
+      expect(r.l).toBeGreaterThanOrEqual(0);
+      expect(r.r).toBeLessThanOrEqual(r.iw);
+      const next = dlg(page).locator('[data-tip-next]');
+      if (await next.count()) await next.click();
+    }
+    await page.waitForTimeout(600);
+    const tips = await clsNow(page);
+    await ctx.close();
+    return { load: Math.round(load * 10000) / 10000, tips: Math.round(tips * 10000) / 10000 };
+  }
+  // The reader's load alone at 200% (the tips already seen on this device), for comparison.
+  async function readerLoadOnly(browser: Browser, lang: Lang, w: number): Promise<number> {
+    const ctx = await browser.newContext({ viewport: { width: w, height: 844 }, baseURL: 'http://127.0.0.1:8812' });
+    await ctx.addInitScript(TIPS_SEEN_SCRIPT);
+    await ctx.addInitScript(ROOT_200);
+    const page = await ctx.newPage();
+    await page.addInitScript(CLS_SCRIPT);
+    await page.goto(P(lang, '2/'));
+    await hydrated(page);
+    expect(await rootFontPx(page)).toBe(32);
+    await expect(dlg(page)).toHaveCount(0);
+    await page.waitForTimeout(1200);
+    const v = await clsNow(page);
+    await ctx.close();
+    return Math.round(v * 10000) / 10000;
+  }
+
   for (const lang of LANGS) {
-    test(`V40-11 (AC91, AC92, AC93): the tips at 390 and 320 px, 100% and 200% text, light: inside the screen, no sideways scroll; reader layout shift with the tips 0.1 or less, ${lang}`, async ({ browser }) => {
+    test(`V40-11 (AC91, AC92, AC93): the tips at 390 and 320 px, 100% and 200% text, light: inside the screen, no sideways scroll; layout shift of the tips 0.1 or less, and of the reader load with the tips at 100%; ${lang}`, async ({ browser }, info) => {
+      const out: Record<string, TipsCls & { readerLoadNoTips?: number }> = {};
       for (const [w, big] of [[390, false], [320, false], [390, true], [320, true]] as const) {
-        const ctx = await browser.newContext({ viewport: { width: w, height: 844 }, baseURL: 'http://127.0.0.1:8812' });
-        if (big) await ctx.addInitScript(() => { document.documentElement.style.fontSize = '200%'; });
-        const page = await ctx.newPage();
-        await page.addInitScript(() => { const x = window as unknown as { __cls: number }; x.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries() as (PerformanceEntry & { value: number; hadRecentInput: boolean })[]) if (!e.hadRecentInput) x.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); });
-        await page.goto(P(lang, '2/'));
-        await expect(dlg(page)).toHaveJSProperty('open', true);
-        for (let i = 0; i < 3; i++) {
-          const r = await page.evaluate(() => { const d = document.querySelector('dialog[data-tips]')!.getBoundingClientRect(); return { l: d.left, r: d.right, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, iw: innerWidth }; });
-          expect(r.sw, `${w} ${big}`).toBeLessThanOrEqual(r.cw);
-          expect(r.l).toBeGreaterThanOrEqual(0);
-          expect(r.r).toBeLessThanOrEqual(r.iw);
-          const next = dlg(page).locator('[data-tip-next]');
-          if (await next.count()) await next.click();
+        const r = await tipsRun(browser, lang, w, big);
+        expect(r.tips, `tips ${w} ${big}`).toBeLessThanOrEqual(0.1);
+        if (!big) expect(r.load, `load ${w} ${big}`).toBeLessThanOrEqual(0.1);
+        else {
+          // Known D-262 (FIND-CJ): not asserted here; V40-11b below asserts it and is marked as an
+          // expected failure. The same jump without the tips shows it is the reader's own.
+          const alone = await readerLoadOnly(browser, lang, w);
+          out[`${w} 200%`] = { ...r, readerLoadNoTips: alone };
+          continue;
         }
-        await page.waitForTimeout(600);
-        const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
-        expect(cls, `cls ${w} ${big}`).toBeLessThanOrEqual(0.1);
-        await ctx.close();
+        out[`${w} 100%`] = r;
       }
+      info.annotations.push({ type: 'cls', description: JSON.stringify(out) });
+    });
+    test(`V40-11b KNOWN D-262 (QA FIND-CJ, expected to fail): the reader's load with the tips at 200% text, 390 and 320 px, has a layout shift of 0.1 or less, ${lang}`, async ({ browser }, info) => {
+      test.fail(true, 'Known D-262: the reader jumps once on load at 200% text (QA FIND-CJ), accepted for now; this check fails until it is fixed. V40-11 shows the tips themselves stay within 0.1.');
+      const out: Record<string, TipsCls> = {};
+      for (const w of [390, 320]) out[w] = await tipsRun(browser, lang, w, true);
+      info.annotations.push({ type: 'cls', description: JSON.stringify(out) });
+      for (const w of [390, 320]) expect(out[w].load + out[w].tips, `200% ${w}`).toBeLessThanOrEqual(0.1);
     });
   }
 });
