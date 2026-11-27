@@ -22,6 +22,7 @@ import { renderPage, type PageCfg } from './page.ts';
 import { makeVerify, type VerifyHashes } from './verify.ts';
 import { makeQuoteCheck } from './quote-check.ts';
 import { makeLetters, warmUp, type LettersQuran } from './letters.ts';
+import { warmRoutes } from './warm.ts';
 import { makeTiming, TIMING_PATH } from './timing.ts';
 import { makeReciters, RECITERS_PATH } from './reciters.ts';
 import { AUDIO_LIMIT_PER_MINUTE, makeAudio, type AudioRecord } from './audio.ts';
@@ -191,6 +192,9 @@ export function makeWorker(indexBuf: ArrayBuffer, cfg: WorkerCfg, deps: WorkerDe
   const letters = cfg.tafseer && cfg.lettersQuran ? makeLetters(cfg.lettersQuran) : null;
   if (letters) warmUp(cfg.lettersQuran); // at Worker startup, not in a request (kit v30, v31, v32 reader CPU)
   const tafseer = cfg.tafseer ? makeTafseer(cfg, { ...deps, letters }) : null;
+  // Kit v43 (D-279 (6)): the pure parts of the request paths run once here, at startup, on made-up
+  // input, so a new isolate's first requests do not pay for compiling them (src/worker/warm.ts).
+  warmRoutes(ix, cfg, { gate: !!cfg.gate, audio: !!cfg.audio, tafseer: !!cfg.tafseer });
   // Requests this isolate received: all of them, and those past the password gate (kit v30, QA v29
   // FIND-W: the 401 challenge a browser gets first is not a signed-in request).
   let requests = 0, signedIn = 0;

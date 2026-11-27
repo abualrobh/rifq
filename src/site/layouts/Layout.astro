@@ -41,14 +41,25 @@ const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSi
     <!-- D-069: the Quran font is fetched early. crossorigin is required for font preloads, even on
          the same origin; anonymous mode still sends same-origin credentials (the test site gate). -->
     <link rel="preload" href="/fonts/noto-naskh-arabic/NotoNaskhArabic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    {/* Kit v43 (FIND-CJ, D-279 (4)): the interface font (Tajawal, D-102) of the page's language is
+        fetched early too, so the header is usually laid out in it at the first paint and does not
+        change height when it arrives (seen at 320 px and 200% text). Same files the page already
+        uses; only the start of the fetch moves. */}
+    {(lang === 'ar' ? ['arabic-400', 'arabic-500', 'arabic-700', 'latin-400', 'latin-500', 'latin-700'] : ['latin-400', 'latin-500', 'latin-700']).map((f) => <link rel="preload" href={`/fonts/tajawal/tajawal-${f}-normal.woff2`} as="font" type="font/woff2" crossorigin="anonymous" />)}
     {inPlace && <meta name="rifq-page" content="a1" />}
     {inPlace && notFound && <meta name="rifq-not-found" content="1" />}
     {inPlace && <ClientRouter fallback="swap" />}
     {inPlace && <script>import '../client/nav.ts';</script>}
-    <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem');var w=JSON.parse(localStorage.getItem('rifq.saves')||'{}');if(w&&w.v===1){if(w.l)d.classList.add('rifq-last');if(w.b&&w.b.length)d.classList.add('rifq-bm')}}catch(e){}})();</script>
+    <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem');var w=JSON.parse(localStorage.getItem('rifq.saves')||'{}');if(w&&w.v===1){if(w.l)d.classList.add('rifq-last');if(w.b&&w.b.length)d.classList.add('rifq-bm')}}catch(e){}try{var r=parseFloat(getComputedStyle(d).fontSize)||16;if(innerHeight/r<40)d.classList.add('rifq-tall-text')}catch(e){}})();</script>
     {/* RQ-008 AC93 (kit v37): the early script above also marks whether a last position and
         bookmarks are saved (rifq-last, rifq-bm: yes/no only, nothing is read out or sent), so the
-        home page keeps room for its continue card and bookmark cards before its island loads. */}
+        home page keeps room for its continue card and bookmark cards before its island loads.
+        Kit v43 (D-279 (4), QA v40 FIND-CJ, reopens D-262): it also sets the large-text class
+        (html.rifq-tall-text: the screen is less than 40 lines of text tall, the same rule and number
+        as client/tabbar.ts, which keeps it up to date afterwards), so the page is laid out at large
+        text from its first paint and does not jump when the module script runs. Nothing is read
+        from storage for it and nothing is stored or sent. The script is allowed by its SHA-256 hash
+        (scripts/headers.ts), never by 'unsafe-inline'. */}
   </head>
   <!-- wide: home, the surah index and reader pages use the wider tablet and desktop layout. -->
   <body class={wide ? 'wide' : undefined}>

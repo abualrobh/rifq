@@ -35,7 +35,9 @@ function measure() {
 // text tall (innerHeight in rem). Safari's aA page zoom and browser text zoom at 200% both give about
 // 26 on an 844 px phone; at 100% it is about 53. The CSS then makes the fixed bottom area smaller.
 // A class on the page only; nothing is stored or sent.
-const TALL_TEXT_REM = 40;
+// Kit v43 (FIND-CJ): the early inline script in layouts/Layout.astro sets the same class with the
+// same rule before the first paint; keep the two numbers equal (test/unit/kit-v43.test.ts checks).
+export const TALL_TEXT_REM = 40;
 function tallText() {
   const root = document.documentElement;
   const rem = parseFloat(getComputedStyle(root).fontSize) || 16;
