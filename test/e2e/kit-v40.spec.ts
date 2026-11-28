@@ -321,7 +321,9 @@ test.describe('tips', () => {
       await expect(b).toHaveText(t(lang, 'tipsAgain'));
       const bb = (await b.boundingBox())!; expect(bb.height).toBeGreaterThanOrEqual(44);
       // AC70 order: after the reciter part (audio builds), before the device data.
-      expect(await page.evaluate(() => { const s = [...document.querySelectorAll('.settings-screen > section')]; return [s.findIndex((x) => x.hasAttribute('data-set-reciter')), s.findIndex((x) => x.hasAttribute('data-set-tips')), s.findIndex((x) => x.hasAttribute('data-set-data'))]; })).toEqual([3, 4, 5]);
+      // Kit v43 (RQ-009 AC1): builds with page mode have the Reading view section after Text size.
+      const v = await page.locator('.settings-screen > section[data-set-view]').count();
+      expect(await page.evaluate(() => { const s = [...document.querySelectorAll('.settings-screen > section')]; return [s.findIndex((x) => x.hasAttribute('data-set-reciter')), s.findIndex((x) => x.hasAttribute('data-set-tips')), s.findIndex((x) => x.hasAttribute('data-set-data'))]; })).toEqual([3 + v, 4 + v, 5 + v]);
       await b.click();
       await expect(page.locator('[data-set-tips-status]')).toHaveText(t(lang, 'tipsAgainDone'));
       expect(await page.evaluate(() => localStorage.getItem('rifq.tips'))).toBeNull();

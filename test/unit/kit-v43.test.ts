@@ -64,5 +64,5 @@ test('D-279 (6): the warm-up uses made-up input only and nothing the global scop
   // No Request or Response objects, timers or network in the global scope (they throw in the Workers
   // runtime at startup); no Arabic letters in the source (made-up letters are built from code points).
   assert.doesNotMatch(warm.replace(/\/\/.*$/gm, ''), /new (Request|Response)\(|setTimeout|setInterval|fetch\(|caches/);
-  assert.doesNotMatch(warm, /[؀-ۿ]/);
+  assert.doesNotMatch(warm, /[\u0600-\u06ff]/);
 });
