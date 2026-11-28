@@ -28,7 +28,7 @@ export function warmRoutes(ix: Index, cfg: PageCfg, opts: { gate: boolean; audio
   const cp = (...c: number[]) => String.fromCodePoint(...c);
   // The password gate: the Basic header parser and the hashed comparison (made-up credentials).
   if (opts.gate) {
-    tryIt(() => parseBasic('Basic ' + btoa('made-up-user:made-up-password')));
+    tryIt(() => parseBasic('Basic ' + btoa('warm-up:warm-up')));
     tryIt(() => { void sameSecret('made-up-a', 'made-up-b').catch(() => undefined); });
   }
   // Search (/api/search and the no-JavaScript form page): made-up letters, a made-up Latin word and
