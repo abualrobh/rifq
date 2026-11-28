@@ -1,0 +1,7 @@
+---
+// RQ-009 v0.3 (D-282 A): one static page per Mushaf page, /page/N/. None in a release build (AC50).
+import MushafPage from '../../components/MushafPage.astro';
+import { mushafPages } from '../../lib/data';
+export const getStaticPaths = () => mushafPages.slice(1).map((items, i) => ({ params: { n: String(i + 1) }, props: { p: i + 1, items } }));
+---
+<MushafPage p={Astro.props.p} items={Astro.props.items} lang="ar" />

@@ -12,7 +12,10 @@ export default defineConfig({
   trailingSlash: 'always',
   integrations: [react()],
   build: { inlineStylesheets: 'never', format: 'directory' },
-  vite: { plugins: [tailwindcss()] },
+  // RQ-009 v0.3 (kit v43): the first ayah of each Mushaf page (604 numbers, s * 1000 + a; no Quran
+  // text), set by scripts/build.ts in development builds, for the browser's page lookups. null in a
+  // release build: page mode is left out (AC50).
+  vite: { plugins: [tailwindcss()], define: { __RIFQ_PAGE_STARTS__: process.env.RIFQ_PAGE_STARTS ?? 'null' } },
   devToolbar: { enabled: false },
   prefetch: false,
 });

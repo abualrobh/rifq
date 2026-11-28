@@ -228,7 +228,8 @@ for (const lang of LANGS) {
     await expect(page.locator('[data-goto-word]')).toHaveCount(0);
     await expect(page.locator('[data-goto-how]')).toHaveText(t(lang, 'gotoHowTo'));
     await expect(page.locator('[data-goto-note]')).toHaveText(t(lang, 'notSaved'));
-    expect(await page.locator('[data-goto-chip]').count()).toBe(5);
+    // Kit v43 (RQ-009 P-14): builds with page mode add the page chip.
+    expect(await page.locator('[data-goto-chip]').count()).toBe(5 + (await page.locator(`[data-goto-chip="${t(lang, 'kindPage')} 50"]`).count()));
     const from = seen.length;
     const cases: [string, string[] | string][] = [
       ['2:255', ['ayah 2:255', 'surah 2']],

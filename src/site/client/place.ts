@@ -13,15 +13,29 @@ export function headerBottom(): number {
   return h.getBoundingClientRect().bottom;
 }
 
+// Kit v43 (RQ-009 v0.3): the Mushaf page card when it scrolls inside itself (page mode at normal
+// sizes, D-283 B); null otherwise.
+export function innerScroller(): HTMLElement | null {
+  const c = document.querySelector<HTMLElement>('[data-mushaf-card]');
+  if (!c || c.scrollHeight <= c.clientHeight + 1) return null;
+  const o = getComputedStyle(c).overflowY;
+  return o === 'auto' || o === 'scroll' ? c : null;
+}
+
 // The reading place: the first ayah that starts below the sticky header. If none starts on screen
 // (one long ayah fills it), the ayah that covers the top of the reading area.
+// Kit v43 (RQ-009 AC31): on a Mushaf page the ayat flow inline, so an ayah "starts" where its first
+// line starts (its first box), and the reading area is the part of the page card on screen.
 export function topRow(): { el: Element; top: number } | null {
-  const h = headerBottom();
+  let h = headerBottom(), bottom = innerHeight;
+  const sc = innerScroller();
+  if (sc) { const b = sc.getBoundingClientRect(); h = Math.max(h, b.top); bottom = Math.min(bottom, b.bottom); }
   let cover: Element | null = null;
   for (const el of document.querySelectorAll('.ayah-row')) {
-    const r = el.getBoundingClientRect();
-    if (r.top >= h - 1) return r.top < innerHeight ? { el, top: r.top } : cover ? { el: cover, top: cover.getBoundingClientRect().top } : null;
-    if (r.bottom > h) cover = el;
+    const box = el.getBoundingClientRect();
+    const first = el.getClientRects()[0] ?? box;
+    if (first.top >= h - 1) return first.top < bottom ? { el, top: first.top } : cover ? { el: cover, top: cover.getBoundingClientRect().top } : null;
+    if (box.bottom > h) cover = el;
   }
   return cover ? { el: cover, top: cover.getBoundingClientRect().top } : null;
 }

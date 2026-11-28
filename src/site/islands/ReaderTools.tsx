@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getStorage, setLast } from '../../core/store.ts';
 import { addRecent } from '../../core/recent.ts';
 import { t, type Lang } from '../../core/strings.ts';
-import { headerBottom, topRow } from '../client/place.ts';
+import { headerBottom, innerScroller, topRow } from '../client/place.ts';
 import { revealRow } from '../client/reveal.ts';
 
 // Last position (RQ-003 AC4). U-24 is open; this build uses: among the ayat that have stayed
@@ -13,7 +13,10 @@ import { revealRow } from '../client/reveal.ts';
 // the ayah, or at least half of the screen for a long ayah.
 export const DWELL_MS = 3000;
 
-export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number; count: number }) {
+// Kit v43 (RQ-009 AC31, AC32, AC114): on a Mushaf page (`mushaf`) the same rule runs over the page's
+// ayat, which may belong to two or three surahs: the top-most ayah (in Quran order) seen for 3 s is
+// recorded with its own surah, in the same stored format (surah and ayah; no page number).
+export default function ReaderTools({ lang, s, count, mushaf = false }: { lang: Lang; s: number; count: number; mushaf?: boolean }) {
   const [msg, setMsg] = useState('');
   const seq = useRef(0);
 
@@ -29,7 +32,7 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
     // RQ-008 P-6 (kit v38): "#aN;tafseer" is the reader with the Tafseer panel open on ayah N.
     const checkHash = () => {
       const h = location.hash;
-      if (!h) return;
+      if (!h || mushaf) return;
       const m = /^#a(\d{1,5})(?:;tafseer)?$/.exec(h);
       const a = m ? Number(m[1]) : 0;
       if (!m || a < 1 || a > count) {
@@ -52,8 +55,8 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
 
     // P-6: the panel's ayah is shown in the reader behind it before the reading place is taken
     // (the browser does not scroll to a hash that names no element).
-    const tf = /^#a(\d{1,4});tafseer$/.exec(location.hash);
-    const tfRow = tf ? document.getElementById(`a${tf[1]}`) : null;
+    const tf = /^#a(\d{1,4});tafseer$/.exec(location.hash) ?? /^#(m\d{1,3}-\d{1,3});tafseer$/.exec(location.hash);
+    const tfRow = tf ? document.getElementById(tf[1].startsWith('m') ? tf[1] : `a${tf[1]}`) : null;
     if (tfRow) revealRow(tfRow);
 
     // Design review M-2: when the Quran font arrives, the text reflows. Until the reader moves the
@@ -94,15 +97,15 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
       if (document.documentElement.dataset.panel === '1') { since.clear(); panelWas = true; return; }
       if (panelWas) { panelWas = false; reseed(); return; }
       const now = performance.now();
-      let best = 0;
+      let best = 0, bs = 0;
       for (const [el, t0] of since) {
         if (now - t0 < DWELL_MS) continue;
-        const a = Number(el.dataset.a);
-        if (!best || a < best) best = a;
+        const a = Number(el.dataset.a), rs = Number(el.dataset.s) || s;
+        if (!best || rs * 1000 + a < bs * 1000 + best) { best = a; bs = rs; }
       }
       // RQ-008 AC20 (D-182 A, kit v37): the surah joins recently read only when this rule records
       // an ayah in it (addRecent does nothing when it is already first).
-      if (best && setLast(st, [s, best])) addRecent(st, s);
+      if (best && setLast(st, [bs, best])) addRecent(st, bs);
     };
     void fontsReady.then(() => {
       if (stopped) return;
@@ -116,11 +119,13 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
     // The ayat on screen now start their 3 seconds again (after the tab was hidden, or a panel closed).
     function reseed() {
       const now = performance.now();
+      // Kit v43: on a Mushaf page whose card scrolls inside itself, only the card's part on screen.
+      const sc = innerScroller()?.getBoundingClientRect();
+      const top = Math.max(headerH(), sc?.top ?? 0), bottom = Math.min(innerHeight, sc?.bottom ?? innerHeight);
       for (const r of rows) {
         const b = r.getBoundingClientRect();
-        const top = headerH();
-        const vis = Math.min(b.bottom, innerHeight) - Math.max(b.top, top);
-        if (vis > 0 && (vis >= 0.5 * b.height || vis >= 0.5 * (innerHeight - top))) since.set(r, now);
+        const vis = Math.min(b.bottom, bottom) - Math.max(b.top, top);
+        if (vis > 0 && (vis >= 0.5 * b.height || vis >= 0.5 * (bottom - top))) since.set(r, now);
       }
     }
     const onVis = () => { if (document.visibilityState === 'visible') reseed(); };
@@ -135,7 +140,7 @@ export default function ReaderTools({ lang, s, count }: { lang: Lang; s: number;
       io.disconnect();
       clearInterval(iv);
     };
-  }, [lang, s, count]);
+  }, [lang, s, count, mushaf]);
 
   return <p className="toast" role="status" aria-live="polite" data-reader-status>{msg}</p>;
 }

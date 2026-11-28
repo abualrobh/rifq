@@ -26,7 +26,7 @@ import { loadSource, readRecord, sha256 } from '../src/core/source-adapter.ts';
 import { gate, type Mode } from '../src/core/source-gate.ts';
 import { writeIndex } from './build-index.ts';
 import { writeHeaders } from './headers.ts';
-import { checkBuilt, extractAyat, READER_ROUTES, sameBytes, scanClientJs, TAFSEER_ROUTES } from './check-bytes.ts';
+import { checkBuilt, checkMushaf, extractAyat, READER_ROUTES, sameBytes, scanClientJs, TAFSEER_ROUTES } from './check-bytes.ts';
 import { bareAyah, lettersOnly, packLetters } from '../src/core/tafseer-quotes.ts';
 import { encodeWorkerData } from '../src/core/worker-data.ts';
 import { stampWorkerData } from '../src/core/worker-data-stamp.ts';
@@ -40,6 +40,7 @@ import { AUTH_LIMIT_PER_MINUTE } from '../src/worker/gate.ts';
 import { AUDIO_LIMIT_PER_MINUTE, type AudioRecord } from '../src/worker/audio.ts';
 import { AUDIO_ORIGIN } from '../src/core/audio.ts';
 import { RULES_AWAITING_D012_REVIEWER } from '../src/core/search-config.ts';
+import { pagesOf, pageStarts } from '../src/core/mushaf.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -139,6 +140,17 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   process.env.RIFQ_SITE_OUT = join(outDir, 'site');
   process.env.RIFQ_TAFSEER = tf.on ? 'on' : 'off';
   process.env.RIFQ_AUDIO = au.on ? 'on' : 'off';
+  // RQ-009 v0.3 (D-286): page mode in development builds only (AC50, AC124). The page boundaries are
+  // checked here first (AC7, AC49: the build stops naming the page or ayah), and the browser gets
+  // the first ayah of each page only.
+  const pagesOn = mode !== 'release';
+  process.env.RIFQ_PAGES = pagesOn ? 'on' : 'off';
+  let mushaf: ReturnType<typeof pagesOf> = [];
+  if (pagesOn) {
+    mushaf = pagesOf(src.list);
+    process.env.RIFQ_PAGE_STARTS = JSON.stringify(pageStarts(mushaf));
+  } else process.env.RIFQ_PAGE_STARTS = 'null';
+  log({ step: 'pages-flag', pages: pagesOn, ...(pagesOn ? { pages604: mushaf.length - 1, ayat: mushaf.reduce((n, p) => n + p.length, 0) } : {}) });
   process.env.ASTRO_TELEMETRY_DISABLED = '1';
   const { build: astroBuild } = await import('astro');
   // Astro puts its temporary prerender bundle inside outDir only when outDir "starts with" the
@@ -162,6 +174,17 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   // reference only) those that did not.
   for (const r of reports) log({ step: 'bytes', route: r.route, pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches.length, refErrors: r.refErrors.length, ...(r.ornament !== undefined ? { ornament: r.ornament, noOrnament: r.plain } : {}) });
   log({ step: 'client-js', files: js.files, ayatFound: js.hits });
+  // Kit v43 (RQ-009 AC108 to AC110, AC124): the Mushaf pages in development builds; none in release.
+  const mush = pagesOn ? checkMushaf(src, join(outDir, 'site')) : [];
+  for (const r of mush) log({ step: 'mushaf-bytes', route: r.route, pages: r.pages, ayat: r.ayat, equal: r.equal, mismatches: r.mismatches.length, refErrors: r.refErrors.length, flowErrors: r.flowErrors.length, firstProblems: [...r.refErrors, ...r.mismatches, ...r.flowErrors].slice(0, 5) });
+  const mushafLeak = !pagesOn && (existsSync(join(outDir, 'site', 'page')) || existsSync(join(outDir, 'site', 'en', 'page')));
+  if (!pagesOn) log({ step: 'mushaf-release', pageFolders: mushafLeak });
+  const mushBad = mushafLeak || mush.some((r) => r.pages !== 604 || r.ayat !== src.list.length || r.equal !== src.list.length || r.refErrors.length || r.mismatches.length || r.flowErrors.length);
+  // AC46: the number of static files (free plan: 20,000 per Worker version).
+  let nFiles = 0;
+  const countFiles = (d: string) => { for (const n of readdirSync(d, { withFileTypes: true })) { if (n.isDirectory()) countFiles(join(d, n.name)); else nFiles++; } };
+  countFiles(join(outDir, 'site'));
+  log({ step: 'static-files', files: nFiles, limit: 20000 });
   // Development pages: the font check shows a fixed set of ayat, which must be the source bytes.
   let devBad = false;
   if (mode !== 'release') {
@@ -175,7 +198,7 @@ export async function build(recordPath: string, outDir: string, mode: Mode, gate
   // D-157: no letters-only ayah (either form) in any static file the site serves.
   const lettersScan = tf.on ? checkLettersNotServed(src.list, join(outDir, 'site')) : null;
   if (lettersScan) log({ step: 'letters-not-served', files: lettersScan.files, probes: lettersScan.probes, hits: lettersScan.hits.length });
-  const bad0 = (lettersScan?.hits.length ?? 0) > 0 || reports.some((r) => r.mismatches.length || r.refErrors.length || r.equal !== src.list.length) || js.hits > 0;
+  const bad0 = mushBad || nFiles >= 20000 || (lettersScan?.hits.length ?? 0) > 0 || reports.some((r) => r.mismatches.length || r.refErrors.length || r.equal !== src.list.length) || js.hits > 0;
 
   // 6. Local Worker entry and configs.
   // Kit v32 (Cloudflare CPU): the letters-only matching data (D-157, Worker bundle only) and the

@@ -366,7 +366,9 @@ for (const lang of LANGS) {
     await expect(page.locator('h1')).toHaveText(t(lang, 'tabSettings'));
     // AC70 parts and order.
     const heads = await page.locator('.settings-screen h2').allTextContents();
-    expect(heads).toEqual([t(lang, 'appearance'), t(lang, 'textSize'), t(lang, 'interfaceLanguage'), t(lang, 'audioReciter'), t(lang, 'deviceData')]);
+    // Kit v43 (RQ-009 AC1): builds with page mode have Reading view after Text size.
+    const view = (await page.locator('[data-set-view]').count()) ? [t(lang, 'readingView')] : [];
+    expect(heads).toEqual([t(lang, 'appearance'), t(lang, 'textSize'), ...view, t(lang, 'interfaceLanguage'), t(lang, 'audioReciter'), t(lang, 'deviceData')]);
     await expect(page.locator('[data-set-privacy-link]')).toHaveAttribute('href', P(lang, 'privacy/'));
     await expect(page.locator('[data-set-saved-link]')).toHaveAttribute('href', P(lang, 'saved/'));
     // AC71: one switch with a visible label and its state exposed.

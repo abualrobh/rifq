@@ -21,7 +21,8 @@ const EN: Record<string, string> = {
   surahMeta: 'Surah {s} · {n} · Juz {j}',
   goTo: 'Go to',
   back: 'Back',
-  gotoLabel: 'Go to a surah, ayah or juz',
+  // Kit v43 (RQ-009 v0.3 C1, AC23): changed to name pages.
+  gotoLabel: 'Go to a surah, ayah, juz or page',
   gotoPlaceholder: 'e.g. {ref}, {name} {a} or juz {j}',
   gotoSearchLabel: 'Go to or search',
   kindAyah: 'Ayah',

@@ -1,0 +1,96 @@
+---
+// RQ-009 v0.3 (D-286, kit v43): one Madinah Mushaf page, flowing text (approach A, D-277 A).
+// - AC6: exactly the ayat whose `page` is N in the approved file (today the D-045 development copy,
+//   not yet approved), in Quran order; each ayah's element is the scroll reader's (same markup, same
+//   text byte for byte, same Quran font and D-186 B ornament), in an inline flow, one list per surah
+//   part (P-23: lang="ar" dir="rtl", data-r kept).
+// - AC8: a surah title block (heading level 2, surah name from the file) right before a surah's first
+//   ayah, also mid-page. No basmala or other text is added (P-21).
+// - AC9, AC10: the page heading "Mushaf page {p}" (in the layout's reader header), a line with the
+//   surah name(s) and the juz; the card is a labelled region and ends with "Page {p}" and, in a
+//   development build, the development note (AC50, AC124).
+// - D-284 A: one Play surah and reciter row at the top of the card (after the title block when the
+//   page starts with a surah) for the surah of the page's first ayah.
+// - AC16, AC18, AC22, D-281 A, D-283 B: Previous and Next are plain links (they work without
+//   JavaScript), Next on the left and Previous on the right in both interfaces, 44 px; disabled on
+//   pages 1 and 604. The row is after the card; at large text a second row also shows before it.
+// - Between two ayah elements there is one ordinary space and nothing else in the text (AC110): the
+//   actions button has no text, and the bookmark mark is an icon whose words are on the button.
+import Layout from '../layouts/Layout.astro';
+import ReaderTools from '../islands/ReaderTools.tsx';
+import AudioPlayer from '../islands/AudioPlayer.tsx';
+import AyahPanels from '../islands/AyahPanels.tsx';
+import Tips from '../islands/Tips.tsx';
+import MushafTools from '../islands/MushafTools.tsx';
+import { surahs, tafseerOn, audioOn, dev, juz, juzByStartsOk } from '../lib/data';
+import { t, surahPath, type Lang } from '../../core/strings.ts';
+import { splitAyahNumber } from '../../core/ayah-number.ts';
+import { mushafPath, pageJuz, partsOf, PAGES } from '../../core/mushaf.ts';
+import type { Ayah } from '../../core/source-adapter.ts';
+interface Props { p: number; items: Ayah[]; lang: Lang }
+const { p, items, lang } = Astro.props;
+const other: Lang = lang === 'ar' ? 'en' : 'ar';
+const last = surahs.length;
+const parts = partsOf(items);
+const first = items[0];
+const nameOf = (s: number) => (lang === 'ar' ? surahs[s - 1].ar : surahs[s - 1].en);
+const [j1, j2] = pageJuz(items);
+const juzLine = j1 && j2 && j1 !== j2 ? t(lang, 'pageJuzTwo', { j: j1, k: j2 }) : j1 ? t(lang, 'juzOf', { n: j1 }) : '';
+const meta = [parts.map((x) => nameOf(x.s)).join(lang === 'ar' ? '\u060c ' : ', '), juzLine].filter(Boolean).join(' · ');
+const prevHref = p > 1 ? mushafPath(lang, p - 1) : null;
+const nextHref = p < PAGES ? mushafPath(lang, p + 1) : null;
+const view = { to: 'scroll' as const, href: `${surahPath(lang, first.sora)}#a${first.aya_no}` };
+const s0 = parts[0];
+const info = (s: number) => surahs[s - 1];
+const nameLang = lang === 'ar' ? 'ar' : 'en';
+const dir = lang === 'ar' ? 'rtl' : 'ltr';
+// The arrows show the Mushaf turn direction (D-281 A: Next points left in both interfaces).
+const leftArrow = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const rightArrow = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const nextName = t(lang, 'mushafGoPage', { label: t(lang, 'nextPage'), p: p + 1 });
+const prevName = t(lang, 'mushafGoPage', { label: t(lang, 'prevPage'), p: p - 1 });
+---
+<Layout lang={lang} title={`${t(lang, 'mushafPageName', { p })} - ${t(lang, 'siteName')}`} alt={mushafPath(other, p)} wide tab="read" textSize reader={{ s: first.sora, name: nameOf(first.sora), meta, view, mushaf: p }}>
+  <div class="mushaf" data-mushaf={p} data-first={`${first.sora}:${first.aya_no}`} data-juz={j1} data-prev-href={prevHref ?? ''} data-next-href={nextHref ?? ''}>
+  {['top', 'end'].map((where) => (
+    <Fragment>
+    {where === 'end' && <section class="mushaf-card" aria-label={t(lang, 'mushafPageName', { p })} data-mushaf-card tabindex="0">
+      {parts.map((part, i) => (
+        <Fragment>
+          {part.starts && <h2 class="mp-title" data-mp-title={part.s}>{t(lang, 'pageSurahTitle').split('{name}')[0]}<bdi lang={nameLang}>{nameOf(part.s)}</bdi>{t(lang, 'pageSurahTitle').split('{name}')[1]}</h2>}
+          {i === 0 && audioOn && <div class="surah-audio mp-audio" data-surah-audio>
+            <noscript><p class="msg" data-audio-noscript>{t(lang, 'audioNoScript')}</p></noscript>
+            <AudioPlayer lang={lang} s={part.s} count={info(part.s).items.length} names={{ ar: info(part.s).ar, en: info(part.s).en }} dev={dev} client:idle />
+          </div>}
+          <ol class="ayat mp-flow" lang="ar" dir="rtl" aria-label={t(lang, 'ayatLabel')} data-surah={part.s}>{part.items.map((a, k) => (
+            <Fragment><li class="ayah-row" id={`m${a.sora}-${a.aya_no}`} data-s={a.sora} data-a={a.aya_no}>{(() => { const x = splitAyahNumber(a.aya_text); return x
+              ? <p class="ayah" lang="ar" dir="rtl" data-r={`${a.sora}:${a.aya_no}`}>{x.head}<span class="ayah-no">{x.no}</span></p>
+              : <p class="ayah" lang="ar" dir="rtl" data-r={`${a.sora}:${a.aya_no}`}>{a.aya_text}</p>; })()}<span class="ayah-tools"><button type="button" class="ayah-act" data-act={a.aya_no} aria-label={t(lang, 'ayahActions', { a: a.aya_no })} aria-haspopup="dialog" data-pending tabindex="-1"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg></button></span></li>{k < part.items.length - 1 ? ' ' : ''}</Fragment>
+          ))}</ol>
+        </Fragment>
+      ))}
+      <p class="mp-foot" dir={dir}><span data-page-num>{t(lang, 'mushafPage').split('{p}')[0]}<bdi dir="ltr">{p}</bdi>{t(lang, 'mushafPage').split('{p}')[1]}</span>{dev && <span class="mp-dev" data-page-dev>{t(lang, 'pageNumberDev')}</span>}</p>
+    </section>}
+    {where === 'end' && <MushafTools lang={lang} p={p} dev={dev} client:idle />}
+    <nav class={`mp-turn mp-turn-${where}`} aria-label={t(lang, 'pageNavLabel')} dir="rtl" data-turn={where}>
+      {prevHref
+        ? <a class="btn mp-btn mp-prev" href={prevHref} rel="prev" data-page-prev aria-label={prevName} title={prevName}><span dir={dir} class="mp-btn-in"><Fragment set:html={rightArrow} /><span>{t(lang, 'pagePrevShort')}</span></span></a>
+        : <button type="button" class="btn mp-btn mp-prev" disabled data-page-prev aria-label={t(lang, 'prevPage')}><span dir={dir} class="mp-btn-in"><Fragment set:html={rightArrow} /><span>{t(lang, 'pagePrevShort')}</span></span></button>}
+      <span class="mp-mid" dir={dir}><span class="mp-hint" data-swipe-hint>{t(lang, 'swipeHint')}</span><span class="mp-num">{t(lang, 'mushafPage').split('{p}')[0]}<bdi dir="ltr">{p}</bdi>{t(lang, 'mushafPage').split('{p}')[1]}</span></span>
+      {nextHref
+        ? <a class="btn mp-btn mp-next" href={nextHref} rel="next" data-page-next aria-label={nextName} title={nextName}><span dir={dir} class="mp-btn-in"><Fragment set:html={leftArrow} /><span>{t(lang, 'pageNextShort')}</span></span></a>
+        : <button type="button" class="btn mp-btn mp-next" disabled data-page-next aria-label={t(lang, 'nextPage')}><span dir={dir} class="mp-btn-in"><Fragment set:html={leftArrow} /><span>{t(lang, 'pageNextShort')}</span></span></button>}
+    </nav>
+    </Fragment>
+  ))}
+  <ReaderTools lang={lang} s={s0.s} count={info(s0.s).items.length} mushaf client:idle />
+  {parts.map((part) => <AyahPanels lang={lang} s={part.s} count={info(part.s).items.length} names={{ ar: info(part.s).ar, en: info(part.s).en }} prevCount={part.s > 1 ? info(part.s - 1).items.length : 0} last={last} juz={juz} juzOk={juzByStartsOk} tafseer={tafseerOn} audio={audioOn} dev={dev} mushaf client:idle />)}
+  <Tips lang={lang} audio={audioOn} tafseer={tafseerOn} pages client:idle />
+  {/* AC30, P-19: the words for the bookmark mark, given to marked ayat's actions buttons as their
+      description (aria-describedby), so no text is added to the flow of ayat. */}
+  <span id="mp-bm-desc" class="sr-only">{t(lang, 'bookmarkedMark')}</span>
+  {/* AC19: the page turned, said once (client/mushaf.ts fills it after a turn). */}
+  <p class="sr-only" role="status" aria-live="polite" data-page-status></p>
+  </div>
+  <script>import '../client/mushaf.ts';</script>
+</Layout>

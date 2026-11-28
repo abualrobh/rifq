@@ -40,6 +40,8 @@ import { addBookmark, getStorage, isBookmarked, load, removeBookmark } from '../
 import { juzOfAyah } from '../../core/recent.ts';
 import { surahPath, t, type Key, type Lang } from '../../core/strings.ts';
 import { goReplace } from '../client/nav.ts';
+import { asPageHref, pageHref } from '../client/view.ts';
+import { mushafHash } from '../../core/mushaf.ts';
 import { revealRow } from '../client/reveal.ts';
 import { useRecitation } from '../client/use-recitation.ts';
 import type { Engine, Names } from '../client/recitation.ts';
@@ -51,6 +53,9 @@ import BidiText from './BidiText.tsx';
 type Props = {
   lang: Lang; s: number; count: number; names: Names; prevCount: number; last: number;
   juz: { juz: number; s: number; a: number }[]; juzOk: boolean; tafseer: boolean; audio: boolean; dev?: boolean;
+  // Kit v43 (RQ-009 v0.3): on a Mushaf page, one instance per surah part of the page; ayat are
+  // #mS-A there, the Tafseer panel #mS-A;tafseer, and moving to an ayah on another page turns the page.
+  mushaf?: boolean;
 };
 
 // P-6: the reader hash that opens the Tafseer panel on ayah N.
@@ -67,7 +72,7 @@ const closeIcon = <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="t
 // panel then stays open and says it, so the message is not left only at the top of the surah.
 const offline = (engine: Engine) => engine.get().msg?.key === 'audioOffline' && engine.get().mode === 'idle';
 
-export default function AyahPanels({ lang, s, count, names, prevCount, last, juz, juzOk, tafseer, audio, dev = false }: Props) {
+export default function AyahPanels({ lang, s, count, names, prevCount, last, juz, juzOk, tafseer, audio, dev = false, mushaf = false }: Props) {
   const { snap, engine } = useRecitation(dev);
   const [act, setAct] = useState(0);
   const [msg, setMsg] = useState<Msg>(null);
@@ -92,7 +97,11 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
 
   // The reader's own element for the ayah: its text is the D-011 text as delivered (AC40).
   const textOf = (n: number) => document.querySelector(`ol.ayat p.ayah[data-r="${s}:${n}"]`)?.textContent ?? '';
-  const rowOf = (n: number) => document.getElementById(`a${n}`);
+  // Kit v43: by surah and ayah (a Mushaf page can hold more than one surah).
+  const rowOf = (n: number) => document.querySelector<HTMLElement>(`li.ayah-row[data-s="${s}"][data-a="${n}"]`);
+  // The reader address of ayah n's place (and of its Tafseer panel) in this view.
+  const hashOf = (n: number, tf = false) => (mushaf ? mushafHash(s, n, tf) : `#a${n}${tf ? ';tafseer' : ''}`);
+  const tfRe = mushaf ? new RegExp(`^#m${s}-(\\d{1,3});tafseer$`) : TF_HASH;
   const reveal = (n: number) => { const r = rowOf(n); if (r) revealRow(r); };
   // How the open panel was opened ('pointer', 'key', or unknown for a P-6 link) and the last input.
   const openedBy = useRef<'pointer' | 'key' | ''>('');
@@ -120,11 +129,14 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
   // readers. Added to the page here (outside the Quran text element), so the static HTML has none.
   function syncMarks() {
     const { saves } = load(st.current);
-    for (const row of document.querySelectorAll<HTMLElement>('ol.ayat li.ayah-row')) {
+    for (const row of document.querySelectorAll<HTMLElement>(`ol.ayat[data-surah="${s}"] li.ayah-row`)) {
       const a = Number(row.dataset.a);
       const on = isBookmarked(saves, [s, a]);
       row.classList.toggle('is-bm', on);
       let mk = row.querySelector<HTMLElement>('[data-bm-mark]');
+      // Kit v43 (RQ-009 AC30, P-19): on a Mushaf page the mark is the icon only, and its words go to
+      // the actions button as its description, so no text joins the flow of ayat (AC110).
+      if (mushaf) { const b = row.querySelector('button.ayah-act'); if (on) b?.setAttribute('aria-describedby', 'mp-bm-desc'); else b?.removeAttribute('aria-describedby'); }
       if (on && !mk) {
         mk = document.createElement('span');
         mk.className = 'bm-mark';
@@ -138,7 +150,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
         const txt = document.createElement('span');
         txt.className = 'sr-only';
         txt.textContent = t(lang, 'bookmarkedMark');
-        mk.append(svg, txt);
+        if (mushaf) mk.append(svg); else mk.append(svg, txt);
         row.querySelector('.ayah-tools')?.append(mk);
       } else if (!on && mk) mk.remove();
     }
@@ -208,7 +220,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     reveal(a);
     if (!push) return;
     // P-6: one history entry, marked with the page it was opened on, so Close can go Back to it.
-    const url = `${location.pathname}#a${a};tafseer`;
+    const url = `${location.pathname}${hashOf(a, true)}`;
     const base = location.pathname;
     try {
       if (viaRouter()) {
@@ -230,11 +242,11 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
   }
   function closeTf() {
     const state = history.state as { rifqTfBase?: string } | null;
-    if (state?.rifqTfBase === location.pathname && TF_HASH.test(location.hash)) { history.back(); return; }
+    if (state?.rifqTfBase === location.pathname && tfRe.test(location.hash)) { history.back(); return; }
     // Opened from a link, or moved here across a surah edge: the entry stays, without the panel.
     try {
       const { rifqTfBase: _drop, ...keep } = (state ?? {}) as Record<string, unknown>;
-      history.replaceState(state ? keep : null, '', `#a${tfLast.current}`);
+      history.replaceState(state ? keep : null, '', hashOf(tfLast.current));
     } catch { /* nothing else to undo */ }
     finishTf();
   }
@@ -244,24 +256,26 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
   const host = useMemo<TafseerHost>(() => ({
     start: tfStart,
     show: (n, focus) => {
+      // Kit v43 (RQ-009 AC29): an ayah on another Mushaf page: that page opens behind the panel.
+      if (mushaf && !rowOf(n)) { const to = pageHref(lang, s, n, true); if (to) { goReplace(to); return; } }
       tfLast.current = n;
       setTfA(n);
       setTfText(textOf(n));
       setTfMsg('');
-      try { if (TF_HASH.test(location.hash)) history.replaceState(history.state, '', `#a${n};tafseer`); } catch { /* still works */ }
+      try { if (tfRe.test(location.hash)) history.replaceState(history.state, '', hashOf(n, true)); } catch { /* still works */ }
       reveal(n);
       if (focus) requestAnimationFrame(() => tfDlg.current?.querySelector<HTMLElement>('[data-tf-ref]')?.focus());
     },
     edge: (dir) => {
       const to = dir < 0 ? `${surahPath(lang, s - 1)}#a${prevCount};tafseer` : `${surahPath(lang, s + 1)}#a1;tafseer`;
-      goReplace(to);
+      goReplace(mushaf ? (asPageHref(to) ?? to) : to);
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [tfKey]);
 
   // ----- wiring on the reader page -----
   useEffect(() => {
-    const list = document.querySelector<HTMLElement>('ol.ayat');
+    const list = document.querySelector<HTMLElement>(`ol.ayat[data-surah="${s}"]`);
     // The actions buttons keep their space while pending, so showing them moves no text.
     for (const b of document.querySelectorAll<HTMLButtonElement>('button.ayah-act')) { b.removeAttribute('data-pending'); b.removeAttribute('tabindex'); }
     syncMarks();
@@ -303,7 +317,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     const onStorage = () => syncMarks();
     window.addEventListener('storage', onStorage);
     const onPop = () => {
-      const m = TF_HASH.exec(location.hash);
+      const m = tfRe.exec(location.hash);
       // A link to another ayah's panel on this page (a hash change) shows that ayah.
       if (m) { const k = Number(m[1]); if (!tfOpen.current || k !== tfLast.current) openTf(k, false); return; }
       if (tfOpen.current) finishTf();
@@ -311,7 +325,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
     window.addEventListener('popstate', onPop);
     window.addEventListener('hashchange', onPop);
     // AC48: a link of the P-6 form opens the reader with the panel on that ayah.
-    const m = TF_HASH.exec(location.hash);
+    const m = tfRe.exec(location.hash);
     if (m) openTf(Number(m[1]), false);
     return () => {
       list?.removeEventListener('pointerdown', onDown);
@@ -393,7 +407,7 @@ export default function AyahPanels({ lang, s, count, names, prevCount, last, juz
           <button type="button" className="btn icon-btn sheet-close" data-tfp-close aria-label={t(lang, 'closeTafseer')} title={t(lang, 'closeTafseer')} onClick={closeTf}>{closeIcon}</button>
         </div>
         <div className="sheet-body">
-          <p className="tfp-links"><a href={`${surahPath(other, s)}#a${a};tafseer`} lang={other} hrefLang={other} aria-label={t(lang, 'otherLangLabel')} data-tfp-lang>{t(lang, 'otherLang')}</a></p>
+          <p className="tfp-links"><a href={mushaf ? pageHref(other, s, a, true) : `${surahPath(other, s)}#a${a};tafseer`} data-view-keep lang={other} hrefLang={other} aria-label={t(lang, 'otherLangLabel')} data-tfp-lang>{t(lang, 'otherLang')}</a></p>
           <p className="msg alert tfp-status" role="status" aria-live="polite" data-tfp-status>{tfMsg}</p>
           {dev && <p className="msg" role="note" data-tafseer-dev><BidiText text={t(lang, 'tafseerDevNote')} lang={lang} /></p>}
           <section className="tf-section tf-quran" aria-labelledby="tfp-quran-h" data-tf-quran>

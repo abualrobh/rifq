@@ -15,7 +15,7 @@
 // Nothing here is sent anywhere (AC87).
 import { useEffect, useRef, useState, type KeyboardEvent as RKeyboardEvent } from 'react';
 import { getStorage } from '../../core/store.ts';
-import { markTipsSeen, tipList, tipsSeen, type TipId } from '../../core/tips.ts';
+import { markPageTipSeen, markTipsSeen, pageTipSeen, tipList, tipsSeen, type TipId } from '../../core/tips.ts';
 import { t, type Key, type Lang } from '../../core/strings.ts';
 import BidiText from './BidiText.tsx';
 
@@ -26,7 +26,8 @@ const BODY: Record<TipId, Key> = { 1: 'tip1Body', 2: 'tip2Body', 3: 'tip3Body' }
 export const TIPS_WAIT_MS = 500;
 
 // The tips dialog itself. onEnd runs when it closes by Skip, Done or Esc.
-export function TipsDialog({ lang, ids, onEnd }: { lang: Lang; ids: TipId[]; onEnd: () => void }) {
+// Kit v43 (RQ-009 AC120, P-16): `single` is the one page-mode tip: no "Tip n of m", only Done.
+export function TipsDialog({ lang, ids, onEnd, single }: { lang: Lang; ids: TipId[]; onEnd: () => void; single?: { title: Key; body: Key } }) {
   const dlg = useRef<HTMLDialogElement>(null);
   const head = useRef<HTMLHeadingElement>(null);
   const back = useRef<Element | null>(null);
@@ -62,17 +63,17 @@ export function TipsDialog({ lang, ids, onEnd }: { lang: Lang; ids: TipId[]; onE
   }
 
   const id = ids[i];
-  const lastTip = i === ids.length - 1;
+  const lastTip = !!single || i === ids.length - 1;
   return (
-    <dialog ref={dlg} className="tips-dlg" aria-modal="true" aria-labelledby="tips-h" aria-describedby="tips-body" data-tips data-tip={id}
+    <dialog ref={dlg} className="tips-dlg" aria-modal="true" aria-labelledby="tips-h" aria-describedby="tips-body" data-tips data-tip={single ? 'pages' : id}
       onCancel={(e) => { e.preventDefault(); end(); }} onKeyDown={trap}>
       <h2 id="tips-h" ref={head} tabIndex={-1} className="tips-h">
-        <span className="tips-count" data-tip-count>{t(lang, 'tipOf', { n: i + 1, m: ids.length })}</span>
-        <span className="tips-title" data-tip-title>{t(lang, TITLE[id])}</span>
+        {!single && <span className="tips-count" data-tip-count>{t(lang, 'tipOf', { n: i + 1, m: ids.length })}</span>}
+        <span className="tips-title" data-tip-title>{t(lang, single ? single.title : TITLE[id])}</span>
       </h2>
-      <p id="tips-body" className="tips-body" data-tip-body><BidiText text={t(lang, BODY[id])} lang={lang} /></p>
+      <p id="tips-body" className="tips-body" data-tip-body><BidiText text={t(lang, single ? single.body : BODY[id])} lang={lang} /></p>
       <div className="tips-actions">
-        <button type="button" className="btn" data-tip-skip onClick={end}>{t(lang, 'tipSkip')}</button>
+        {!single && <button type="button" className="btn" data-tip-skip onClick={end}>{t(lang, 'tipSkip')}</button>}
         {lastTip
           ? <button type="button" className="btn primary" data-tip-done onClick={end}>{t(lang, 'done')}</button>
           : <button type="button" className="btn primary" data-tip-next onClick={() => setI(i + 1)}>{t(lang, 'next')}</button>}
@@ -90,23 +91,27 @@ function busy(): boolean {
 }
 
 // On reader pages: shows the tips by themselves once (AC79 to AC84).
-export default function Tips({ lang, audio, tafseer }: { lang: Lang; audio: boolean; tafseer: boolean }) {
-  const [show, setShow] = useState(false);
+// Kit v43 (RQ-009 AC120, P-16): on a Mushaf page (`pages`), the reader tips come first if they are
+// due; otherwise the one page-mode tip shows once, under the same rules (AC81, AC82, AC84).
+export default function Tips({ lang, audio, tafseer, pages = false }: { lang: Lang; audio: boolean; tafseer: boolean; pages?: boolean }) {
+  const [show, setShow] = useState<false | 'reader' | 'pages'>(false);
   useEffect(() => {
     const st = getStorage(window);
     const r = tipsSeen(st);
-    if (!r.ok || r.seen) return; // AC81, AC80
+    const which = r.ok && !r.seen ? 'reader' : pages && pageTipSeen(st).ok && !pageTipSeen(st).seen ? 'pages' : null;
+    if (!which) return; // AC81, AC80
     let timer = 0;
     const tryShow = () => {
       if (busy()) { timer = window.setTimeout(tryShow, TIPS_WAIT_MS); return; }
       // Seen meanwhile in another tab or page of this device.
-      if (tipsSeen(st).seen) return;
-      setShow(true);
+      if (which === 'reader' ? tipsSeen(st).seen : pageTipSeen(st).seen) return;
+      setShow(which);
     };
     // After the page has painted (AC79: the Quran text first).
     const raf = requestAnimationFrame(() => { timer = window.setTimeout(tryShow, 0); });
     return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
   }, []);
   if (!show) return null;
+  if (show === 'pages') return <TipsDialog lang={lang} ids={[]} single={{ title: 'tipPagesTitle', body: 'tipPagesBody' }} onEnd={() => { markPageTipSeen(getStorage(window)); setShow(false); }} />;
   return <TipsDialog lang={lang} ids={tipList(audio, tafseer)} onEnd={() => { markTipsSeen(getStorage(window)); setShow(false); }} />;
 }

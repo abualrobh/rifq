@@ -22,8 +22,10 @@ import { t, type Lang } from './strings.ts';
 export type GotoResult =
   | { kind: 'ayah'; s: number; a: number }
   | { kind: 'surah'; s: number }
-  | { kind: 'juz'; j: number; s: number; a: number };
-export type GotoMsg = 'refMissing' | 'juzMissing' | 'latinOnly' | 'tooLong' | null;
+  | { kind: 'juz'; j: number; s: number; a: number }
+  // Kit v43 (RQ-009 AC23): a Mushaf page and its first ayah.
+  | { kind: 'page'; p: number; s: number; a: number };
+export type GotoMsg = 'refMissing' | 'juzMissing' | 'pageMissing' | 'latinOnly' | 'tooLong' | null;
 export type GotoOut = { results: GotoResult[]; msg: GotoMsg };
 
 export type GotoData = {
@@ -36,6 +38,9 @@ export type GotoData = {
   counts: readonly number[];
   // The first ayah of each juz in the file (D-090), by juz number.
   juz: readonly { juz: number; s: number; a: number }[];
+  // Kit v43 (RQ-009 AC23): the first ayah of each Mushaf page (s * 1000 + a, index 0 unused), in
+  // builds with page mode; without it the page keyword is not special.
+  pages?: readonly number[] | null;
 };
 
 const LATIN = /\p{Script=Latin}/u;
@@ -45,6 +50,25 @@ const AR_ARTICLE = String.fromCodePoint(0x627, 0x644);
 function juzWord(): string {
   if (!juzKey) juzKey = foldNameQuery(t('ar', 'kindJuz'));
   return juzKey;
+}
+
+// Kit v43 (RQ-009 AC23, D-190 C): the page keyword (kindPage, with or without its article) in both
+// interfaces, "page N" (Latin) in the English interface only; N in any digit form.
+let pageKey = '';
+function pageWord(): string {
+  if (!pageKey) pageKey = foldNameQuery(t('ar', 'kindPage'));
+  return pageKey;
+}
+function pageNumber(q: string, lang: Lang): number | null {
+  const d = asciiDigits(q.trim());
+  const m = /^(.*?)\s*(\d{1,4})$/u.exec(d);
+  if (!m || !m[1]) return null;
+  const word = m[1].trim();
+  if (lang === 'en' && /^page$/i.test(word)) return Number(m[2]);
+  if (LATIN.test(word)) return null;
+  const f = foldNameQuery(word);
+  const k = pageWord();
+  return f === k || f === AR_ARTICLE + k ? Number(m[2]) : null;
 }
 
 function juzNumber(q: string, lang: Lang): number | null {
@@ -65,6 +89,12 @@ export function gotoResults(q: string, d: GotoData): GotoOut {
   if ([...q].length > MAX_CHARS) return { results: [], msg: 'tooLong' };
   const total = d.counts.length - 1;
   const has = (s: number, a?: number) => s >= 1 && s <= total && (a === undefined || (a >= 1 && a <= d.counts[s]));
+
+  const pg = d.pages && d.pages.length > 1 ? pageNumber(q, d.lang) : null;
+  if (pg !== null) {
+    const v = d.pages![pg];
+    return pg >= 1 && pg < d.pages!.length && v ? { results: [{ kind: 'page', p: pg, s: Math.floor(v / 1000), a: v % 1000 }], msg: null } : { results: [], msg: 'pageMissing' };
+  }
 
   const j = juzNumber(q, d.lang);
   if (j !== null) {

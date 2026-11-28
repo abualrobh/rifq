@@ -321,7 +321,9 @@ test.describe('tips', () => {
       await expect(b).toHaveText(t(lang, 'tipsAgain'));
       const bb = (await b.boundingBox())!; expect(bb.height).toBeGreaterThanOrEqual(44);
       // AC70 order: after the reciter part (audio builds), before the device data.
-      expect(await page.evaluate(() => { const s = [...document.querySelectorAll('.settings-screen > section')]; return [s.findIndex((x) => x.hasAttribute('data-set-reciter')), s.findIndex((x) => x.hasAttribute('data-set-tips')), s.findIndex((x) => x.hasAttribute('data-set-data'))]; })).toEqual([3, 4, 5]);
+      // Kit v43 (RQ-009 AC1): builds with page mode have the Reading view section after Text size.
+      const v = await page.locator('.settings-screen > section[data-set-view]').count();
+      expect(await page.evaluate(() => { const s = [...document.querySelectorAll('.settings-screen > section')]; return [s.findIndex((x) => x.hasAttribute('data-set-reciter')), s.findIndex((x) => x.hasAttribute('data-set-tips')), s.findIndex((x) => x.hasAttribute('data-set-data'))]; })).toEqual([3 + v, 4 + v, 5 + v]);
       await b.click();
       await expect(page.locator('[data-set-tips-status]')).toHaveText(t(lang, 'tipsAgainDone'));
       expect(await page.evaluate(() => localStorage.getItem('rifq.tips'))).toBeNull();
@@ -375,8 +377,8 @@ test.describe('tips', () => {
   // QA FIND-CK (kit v42): the 200% text is now really applied (ROOT_200, checked: root font 32 px).
   // Layout shift is counted in two parts: the reader's own load with the tips opening (from the first
   // paint until 1.2 s after the tips show), and stepping through the tips. At 200% the load part is
-  // the reader's known jump on load at large text (QA FIND-CJ, accepted for now under D-262): it is
-  // measured here also without the tips, to show it is the reader's and not the tips'.
+  // the reader's known jump on load at large text (QA FIND-CJ, D-262; fixed in kit v43): it is
+  // measured also without the tips (V40-11b).
   type TipsCls = { load: number; tips: number };
   const CLS_SCRIPT = () => { const x = window as unknown as { __cls: number }; x.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries() as (PerformanceEntry & { value: number; hadRecentInput: boolean })[]) if (!e.hadRecentInput) x.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); };
   const clsNow = (page: Page) => page.evaluate(() => (window as unknown as { __cls: number }).__cls);
@@ -422,29 +424,27 @@ test.describe('tips', () => {
   }
 
   for (const lang of LANGS) {
-    test(`V40-11 (AC91, AC92, AC93): the tips at 390 and 320 px, 100% and 200% text, light: inside the screen, no sideways scroll; layout shift of the tips 0.1 or less, and of the reader load with the tips at 100%; ${lang}`, async ({ browser }, info) => {
-      const out: Record<string, TipsCls & { readerLoadNoTips?: number }> = {};
+    test(`V40-11 (AC91, AC92, AC93): the tips at 390 and 320 px, 100% and 200% text, light: inside the screen, no sideways scroll; layout shift of the tips 0.1 or less, and of the reader load with the tips 0.1 or less; ${lang}`, async ({ browser }, info) => {
+      const out: Record<string, TipsCls> = {};
       for (const [w, big] of [[390, false], [320, false], [390, true], [320, true]] as const) {
         const r = await tipsRun(browser, lang, w, big);
         expect(r.tips, `tips ${w} ${big}`).toBeLessThanOrEqual(0.1);
-        if (!big) expect(r.load, `load ${w} ${big}`).toBeLessThanOrEqual(0.1);
-        else {
-          // Known D-262 (FIND-CJ): not asserted here; V40-11b below asserts it and is marked as an
-          // expected failure. The same jump without the tips shows it is the reader's own.
-          const alone = await readerLoadOnly(browser, lang, w);
-          out[`${w} 200%`] = { ...r, readerLoadNoTips: alone };
-          continue;
-        }
-        out[`${w} 100%`] = r;
+        // Kit v43 (D-279 (4), FIND-CJ fixed): the load is asserted at 200% too.
+        expect(r.load, `load ${w} ${big}`).toBeLessThanOrEqual(0.1);
+        out[`${w} ${big ? 200 : 100}%`] = r;
       }
       info.annotations.push({ type: 'cls', description: JSON.stringify(out) });
     });
-    test(`V40-11b KNOWN D-262 (QA FIND-CJ, expected to fail): the reader's load with the tips at 200% text, 390 and 320 px, has a layout shift of 0.1 or less, ${lang}`, async ({ browser }, info) => {
-      test.fail(true, 'Known D-262: the reader jumps once on load at 200% text (QA FIND-CJ), accepted for now; this check fails until it is fixed. V40-11 shows the tips themselves stay within 0.1.');
-      const out: Record<string, TipsCls> = {};
-      for (const w of [390, 320]) out[w] = await tipsRun(browser, lang, w, true);
+    // Kit v42 V40-11b was an expected failure (known D-262, QA FIND-CJ). Kit v43 (D-279 (1) FIND-CV,
+    // D-279 (4)): FIND-CJ is fixed (the large-text class is set before the first paint, and the
+    // interface font is fetched early), so V40-11b is an ordinary test: the reader's own load at 200%
+    // text without the tips (tips seen), 390 and 320 px, has a layout shift of 0.1 or less, and the
+    // root font really is 32 px.
+    test(`V40-11b (AC93, QA FIND-CJ fixed in kit v43): the reader's load at 200% text without the tips, 390 and 320 px, has a layout shift of 0.1 or less, ${lang}`, async ({ browser }, info) => {
+      const out: Record<string, number> = {};
+      for (const w of [390, 320]) out[w] = await readerLoadOnly(browser, lang, w);
       info.annotations.push({ type: 'cls', description: JSON.stringify(out) });
-      for (const w of [390, 320]) expect(out[w].load + out[w].tips, `200% ${w}`).toBeLessThanOrEqual(0.1);
+      for (const w of [390, 320]) expect(out[w], `200% ${w}`).toBeLessThanOrEqual(0.1);
     });
   }
 });

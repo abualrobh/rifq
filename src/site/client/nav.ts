@@ -61,20 +61,21 @@ async function preloadStyles(doc: Document) {
 }
 
 // AC73: the reading place of the reader page on screen, kept in its own history entry.
-type Place = { a: number; off: number; size: string };
+// Kit v43 (RQ-009): `s` too, since a Mushaf page can hold ayat of more than one surah.
+type Place = { a: number; s?: number; off: number; size: string };
 const sizeNow = () => document.documentElement.style.getPropertyValue('--ayah-size').trim();
 export function rememberPlace() {
   if (!document.querySelector('ol.ayat')) return;
   const top = topRow();
   const a = top ? Number((top.el as HTMLElement).dataset.a) : 0;
   if (!top || !a) return;
-  const place: Place = { a, off: Math.round(top.top - headerBottom()), size: sizeNow() };
+  const place: Place = { a, s: Number((top.el as HTMLElement).dataset.s) || undefined, off: Math.round(top.top - headerBottom()), size: sizeNow() };
   try { history.replaceState({ ...(history.state ?? {}), rifqPlace: place }, ''); } catch { /* the router's own scroll restore still applies */ }
 }
 function restorePlace() {
   const p = (history.state as { rifqPlace?: Place } | null)?.rifqPlace;
   if (!p || !Number.isInteger(p.a) || p.size === sizeNow()) return;
-  const row = document.getElementById(`a${p.a}`);
+  const row = p.s ? document.querySelector<HTMLElement>(`li.ayah-row[data-s="${p.s}"][data-a="${p.a}"]`) : document.getElementById(`a${p.a}`);
   if (!row || !row.matches('li.ayah-row')) return;
   const d = row.getBoundingClientRect().top - headerBottom() - p.off;
   if (Math.abs(d) > 1) window.scrollBy({ top: d, behavior: 'instant' as ScrollBehavior });
@@ -171,8 +172,9 @@ function holdUnmounts() {
 function onAfterSwap() {
   lastIndex = (history.state as { index?: number } | null)?.index ?? lastIndex;
   clearTimeout(placeT);
-  const m = /^#a(\d{1,4})(;tafseer)?$/.exec(location.hash);
-  const row = m && lastType !== 'traverse' ? document.getElementById(`a${m[1]}`) : null;
+  // Kit v43 (RQ-009 AC24, AC25): on a Mushaf page the ayah is #mS-A (S and A in one id).
+  const m = /^#a(\d{1,4})(;tafseer)?$/.exec(location.hash) ?? /^#(m\d{1,3}-\d{1,3})(;tafseer)?$/.exec(location.hash);
+  const row = m && lastType !== 'traverse' ? document.getElementById(m[1].startsWith('m') ? m[1] : `a${m[1]}`) : null;
   if (row && row.matches('li.ayah-row') && m?.[2]) { revealRow(row); return; } // P-6: the panel takes focus
   if (lastType === 'traverse') restorePlace();
   // FIND-CE: from the reader's Go to button, focus goes to the Go to box.

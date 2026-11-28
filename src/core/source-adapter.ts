@@ -7,7 +7,9 @@ import { dirname, resolve } from 'node:path';
 import type { SourceRecord } from './source-gate.ts';
 
 // aya_text_emlaey: the plain-spelling text in the same file, used only by the D-085 quote check.
-export type Ayah = { sora: number; aya_no: number; sora_name_ar: string; sora_name_en: string; aya_text: string; aya_text_emlaey?: string; jozz?: number };
+// page (RQ-009 v0.3, D-286): the Madinah Mushaf page of the ayah in the file (D-045 development copy; not yet
+// approved, D-192); used only by page mode in development builds.
+export type Ayah = { sora: number; aya_no: number; sora_name_ar: string; sora_name_en: string; aya_text: string; aya_text_emlaey?: string; jozz?: number; page?: number };
 export type Loaded = { record: SourceRecord; recordPath: string; filePath: string; sha256: string | null; raw: Buffer | null };
 export type Source = Loaded & { raw: Buffer; list: Ayah[]; slices: Buffer[] };
 

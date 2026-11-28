@@ -68,6 +68,9 @@ async function post(path: string, body: unknown): Promise<{ status: number; data
 // The interface language and the reader page on screen (0 when the page is not a reader page).
 export const pageLang = (): Lang => (document.documentElement.lang === 'en' ? 'en' : 'ar');
 export const pageSurah = (): number => Number(document.querySelector<HTMLElement>('ol.ayat')?.dataset.surah ?? 0) || 0;
+// Kit v43 (RQ-009 v0.3): a Mushaf page can hold up to three surahs (one ol.ayat each). "The playing
+// surah's own page" (D-117 A, D-127 A, AC35) is a page on screen holding at least one ayah of it.
+export const pageHas = (s: number): boolean => s > 0 && !!document.querySelector(`ol.ayat[data-surah="${s}"]`);
 
 type MetaResult = Meta | 'not_covered' | 'not_offered' | 'error';
 
@@ -93,7 +96,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
   // the reader page the message belongs to: the Play surah row (kit v38) shows it only there.
   const say = (key: Key, alert = false, code = '', vars: Record<string, string | number> = {}, at = x.s) => set({ msg: { key, vars, code: dev ? code : '', alert, seq: ++seq, at } });
   const why = (code: string) => { set({ reason: code }); if (dev && code) console.warn('[RIFQ audio]', code); };
-  const own = () => x.s > 0 && pageSurah() === x.s;
+  const own = () => pageHas(x.s);
   const reciterName = (lang: Lang = pageLang()) => (x.lists[lang] ?? x.lists.ar ?? x.lists.en)?.find((r) => r.id === x.rid)?.name ?? '';
 
   // ----- the page on screen: marks, D-062 hand-over (AC6, AC43, AC50, AC65) -----
@@ -102,7 +105,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
   function paint() {
     const mine = own();
     const on = !el.paused && x.mode !== 'idle';
-    for (const r of document.querySelectorAll<HTMLElement>('li.ayah-row')) r.classList.toggle('ap-current', mine && Number(r.dataset.a) === x.current && x.current > 0);
+    for (const r of document.querySelectorAll<HTMLElement>('li.ayah-row')) r.classList.toggle('ap-current', mine && Number(r.dataset.s) === x.s && Number(r.dataset.a) === x.current && x.current > 0);
     const lang = pageLang();
     for (const b of document.querySelectorAll<HTMLButtonElement>('button.ap')) {
       const a = Number(b.dataset.ap);
@@ -129,9 +132,13 @@ function create(el: HTMLAudioElement, dev: boolean) {
     if (x.follow && x.mode === 'surah' && mine && document.visibilityState === 'visible') scrollToAyah(a);
   }
 
+  // Kit v43 (RQ-009 D-280 A): on a Mushaf page that holds the playing surah but not the playing
+  // ayah, the page asks to turn to the ayah's page (client/mushaf.ts); the scroll reader always has it.
   function scrollToAyah(a: number) {
-    const row = document.getElementById(`a${a}`);
-    if (row && own()) revealRow(row, true);
+    if (!own()) return;
+    const row = document.querySelector<HTMLElement>(`li.ayah-row[data-s="${x.s}"][data-a="${a}"]`);
+    if (row) revealRow(row, true);
+    else if (document.querySelector('[data-mushaf]')) document.dispatchEvent(new CustomEvent('rifq:playing-elsewhere', { detail: { s: x.s, a } }));
   }
 
   // AC28: the lock-screen title is the playing surah's name and ayah, in the interface language of
@@ -468,7 +475,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
   const focusElsewhere = () => {
     const f = document.activeElement;
     const row = f instanceof Element ? f.closest<HTMLElement>('ol.ayat li.ayah-row') : null;
-    return !!row && Number(row.dataset.a) !== x.current;
+    return !!row && (Number(row.dataset.a) !== x.current || Number(row.dataset.s) !== x.s);
   };
   const resume = () => {
     if (focusElsewhere() && x.mode === 'surah' && own()) { x.scrollT = window.setTimeout(resume, SCROLL_PAUSE_MS); return; }
@@ -490,7 +497,7 @@ function create(el: HTMLAudioElement, dev: boolean) {
   document.addEventListener('focusin', (e) => {
     if (x.mode !== 'surah' || !own() || !x.current || el.paused) return;
     const row = e.target instanceof Element ? e.target.closest<HTMLElement>('ol.ayat li.ayah-row') : null;
-    if (row && Number(row.dataset.a) !== x.current) pauseFollow();
+    if (row && (Number(row.dataset.a) !== x.current || Number(row.dataset.s) !== x.s)) pauseFollow();
   });
   // AC54: after the screen was locked or the tab hidden, catch up at once.
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { onTime(); if (x.follow && x.current && x.mode === 'surah') scrollToAyah(x.current); } });
@@ -543,6 +550,9 @@ function create(el: HTMLAudioElement, dev: boolean) {
     // AC64: "go to the playing ayah" turns automatic scrolling back on.
     goPlaying() { x.follow = true; set({ follow: true }); clearTimeout(x.scrollT); },
     reveal() { if (x.current && own()) scrollToAyah(x.current); },
+    // Kit v43 (RQ-009 AC36): a page turned by hand during surah playback pauses the automatic
+    // turns for 5 s, as the reader's own scrolling pauses automatic scrolling (P-2).
+    pauseFollow() { if (x.mode === 'surah') pauseFollow(); },
     el,
   };
 }
