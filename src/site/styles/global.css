@@ -691,3 +691,84 @@ div.ap-more, .src-box { container-type: inline-size; }
 @media (forced-colors: active) { .tips-dlg { border: 2px solid CanvasText; } .btn.primary { border: 1px solid ButtonText; } }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+
+/* ---------- RQ-009 v0.3 (D-286, kit v43): page reading mode, flowing text ---------- */
+/* The header's view switch (AC2): 44 px, like Go to. At large text the header grid gets a column
+   for it (Back, view switch, Go to, text size on the first row; the heading on the second, P-11). */
+.rh-view { flex: none; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; background: transparent; color: var(--fg); text-decoration: none; }
+.rh-view:hover { border-color: var(--control-border); }
+@media (max-width: 51.99rem) {
+  :root.rifq-tall-text .reader-head { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
+  :root.rifq-tall-text .reader-head .rh-view { grid-column: 3; grid-row: 1; }
+  :root.rifq-tall-text .reader-head .rh-goto { grid-column: 4; grid-row: 1; }
+  :root.rifq-tall-text .reader-head .settings { grid-column: 5; grid-row: 1; }
+  /* RQ-009 P-11: at large text the header with the view switch did not fit a 390 px phone at 200%
+     (7 px too wide, measured); Go to then leaves the header (the Search tab still opens it). */
+  :root.rifq-tall-text .reader-head:has(.rh-view) .rh-goto { display: none; }
+}
+.rh-title[data-mushaf-h]:focus { outline: none; }
+.rh-title[data-mushaf-h]:focus-visible { outline: 3px solid var(--focus); }
+/* The page card (AC6, AC10, AC12): a plain card; the ayat flow inline, justified (P-13), in the
+   Quran font and size of the scroll reader, with the D-186 B ornament after each ayah. */
+.mushaf { max-width: 46rem; margin-inline: auto; }
+.mushaf-card { box-sizing: border-box; margin-block: .5rem; padding: .75rem 1rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); overflow-wrap: anywhere; overscroll-behavior-x: none; }
+.mushaf-card:focus { outline: none; }
+.mushaf-card:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.mp-title { margin: .5rem 0; text-align: center; font-size: 1.15rem; }
+.mp-title::after { content: ""; display: block; height: 1px; margin-block: .5rem 0; background: linear-gradient(to right, transparent, var(--gold), transparent); }
+.mp-audio { margin-block: .25rem .5rem; }
+.ayat.mp-flow { display: block; margin: 0; padding: 0; list-style: none; text-align: justify; text-align-last: start; font-family: "Noto Naskh Arabic", "Scheherazade New", serif; font-size: var(--ayah-size, 1.5rem); line-height: 2.2; }
+.mp-flow > li.ayah-row { display: inline; padding: 0; border: 0; gap: 0; position: static; scroll-margin-top: calc(var(--header-h, 3.75rem) + .5rem); }
+.mp-flow > li.ayah-row > .ayah { display: inline; flex: none; font-size: inherit; line-height: inherit; }
+.mp-flow > li.ayah-row.ap-current::before { content: none; }
+/* P-20: the playing and target marks follow the ayah across lines: a tint and a 2 px underline. */
+.mp-flow > li.ayah-row.ap-current > .ayah, .mp-flow > li.ayah-row:target > .ayah { background: var(--target); text-decoration: underline 2px var(--link); text-underline-offset: .45em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.mp-flow > li.ayah-row:target, .mp-flow > li.ayah-row.ap-current { background: none; outline: none; }
+.mp-flow > li.ayah-row:focus-visible > .ayah { outline: 3px solid var(--focus); }
+/* P-18: the actions button takes no space in the flow; with focus (or hover) it shows as a 44 px
+   overlay over the ornament, which moves no text (AC28, AC112 d). */
+.mp-flow .ayah-tools { display: inline; position: relative; }
+.mp-flow .ayah-act { position: absolute; inset-inline-end: 0; top: -1.6rem; z-index: 2; background: var(--surface); }
+.mp-flow .bm-mark { display: inline-flex; vertical-align: middle; margin-inline: .1em; }
+.mp-flow .bm-mark svg { width: .6em; height: .6em; }
+.mp-foot { display: flex; flex-wrap: wrap; justify-content: center; gap: .25rem 1rem; margin: .75rem 0 0; color: var(--muted); font-size: .875rem; }
+.mp-dev { color: var(--alert); }
+/* The page-turn row (AC16, D-281 A): Previous on the right, Next on the left in both interfaces (the
+   row is laid out right to left; the words inside follow the interface). 44 px. */
+.mp-turn { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-block: .5rem; }
+.mp-turn-top { display: none; }
+.mp-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; min-width: 2.75rem; text-decoration: none; }
+.mp-btn-in { display: inline-flex; align-items: center; gap: .25rem; }
+.mp-btn:disabled { opacity: .45; cursor: default; }
+.mp-mid { flex: 1; min-width: 0; text-align: center; color: var(--muted); font-size: .85rem; }
+.mp-num { display: none; }
+@media (forced-colors: active) { .mp-btn, .mushaf-card { border: 1px solid ButtonText; } .mp-flow .bm-mark { color: CanvasText; } }
+/* D-283 B at normal sizes (and D-227): on a phone the page scrolls inside its card, so the
+   page-turn row stays just above the mini-player and the tab bar. */
+@media (max-width: 51.99rem) {
+  :root:not(.rifq-tall-text) .mushaf-card { max-height: calc(100dvh - var(--header-h, 3.75rem) - var(--mini-h, 0px) - var(--tabbar-h, var(--tabbar-fb, 0px)) - 4.75rem); overflow-y: auto; overflow-x: hidden; }
+  :root:not(.rifq-tall-text) .mushaf-card .ayah-row { scroll-margin-top: .5rem; }
+  /* The row stays in view above the mini-player and the tab bar even when the page itself scrolls a
+     little (the development banner above the header is not counted in the card's height). */
+  :root:not(.rifq-tall-text) .mp-turn-end { position: sticky; bottom: calc(var(--mini-h, 0px) + var(--tabbar-h, var(--tabbar-fb, 0px))); z-index: 3; margin-block: 0; padding-block: .5rem; background: var(--bg); }
+  /* D-283 B at large text: the card is part of the screen's own scroll (no inner box); Previous
+     and Next show before and after the page, and the middle shows the page number (P-12). */
+  :root.rifq-tall-text .mp-turn-top { display: flex; }
+  :root.rifq-tall-text .mp-hint { display: none; }
+  :root.rifq-tall-text .mp-num { display: inline; }
+  :root.rifq-tall-text .mushaf-card { padding-inline: .5rem; }
+  :root.rifq-tall-text .mp-flow > li.ayah-row { scroll-margin-top: .5rem; }
+}
+/* AC20, P-7: a short slide in the turn direction (next pages come from the left); none with reduced
+   motion (the rule above stops every animation). */
+@keyframes mp-from-left { from { transform: translateX(-12%); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes mp-from-right { from { transform: translateX(12%); opacity: .4; } to { transform: none; opacity: 1; } }
+.mushaf-card.mp-in-next { animation: mp-from-left 200ms ease-out; }
+.mushaf-card.mp-in-prev { animation: mp-from-right 200ms ease-out; }
+.set-radios { display: grid; gap: .25rem; padding: 0; }
+.goto-dev { color: var(--alert); }
+.mp-playing { margin-block: .5rem; text-align: center; }
+/* RQ-009 AC2 (kit v43): with the view switch the reader header at 390 px wrapped the surah line to a
+   second line in Arabic (measured: the titles had 130 px). The text-size button's inline padding is
+   smaller on phones, as at large text, so the header keeps one line of title and one of meta there. */
+@media (max-width: 51.99rem) { .reader-head:has(.rh-view) .display-toggle { padding-inline: .4rem; } }

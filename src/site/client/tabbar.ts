@@ -5,6 +5,8 @@
 // change (astro:page-load), and again when another tab changes the saves (storage event).
 import { getStorage, load, refExists } from '../../core/store.ts';
 import { ayahPath, indexPath, type Lang } from '../../core/strings.ts';
+// Kit v43 (RQ-009 AC5): loaded on every page with the tab bar: the reading view and its link rules.
+import { asPageHref, currentView, pagesOn } from './view.ts';
 
 function update() {
   const navs = document.querySelectorAll<HTMLElement>('nav[data-tabbar]');
@@ -12,7 +14,9 @@ function update() {
   const counts = [0, ...(navs[0].dataset.counts ?? '').split(',').map(Number)];
   const lang: Lang = navs[0].dataset.lang === 'en' ? 'en' : 'ar';
   const last = load(getStorage(window)).saves.l;
-  const href = last && refExists(counts, last) ? ayahPath(lang, last[0], last[1]) : indexPath(lang);
+  let href = last && refExists(counts, last) ? ayahPath(lang, last[0], last[1]) : indexPath(lang);
+  // RQ-009 AC5: with Mushaf pages as the stored view, the Read tab opens the page holding it.
+  if (last && pagesOn() && currentView() === 'pages') href = asPageHref(href) ?? href;
   for (const a of document.querySelectorAll<HTMLAnchorElement>('nav[data-tabbar] a[data-tab="read"]')) a.setAttribute('href', href);
 }
 

@@ -32,3 +32,10 @@ export const juzByStartsOk = src.list.every((x) => !Number.isInteger(x.jozz) || 
 // surah index filter builds them (index 0 unused). Used for matching only, never displayed.
 export const gotoFolded: string[] = ['', ...surahs.map((s) => foldName(s.ar))];
 export const gotoEn: [string, string][] = [['', ''], ...surahs.map((s) => enKeys(s.en))];
+// RQ-009 v0.3 (D-286, kit v43): page reading mode, development builds only (AC50, AC124: a release
+// build has no Mushaf pages and no page-mode controls until the official file's page field is
+// confirmed, D-048, D-192). pagesOf checks the boundaries and stops the build (AC7, AC49).
+import { pagesOf, pageStarts as starts0 } from '../../core/mushaf.ts';
+export const pagesOn = dev && process.env.RIFQ_PAGES !== 'off';
+export const mushafPages = pagesOn ? pagesOf(src.list) : [];
+export const pageStarts: number[] = pagesOn ? starts0(mushafPages) : [];

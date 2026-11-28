@@ -118,6 +118,49 @@ export function scanClientJs(src: Pick<Source, 'slices'>, siteDir: string): { fi
   return { files: files.length, hits };
 }
 
+// Kit v43 (RQ-009 v0.3 AC6, AC7, AC108 to AC110): every Mushaf page in both interfaces. For page N:
+// its ayah references, in order, are the records whose `page` is N (AC108); each ayah element's
+// bytes are the scroll reader's (the stored bytes with the ornament element, AC109); and the text of
+// each surah part's list, with all tags removed, is its ayat's stored texts joined by single spaces,
+// so nothing else is in the text between ayat (AC110). Counts and references only, never text.
+export const MUSHAF_ROUTES = ['page/', 'en/page/'];
+export type MushafReport = { route: string; pages: number; ayat: number; equal: number; refErrors: string[]; mismatches: string[]; flowErrors: string[] };
+const OL = /<ol class="ayat mp-flow"[^>]*>([\s\S]*?)<\/ol>/g;
+const TAGS = /<[^>]*>/g;
+export function checkMushaf(src: Pick<Source, 'list' | 'slices'>, siteDir: string, pages = 604): MushafReport[] {
+  const byPage = new Map<number, number[]>();
+  src.list.forEach((a, n) => { const p = (a as { page?: number }).page ?? 0; if (!byPage.has(p)) byPage.set(p, []); byPage.get(p)!.push(n); });
+  return MUSHAF_ROUTES.map((route) => {
+    const rep: MushafReport = { route: '/' + route, pages: 0, ayat: 0, equal: 0, refErrors: [], mismatches: [], flowErrors: [] };
+    for (let p = 1; p <= pages; p++) {
+      const f = join(siteDir, route, String(p), 'index.html');
+      if (!existsSync(f)) { rep.refErrors.push(`missing page ${route}${p}`); continue; }
+      const html = readFileSync(f);
+      rep.pages++;
+      const want = byPage.get(p) ?? [];
+      const got = extractAyat(html);
+      const wantRefs = want.map((n) => `${src.list[n].sora}:${src.list[n].aya_no}`);
+      if (got.map((g) => g.ref).join(',') !== wantRefs.join(',')) { rep.refErrors.push(`${route}${p}: references differ from the file's page ${p}`); continue; }
+      got.forEach((g, i) => {
+        rep.ayat++;
+        if (sameBytes(g.bytes, ornamented(src.slices[want[i]]))) rep.equal++;
+        else rep.mismatches.push(`${route}${p} ${g.ref}`);
+      });
+      // AC110: each list's text is its ayat's stored texts joined by one space each.
+      let k = 0;
+      for (const m of html.toString('utf8').matchAll(OL)) {
+        const text = m[1].replace(TAGS, '');
+        const n = (m[1].match(/ data-r="/g) ?? []).length;
+        const exp = want.slice(k, k + n).map((x) => src.slices[x].toString('utf8')).join(' ');
+        k += n;
+        if (text !== exp) rep.flowErrors.push(`${route}${p}: text between ayat is not one space`);
+      }
+      if (k !== want.length) rep.flowErrors.push(`${route}${p}: ${k} ayat in lists, ${want.length} on the page`);
+    }
+    return rep;
+  });
+}
+
 // CLI: node scripts/check-bytes.ts --record <source-record.json> [--site <dir>] [--http <base-url>] [--tafseer]
 import { fileURLToPath } from 'node:url';
 import { loadSource } from '../src/core/source-adapter.ts';

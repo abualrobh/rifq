@@ -5,7 +5,8 @@ import AudioPlayer from '../islands/AudioPlayer.tsx';
 import AyahPanels from '../islands/AyahPanels.tsx';
 import Tips from '../islands/Tips.tsx';
 import SurahList from './SurahList.astro';
-import { surahs, tafseerOn, audioOn, dev, juz, juzByStartsOk } from '../lib/data';
+import { surahs, tafseerOn, audioOn, dev, juz, juzByStartsOk, pagesOn, pageStarts } from '../lib/data';
+import { mushafHash, mushafPath, pageOf, surahPageRuns } from '../../core/mushaf.ts';
 import { t, surahPath, ayatLabel, type Lang } from '../../core/strings.ts';
 import { splitAyahNumber } from '../../core/ayah-number.ts';
 import type { Surah } from '../../core/source-adapter.ts';
@@ -21,8 +22,13 @@ const prevCount = surah.n > 1 ? surahs[surah.n - 2].items.length : 0;
 // ayah in the file, as on index rows (D-090 D); without a juz in the file the line ends at the count.
 const j0 = surah.items[0]?.jozz;
 const meta = Number.isInteger(j0) ? t(lang, 'surahMeta', { s: surah.n, n: ayatLabel(lang, surah.items.length), j: j0 as number }) : t(lang, 'gotoSurahSub', { s: surah.n, n: ayatLabel(lang, surah.items.length) });
+// Kit v43 (RQ-009 AC2, AC5): with page mode built, the header's view switch opens the Mushaf page of
+// the surah's first ayah (the page script moves it to the reading place on a tap), and the page of
+// each ayah goes to the early script as runs.
+const view = pagesOn ? { to: 'pages' as const, href: mushafPath(lang, pageOf(pageStarts, surah.n, 1)) + mushafHash(surah.n, 1) } : undefined;
+const pageRuns = pagesOn ? surahPageRuns(surah.items) : undefined;
 ---
-<Layout lang={lang} title={`${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={surahPath(other, surah.n)} wide tab="read" textSize reader={{ s: surah.n, name, meta }}>
+<Layout lang={lang} title={`${surah.n}. ${name} - ${t(lang, 'siteName')}`} alt={surahPath(other, surah.n)} wide tab="read" textSize reader={{ s: surah.n, name, meta, view, pageRuns }}>
   <div class="reader-grid">
   <div class="reader-main">
   {/* Kit v39 (RQ-008 stage 3, AC50, AC58): the reader's header (layout) holds Back, the surah name

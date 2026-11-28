@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { t, type Lang } from '../../core/strings.ts';
 import { headerBottom, topRow } from '../client/place.ts';
+import { viewField } from '../client/view.ts';
 
 export const SETTINGS_KEY = 'rifq.settings';
 export const SIZES = [1.25, 1.5, 1.75, 2, 2.5];
@@ -38,6 +39,7 @@ export function writeReciter(id: number): boolean {
     const keep: Record<string, unknown> = {};
     if (SIZES.includes(v.size as number)) keep.size = v.size;
     if (v.dark === true || v.dark === false) keep.dark = v.dark;
+    if (v.view === 'pages') keep.view = 'pages'; // kit v43 (RQ-009 AC4): the reading view is kept
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...keep, reciter: id }));
     return JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}').reciter === id;
   } catch { return false; }
@@ -54,7 +56,7 @@ export function apply(s: S): boolean {
   d.classList.toggle('dark', s.dark);
   if (anchor) window.scrollBy({ top: anchor.el.getBoundingClientRect().top - anchor.top, behavior: 'instant' as ScrollBehavior });
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, ...reciterField() }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, ...reciterField(), ...viewField() }));
     const v = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
     return v?.size === s.size && v?.dark === s.dark;
   } catch { return false; /* reading continues without saved settings */ }

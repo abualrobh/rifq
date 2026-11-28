@@ -22,6 +22,7 @@
 //   time a reader page opens, and tipsAgainDone says so. With storage blocked nothing can be cleared
 //   or remembered, so the tips open here at once instead (AC81: "they can still be opened from
 //   Settings").
+import { currentView, pagesOn, writeView, type View } from '../client/view.ts';
 import { useEffect, useRef, useState } from 'react';
 import { clearLast, getStorage, load, refExists, type Saves, type StorageLike } from '../../core/store.ts';
 import { clearRecent, loadRecent } from '../../core/recent.ts';
@@ -50,6 +51,16 @@ export default function SettingsScreen({ lang, counts, names, audio, tafseer = f
   const [ready, setReady] = useState(false);
   const [s, setS] = useState<SettingsValue>({ size: 1.5, dark: false });
   const [setMsg, setSetMsg] = useState('');
+  // Kit v43 (RQ-009 AC1, AC4, AC119): the reading view, on the device only; page mode builds only.
+  const [view, setViewState] = useState<View>('scroll');
+  const [viewMsg, setViewMsg] = useState('');
+  useEffect(() => { setViewState(currentView()); }, []);
+  const chooseView = (v: View) => {
+    setViewState(v);
+    const okV = writeView(v);
+    setViewMsg('');
+    if (!okV) requestAnimationFrame(() => setViewMsg(t(lang, 'settingsNotRemembered')));
+  };
   const [st, setSt] = useState<StorageLike | null>(null);
   const [ok, setOk] = useState(true);
   const [saves, setSaves] = useState<Saves>({ v: 1, b: [], l: null });
@@ -143,6 +154,18 @@ export default function SettingsScreen({ lang, counts, names, audio, tafseer = f
         </div>
         <p className="msg alert" role="status" aria-live="polite" data-settings-status>{setMsg}</p>
       </section>
+      {pagesOn() && (
+        <section className="set-sec" aria-labelledby="set-view-h" data-set-view>
+          <h2 id="set-view-h">{t(lang, 'readingView')}</h2>
+          <div className="set-choices set-radios" role="radiogroup" aria-labelledby="set-view-h" aria-describedby="set-view-help">
+            {(['scroll', 'pages'] as const).map((v) => (
+              <label key={v} className="ap-choice set-radio"><input type="radio" name="set-view" value={v} checked={view === v} onChange={() => chooseView(v)} data-set-view-opt={v} /> {t(lang, v === 'scroll' ? 'viewScroll' : 'viewPages')}</label>
+            ))}
+          </div>
+          <p className="hint" id="set-view-help" data-set-view-help>{t(lang, 'readingViewHelp')}</p>
+          <p className="msg alert" role="status" aria-live="polite" data-set-view-status>{viewMsg}</p>
+        </section>
+      )}
       <section className="set-sec" aria-labelledby="set-lang-h">
         <h2 id="set-lang-h">{t(lang, 'interfaceLanguage')}</h2>
         <ul className="set-choices" data-set-lang>

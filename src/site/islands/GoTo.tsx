@@ -26,6 +26,8 @@ import { ayahPath, ayatLabel, surahPath, t, type Lang } from '../../core/strings
 import { fill, refNode } from '../client/fill.ts';
 import { WordSearch, type WordSearchApi } from './Search.tsx';
 import BidiText from './BidiText.tsx';
+import { pagesOn, STARTS } from '../client/view.ts';
+import { mushafPath } from '../../core/mushaf.ts';
 
 type Props = {
   lang: Lang; folded: string[]; en?: [string, string][]; counts: number[]; names: [string, string][];
@@ -43,7 +45,8 @@ export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home
   const [seq, setSeq] = useState(0);
   const nameLang = lang === 'en' ? 'en' : 'ar';
   const nameOf = (s: number) => names[s - 1]?.[lang === 'en' ? 1 : 0] ?? '';
-  const data = { lang, folded, en, counts, juz };
+  // Kit v43 (RQ-009 AC23): Mushaf pages, in builds with page mode.
+  const data = { lang, folded, en, counts, juz, pages: pagesOn() ? STARTS : null };
   const id = 'q';
 
   function change(v: string) {
@@ -58,7 +61,8 @@ export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home
   // Text typed before this island loaded stays in the input; read it now.
   useEffect(() => { const v = input.current?.value ?? ''; if (v) change(v); }, []);
 
-  const hrefOf = (r: GotoResult) => (r.kind === 'surah' ? surahPath(lang, r.s) : ayahPath(lang, r.s, r.a));
+  // A Page result opens that page in page mode, whatever the stored view (AC23, AC27).
+  const hrefOf = (r: GotoResult) => (r.kind === 'page' ? mushafPath(lang, r.p) : r.kind === 'surah' ? surahPath(lang, r.s) : ayahPath(lang, r.s, r.a));
 
   // D-213 A (P-13): Enter opens the first direct result when there is one (the same link a tap would
   // follow, so the reader opens in place, AC68); no word search runs, so no "No results" shows under
@@ -95,20 +99,22 @@ export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home
   const sub = (s: number, a: number) => { const j = juzOf(s, a); return j ? fill(lang, 'ayahActionsSub', { ref: refNode(s, a), j: <bdi dir="ltr">{j}</bdi> }) : refNode(s, a); };
 
   const row = (r: GotoResult) => {
-    const key = r.kind === 'juz' ? `j${r.j}` : r.kind === 'ayah' ? `a${r.s}:${r.a}` : `s${r.s}`;
-    const ref = r.kind === 'juz' ? String(r.j) : r.kind === 'ayah' ? `${r.s}:${r.a}` : String(r.s);
-    const kind = t(lang, r.kind === 'ayah' ? 'kindAyah' : r.kind === 'surah' ? 'kindSurah' : 'kindJuz');
+    const key = r.kind === 'page' ? `p${r.p}` : r.kind === 'juz' ? `j${r.j}` : r.kind === 'ayah' ? `a${r.s}:${r.a}` : `s${r.s}`;
+    const ref = r.kind === 'page' ? String(r.p) : r.kind === 'juz' ? String(r.j) : r.kind === 'ayah' ? `${r.s}:${r.a}` : String(r.s);
+    const kind = t(lang, r.kind === 'page' ? 'kindPage' : r.kind === 'ayah' ? 'kindAyah' : r.kind === 'surah' ? 'kindSurah' : 'kindJuz');
     const title = r.kind === 'ayah' ? fill(lang, 'gotoAyahResult', { name: <bdi lang={nameLang}>{nameOf(r.s)}</bdi>, a: <bdi dir="ltr">{r.a}</bdi> })
       : r.kind === 'surah' ? <bdi lang={nameLang}>{nameOf(r.s)}</bdi>
+      : r.kind === 'page' ? fill(lang, 'mushafPage', { p: <bdi dir="ltr">{r.p}</bdi> })
       : t(lang, 'juzOf', { n: r.j });
     const line = r.kind === 'ayah' ? sub(r.s, r.a)
       : r.kind === 'surah' ? t(lang, 'gotoSurahSub', { s: r.s, n: ayatLabel(lang, counts[r.s]) })
+      : r.kind === 'page' ? fill(lang, 'gotoPageSub', { s: <bdi dir="ltr">{r.s}</bdi>, a: <bdi dir="ltr">{r.a}</bdi>, j: <bdi dir="ltr">{juzOf(r.s, r.a)}</bdi> })
       : fill(lang, 'gotoJuzSub', { ref: refNode(r.s, r.a) });
     return (
       <li key={key}>
         <a href={hrefOf(r)} className="goto-res" data-goto-result={r.kind} data-goto-ref={ref}>
           <span className="goto-kind" data-goto-kind>{kind}</span>
-          <span className="goto-text"><span className="goto-title">{title}</span><span className="goto-sub">{line}</span></span>
+          <span className="goto-text"><span className="goto-title">{title}</span><span className="goto-sub">{line}</span>{r.kind === 'page' && pagesOn() && <span className="goto-sub goto-dev" data-goto-page-dev>{t(lang, 'pageNumberDev')}</span>}</span>
           {chevron}
         </a>
       </li>
@@ -121,6 +127,8 @@ export default function GoTo({ lang, folded, en, counts, names, juz, juzOk, home
     `${nameOf(2)} 255`,
     nameOf(36),
     `${t(lang, 'kindJuz')} 30`,
+    // Kit v43 (RQ-009 P-14): the page chip, from kindPage like the juz chip.
+    ...(pagesOn() ? [`${t(lang, 'kindPage')} 50`] : []),
     '36',
   ].filter((x) => x.trim());
 

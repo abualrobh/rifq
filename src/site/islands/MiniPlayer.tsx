@@ -20,6 +20,7 @@ import { useRecitation } from '../client/use-recitation.ts';
 import { closeModal, openModal, trap } from '../client/modal.ts';
 import SourceDetails from './SourceDetails.tsx';
 import { focusedKey } from '../client/mini-focus.ts';
+import { currentView, onMushaf, pageHref, pagesOn } from '../client/view.ts';
 
 // D-270 A: when the kit v41 bar does not fit its two rows. Its second row (global.css) needs the
 // surah line's 14rem, go-to and close (2 x 2.75rem) and two .5rem gaps = 20.5rem, plus the bar's
@@ -140,7 +141,9 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
   // surah row's status already announces it, so here it is announced only on other pages.
   const loading = !status && snap.loading;
   const said = status || (loading ? t(lang, 'audioLoading') : '');
-  const href = ayahPath(lang, s, a);
+  // Kit v43 (RQ-009 AC38): in page mode (the stored view, or a Mushaf page on screen) "go to the
+  // playing ayah" opens the Mushaf page that holds it.
+  const href = (pagesOn() && (currentView() === 'pages' || onMushaf()) && pageHref(lang, s, a)) || ayahPath(lang, s, a);
 
   const go = (e: MouseEvent<HTMLAnchorElement>) => {
     if (!engine) return;
@@ -152,7 +155,7 @@ export default function MiniPlayer({ lang: first, dev = false }: { lang: Lang; d
     e.preventDefault();
     history.replaceState(history.state, '', to.hash);
     engine.reveal();
-    const row = document.getElementById(`a${a}`);
+    const row = document.querySelector<HTMLElement>(`li.ayah-row[data-s="${s}"][data-a="${a}"]`);
     if (row) { if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1'); row.focus({ preventScroll: true }); }
   };
   // The sheet closed by its close button, Esc or a tap on the dimmed area: focus back on "more".

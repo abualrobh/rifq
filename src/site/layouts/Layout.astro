@@ -23,7 +23,13 @@ import { t, homePath, privacyPath, searchPath, type Lang } from '../../core/stri
 // surah name as the page heading with the line "Surah {s} · {n} ayat · Juz {j}" (P-19), a Go to
 // button that opens the Go to screen, and the text-size button (D-193 A); no brand, no night button,
 // no language link. Back goes to the previous RIFQ page in this tab (client/nav.ts), else Home.
-type Reader = { s: number; name: string; meta: string };
+// Kit v43 (RQ-009 v0.3, D-286): `view` adds the header's view switch (AC2) on reader pages and
+// Mushaf pages (a link: without JavaScript it opens the other view at the page's first ayah);
+// `mushaf` makes the heading "Mushaf page {p}" (AC9, AC10) and marks the page for the page-mode
+// scripts. `pageRuns` (scroll reader pages, page mode on) is the page of each ayah as runs, for the
+// early script: with Mushaf pages as the stored view it opens the Mushaf page before the first paint
+// (AC5, AC25).
+type Reader = { s: number; name: string; meta: string; view?: { to: 'pages' | 'scroll'; href: string }; mushaf?: number; pageRuns?: string };
 interface Props { lang: Lang; title: string; alt: string; wide?: boolean; inPlace?: boolean; notFound?: boolean; tab?: Tab; textSize?: boolean; reader?: Reader }
 const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSize = false, reader } = Astro.props;
 ---
@@ -46,11 +52,12 @@ const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSi
         change height when it arrives (seen at 320 px and 200% text). Same files the page already
         uses; only the start of the fetch moves. */}
     {(lang === 'ar' ? ['arabic-400', 'arabic-500', 'arabic-700', 'latin-400', 'latin-500', 'latin-700'] : ['latin-400', 'latin-500', 'latin-700']).map((f) => <link rel="preload" href={`/fonts/tajawal/tajawal-${f}-normal.woff2`} as="font" type="font/woff2" crossorigin="anonymous" />)}
+    {reader && reader.pageRuns && <meta name="rifq-ayah-pages" content={reader.pageRuns} data-s={reader.s} />}
     {inPlace && <meta name="rifq-page" content="a1" />}
     {inPlace && notFound && <meta name="rifq-not-found" content="1" />}
     {inPlace && <ClientRouter fallback="swap" />}
     {inPlace && <script>import '../client/nav.ts';</script>}
-    <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem');var w=JSON.parse(localStorage.getItem('rifq.saves')||'{}');if(w&&w.v===1){if(w.l)d.classList.add('rifq-last');if(w.b&&w.b.length)d.classList.add('rifq-bm')}}catch(e){}try{var r=parseFloat(getComputedStyle(d).fontSize)||16;if(innerHeight/r<40)d.classList.add('rifq-tall-text')}catch(e){}})();</script>
+    <script is:inline>(function(){try{var v=JSON.parse(localStorage.getItem('rifq.settings')||'{}'),d=document.documentElement;if(v&&v.dark===true)d.classList.add('dark');var z=[1.25,1.5,1.75,2,2.5];if(v&&z.indexOf(v.size)>=0)d.style.setProperty('--ayah-size',v.size+'rem');var w=JSON.parse(localStorage.getItem('rifq.saves')||'{}');if(w&&w.v===1){if(w.l)d.classList.add('rifq-last');if(w.b&&w.b.length)d.classList.add('rifq-bm')}}catch(e){}try{var r=parseFloat(getComputedStyle(d).fontSize)||16;if(innerHeight/r<40)d.classList.add('rifq-tall-text')}catch(e){}try{var m=document.querySelector('meta[name="rifq-ayah-pages"]');if(m&&v&&v.view==='pages'){var h=/^#a(\d{1,3})(;tafseer)?$/.exec(location.hash),a=h?+h[1]:1,k=0,p=0,q=m.content.split(',');for(var i=0;i<q.length;i++){var x=q[i].split(':');k+=+x[1];if(a<=k){p=+x[0];break}}if(p)location.replace((location.pathname.indexOf('/en/')===0?'/en':'')+'/page/'+p+'/'+(h?'#m'+m.getAttribute('data-s')+'-'+a+(h[2]||''):''))}}catch(e){}})();</script>
     {/* RQ-008 AC93 (kit v37): the early script above also marks whether a last position and
         bookmarks are saved (rifq-last, rifq-bm: yes/no only, nothing is read out or sent), so the
         home page keeps room for its continue card and bookmark cards before its island loads.
@@ -59,7 +66,10 @@ const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSi
         as client/tabbar.ts, which keeps it up to date afterwards), so the page is laid out at large
         text from its first paint and does not jump when the module script runs. Nothing is read
         from storage for it and nothing is stored or sent. The script is allowed by its SHA-256 hash
-        (scripts/headers.ts), never by 'unsafe-inline'. */}
+        (scripts/headers.ts), never by 'unsafe-inline'.
+        Kit v43 (RQ-009 AC5, AC25, AC26): on a scroll reader page with Mushaf pages as the stored view,
+        it opens the Mushaf page holding the linked ayah (or the first) at once, before the first
+        paint, keeping the ayah and the Tafseer panel in the hash. Only the view value is read. */}
   </head>
   <!-- wide: home, the surah index and reader pages use the wider tablet and desktop layout. -->
   <body class={wide ? 'wide' : undefined}>
@@ -67,9 +77,13 @@ const { lang, title, wide = false, inPlace = true, notFound = false, tab, textSi
     <a class="skip" href="#content">{t(lang, 'skip')}</a>
     <header class={reader ? 'site-header reader-head' : 'site-header'}>
       {reader && <a class="btn icon-btn rh-back" href={homePath(lang)} aria-label={t(lang, 'back')} title={t(lang, 'back')} data-reader-back><svg class="rh-dir" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg></a>}
-      {reader && <div class="rh-titles"><h1 class="surah-title rh-title"><bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{reader.s}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{reader.name}</span></h1><p class="rh-meta" data-reader-meta>{reader.meta}</p></div>}
+      {reader && !reader.mushaf && <div class="rh-titles"><h1 class="surah-title rh-title"><bdi dir={lang === 'ar' ? 'rtl' : 'ltr'} data-sn>{reader.s}.</bdi>{' '}<span lang={lang === 'ar' ? 'ar' : 'en'}>{reader.name}</span></h1><p class="rh-meta" data-reader-meta>{reader.meta}</p></div>}
+      {reader && reader.mushaf && <div class="rh-titles"><h1 class="surah-title rh-title" tabindex="-1" data-mushaf-h>{t(lang, 'mushafPageName').split('{p}')[0]}<bdi dir="ltr">{reader.mushaf}</bdi>{t(lang, 'mushafPageName').split('{p}')[1]}</h1><p class="rh-meta" data-reader-meta>{reader.meta}</p></div>}
       <a class={reader ? 'brand brand-hidden' : 'brand'} href={homePath(lang)}><svg class="brand-mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path class="brand-arch-outer" d="M6 27V14a10 10 0 0120 0v13" fill="none" stroke-width="2.2" stroke-linecap="round"/><path class="brand-arch-inner" d="M11 27V16a5 5 0 0110 0v11" fill="none" stroke-width="2.2" stroke-linecap="round"/></svg><span class="brand-name">{t(lang, 'siteName')}</span></a>
       {inPlace && <TabBar lang={lang} tab={tab} variant="top" />}
+      {reader && reader.view && <a class="btn icon-btn rh-view" href={reader.view.href} data-view-switch={reader.view.to} data-view-keep aria-label={t(lang, reader.view.to === 'pages' ? 'toPages' : 'toScroll')} title={t(lang, reader.view.to === 'pages' ? 'toPages' : 'toScroll')}>{reader.view.to === 'pages'
+        ? <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 6.5C10 5 7 4.5 3 5v13c4-.5 7 0 9 1.5 2-1.5 5-2 9-1.5V5c-4-.5-7 0-9 1.5zM12 6.5v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /></svg>
+        : <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h14M5 9h14M5 14h14M5 19h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>}</a>}
       {reader && <a class="btn icon-btn rh-goto" href={searchPath(lang)} aria-label={t(lang, 'goTo')} title={t(lang, 'goTo')} data-reader-goto><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" /><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg></a>}
       <Settings lang={lang} size={textSize} client:idle />
     </header>
